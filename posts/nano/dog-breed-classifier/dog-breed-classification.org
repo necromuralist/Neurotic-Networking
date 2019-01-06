@@ -1,0 +1,3548 @@
++BEGIN_COMMENT
+.. title: Dog Breed Classification
+.. slug: dog-breed-classification
+.. date: 2018-11-26 13:11:29 UTC-08:00
+.. tags: project,cnn
+.. category: Project
+.. link: 
+.. description: A dog-breed classification app.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+#+BEGIN_SRC ipython :session dog :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+#+BEGIN_SRC python :tangle dog_scratch_model.py :exports none
+<<scratch-imports>>
+
+<<to-cuda>>
+
+<<set-up-truncated-images>>
+
+<<data-paths>>
+
+<<breed-count>>
+
+<<create-timer>>
+
+<<scratch-transforms>>
+
+<<scratch-datasets>>
+
+<<scratch-batches>>
+
+<<scratch-constants>>
+
+
+<<scratch-model>>
+
+<<scratch-build-model>>
+
+<<scratch-criterion>>
+
+<<scratch-optimizer>>
+
+
+<<model-trainer>>
+
+
+<<model-tester>>
+
+
+<<train-and-test>>
+
+<<scratch-path>>
+
+<<scratch-cli>>
+#+END_SRC
+
+#+BEGIN_SRC python :tangle transfer.py
+<<transfer-imports>>
+
+<<set-up-truncated-images>>
+
+<<data-paths>>
+
+<<breed-count>>
+
+
+<<trainer>>
+
+
+<<transfer-transforms>>
+
+
+<<transfer-datasets>>
+
+
+<<transfer-batches>>
+
+
+<<transfer-model>>
+
+
+<<transfer-path>>
+
+<<transfer-cli>>
+#+END_SRC
+* Introduction
+
+In this notebook, you will make the first steps towards developing an algorithm that could be used as part of a mobile or web app.  At the end of this project, your code will accept any user-supplied image as input.  If a dog is detected in the image, it will provide an estimate of the dog's breed.  If a human is detected, it will provide an estimate of the dog breed that is most resembling.  The image below displays potential sample output of your finished project (... but we expect that each student's algorithm will behave differently!). 
+
+[[file:Mastiff_06809.jpg]]
+
+ In this real-world setting, you will need to piece together a series of models to perform different tasks; for instance, the algorithm that detects humans in an image will be different from the CNN that infers dog breed.  There are many points of possible failure, and no perfect algorithm exists.  Your imperfect solution will nonetheless create a fun user experience!
+
+* The Road Ahead
+
+We'll break the notebook into separate steps.
+
+ * Step 0: Import Datasets
+ * Step 1: Detect Humans
+ * Step 2: Detect Dogs
+ * Step 3: Create a CNN to Classify Dog Breeds (from Scratch)
+ * Step 4: Create a CNN to Classify Dog Breeds (using Transfer Learning)
+ * Step 5: Write your Algorithm
+ * Step 6: Test Your Algorithm
+ 
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC ipython :session dog :results none
+from functools import partial
+from pathlib import Path
+import os
+import warnings
+#+END_SRC
+*** From Pypi
+#+BEGIN_SRC ipython :session dog :results none
+from dotenv import load_dotenv
+from PIL import Image, ImageFile
+from torchvision import datasets
+import cv2
+import face_recognition
+import matplotlib.cbook
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.pyplot as pyplot
+import matplotlib.image as mpimage
+import matplotlib.patches as patches
+import numpy
+try:
+    import pyttsx3
+    SPEAKABLE = True
+except ImportError:
+    print("pyttsx3 not available")
+    SPEAKABLE = False
+import seaborn
+import torch
+import torchvision.models as models
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optimizer
+import torchvision.transforms as transforms
+#+END_SRC
+*** This Project
+#+BEGIN_SRC ipython :session dog :results none
+from neurotic.tangles.data_paths import DataPathTwo
+from neurotic.tangles.timer import Timer
+from neurotic.constants.imagenet_map import imagenet
+#+END_SRC
+
+** Plotting
+#+BEGIN_SRC ipython :session dog :results none
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=1)
+#+END_SRC
+** Check If CUDA Is Available
+#+BEGIN_SRC ipython :session dog :results output :exports both :noweb-ref to-cuda
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+#+END_SRC
+
+#+RESULTS:
+: cuda
+** Handle Truncated Images
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref set-up-truncated-images
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+#+END_SRC
+Given an image, this pre-trained VGG-16 model returns a prediction (derived from the 1000 possible categories in ImageNet) for the object that is contained in the image.
+*** Build the Timer
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref create-timer
+timer = Timer(beep=SPEAKABLE)
+#+END_SRC
+
+* Some Helper Code
+** Timer
+   Since there are certain code-blocks that take a long time to run I found myself timing everything to see how long things take. This is meant to make it a little easier. I exported this to a tangle so you don't have to run this here.
+
+#+BEGIN_SRC python :noweb-ref timer-imports
+from datetime import datetime
+try:
+    import pyttsx3
+    SPEAKABLE = True
+except ImportError:
+    print("pyttsx3 not available")
+    SPEAKABLE = False
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref timer
+class Timer:
+    """Emits the time between calling start and end
+
+    Args:
+     speak: If true, say something at the end
+     message: what to say
+     emit: if False, just stores the times 
+    """
+    def __init__(self, beep: bool=True, message: str="All Done",
+                 emit:bool=True) -> None:
+        self.beep = beep
+        self.message = message
+        self.emit = emit
+        self._speaker = None
+        self.started = None
+        self.ended = None
+        return
+
+    @property
+    def speaker(self) -> pyttsx3.engine.Engine:
+        """The espeak speaker"""
+        if self._speaker is None:
+            self._speaker = pyttsx3.init()
+        return self._speaker
+
+    def start(self) -> None:
+        """Sets the started time"""
+        self.started = datetime.now()
+        return
+
+    def end(self) -> None:
+        """Emits the end and elapsed time"""
+        self.ended = datetime.now()
+        if self.emit:
+            print("Ended: {}".format(self.ended))
+            print("Elapsed: {}".format(self.ended - self.started))
+        if self.beep:
+            self.speaker.say(self.message)
+            self.speaker.runAndWait()
+        return
+#+END_SRC
+** F1 Scorer
+   I'm going to be comparing two models for both the humans and dogs, this scorer will focus on the F1 score, but will emit some other information as well.
+
+#+BEGIN_SRC ipython :session dog :results none
+class F1Scorer:
+    """Calculates the F1 and other scores
+    
+    Args:
+     predictor: callable that gets passed and image and outputs boolean
+     true_images: images that should be predicted as True
+     false_images: images that shouldn't be matched by the predictor
+     done_message: what to announce when done
+    """
+    def __init__(self, predictor: callable, true_images:list,
+                 false_images: list,
+                 done_message: str="Scoring Done") -> None:
+        self.predictor = predictor
+        self.true_images = true_images
+        self.false_images = false_images
+        self.done_message = done_message
+        self._timer = None
+        self._false_image_predictions = None
+        self._true_image_predictions = None
+        self._false_positives = None
+        self._false_negatives = None
+        self._true_positives = None
+        self._true_negatives = None
+        self._false_positive_rate = None
+        self._precision = None
+        self._recall = None
+        self._f1 = None
+        self._accuracy = None
+        self._specificity = None
+        return
+
+    @property
+    def timer(self) -> Timer:
+        if self._timer is None:
+            self._timer = Timer(message=self.done_message, emit=False)
+        return self._timer
+
+    @property
+    def false_image_predictions(self) -> list:
+        """Predictions made on the false-images"""
+        if self._false_image_predictions is None:
+            self._false_image_predictions = [self.predictor(str(image))
+                                             for image in self.false_images]
+        return self._false_image_predictions
+
+    @property
+    def true_image_predictions(self) -> list:
+        """Predictions on the true-images"""
+        if self._true_image_predictions is None:
+            self._true_image_predictions = [self.predictor(str(image))
+                                            for image in self.true_images]
+        return self._true_image_predictions
+
+    @property
+    def true_positives(self) -> int:
+        """count of correct positive predictions"""
+        if self._true_positives is None:
+            self._true_positives = sum(self.true_image_predictions)
+        return self._true_positives
+
+    @property
+    def false_positives(self) -> int:
+        """Count of incorrect positive predictions"""
+        if self._false_positives is None:
+            self._false_positives = sum(self.false_image_predictions)
+        return self._false_positives
+
+    @property
+    def false_negatives(self) -> int:
+        """Count of images that were incorrectly classified as negative"""
+        if self._false_negatives is None:
+            self._false_negatives = len(self.true_images) - self.true_positives
+        return self._false_negatives
+
+    @property
+    def true_negatives(self) -> int:
+        """Count of images that were correctly ignored"""
+        if self._true_negatives is None:
+            self._true_negatives = len(self.false_images) - self.false_positives
+        return self._true_negatives
+
+    @property
+    def accuracy(self) -> float:
+        """fraction of correct predictions"""
+        if self._accuracy is None:
+            self._accuracy = (
+                (self.true_positives + self.true_negatives)
+                /(len(self.true_images) + len(self.false_images)))
+        return self._accuracy
+
+    @property
+    def precision(self) -> float:
+        """True-Positive with penalty for false positives"""
+        if self._precision is None:
+            self._precision = self.true_positives/(
+                self.true_positives + self.false_positives)
+        return self._precision
+    
+    @property
+    def recall(self) -> float:
+        """fraction of correct images correctly predicted"""
+        if self._recall is None:
+            self._recall = (
+                self.true_positives/len(self.true_images))
+        return self._recall
+
+    @property
+    def false_positive_rate(self) -> float:
+        """fraction of incorrect images predicted as positive"""
+        if self._false_positive_rate is None:
+            self._false_positive_rate = (
+                self.false_positives/len(self.false_images))
+        return self._false_positive_rate
+
+    @property
+    def specificity(self) -> float:
+        """metric for how much to believe a negative prediction
+
+        Specificity is 1 - false positive rate so you only need one or the other
+        """
+        if self._specificity is None:
+            self._specificity = self.true_negatives/(self.true_negatives
+                                                     + self.false_positives)
+        return self._specificity
+
+    @property
+    def f1(self) -> float:
+        """Harmonic Mean of the precision and recall"""
+        if self._f1 is None:
+            TP = 2 * self.true_positives
+            self._f1 = (TP)/(TP + self.false_negatives + self.false_positives)
+        return self._f1
+        
+    def __call__(self) -> None:
+        """Emits the F1 and other scores as an org-table
+        """
+        self.timer.start()
+        print("|Metric|Value|")
+        print("|-+-|")
+        print("|Accuracy|{:.2f}|".format(self.accuracy))
+        print("|Precision|{:.2f}|".format(self.precision))
+        print("|Recall|{:.2f}|".format(self.recall))
+        print("|Specificity|{:.2f}".format(self.specificity))
+        # print("|False Positive Rate|{:.2f}|".format(self.false_positive_rate))
+        print("|F1|{:.2f}|".format(self.f1))
+        self.timer.end()
+        print("|Elapsed|{}|".format(self.timer.ended - self.timer.started))
+        return
+ #+END_SRC
+* Step 0: Import Datasets
+
+Make sure that you've downloaded the required human and dog datasets:
+ * Download the [[https://s3-us-west-1.amazonaws.com/udacity-aind/dog-project/dogImages.zip][dog dataset]] (this is a download link).  Unzip the folder and place it in this project's home directory, at the location ~/dogImages~. 
+ 
+ * Download the [[https://s3-us-west-1.amazonaws.com/udacity-aind/dog-project/lfw.zip][human dataset]] (this is also a download link). Unzip the folder and place it in the home diretcory, at location ~/lfw~.  
+
+** The Data Paths
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref data-paths
+load_dotenv()
+dog_path = DataPathTwo(folder_key="DOG_PATH")
+dog_training_path = DataPathTwo(folder_key="DOG_TRAIN")
+dog_testing_path = DataPathTwo(folder_key="DOG_TEST")
+dog_validation_path = DataPathTwo(folder_key="DOG_VALIDATE")
+
+human_path = DataPathTwo(folder_key="HUMAN_PATH")
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref dog-paths
+class DogPaths:
+    """holds the paths to the dog images"""
+    def __init__(self) -> None:
+        self._main = None
+        self._training = None
+        self._testing = None
+        self._validation = None
+        load_dotenv()
+        return
+
+    @property
+    def main(self) -> DataPathTwo:
+        """The path to the main folder"""
+        if self._main is None:
+            self._main = DataPathTwo(folder_key="DOG_PATH")
+        return self._main
+
+    @property
+    def training(self) -> DataPathTwo:
+        """Path to the training images"""
+        if self._training is None:
+            self._training = DataPathTwo(folder_key="DOG_TRAIN")
+        return self._training
+
+    @property
+    def validation(self) -> DataPathTwo:
+        """Path to the validation images"""
+        if self._validation is None:
+            self._validation = DataPathTwo(folder_key="DOG_VALIDATE")
+        return self._validation
+
+    @property
+    def testing(self) -> DataPathTwo:
+        """Path to the testing images"""
+        if self._testing is None:
+            self._testing = DataPathTwo(folder_key="DOG_TEST")
+        return self._testing
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+print(dog_path.folder)
+assert dog_path.folder.is_dir()
+print(dog_training_path.folder)
+assert dog_training_path.folder.is_dir()
+print(dog_testing_path.folder)
+assert dog_testing_path.folder.is_dir()
+print(dog_validation_path.folder)
+assert dog_validation_path.folder.is_dir()
+
+print(human_path.folder)
+assert human_path.folder.is_dir()
+#+END_SRC
+
+#+RESULTS:
+: /home/hades/datasets/dog-breed-classification/dogImages
+: /home/hades/datasets/dog-breed-classification/dogImages/train
+: /home/hades/datasets/dog-breed-classification/dogImages/test
+: /home/hades/datasets/dog-breed-classification/dogImages/valid
+: /home/hades/datasets/dog-breed-classification/lfw
+
+#+BEGIN_SRC ipython :session dog :results output :exports both :noweb-ref breed-count
+BREEDS = len(set(dog_training_path.folder.iterdir()))
+print("Number of Dog Breeds: {}".format(BREEDS))
+#+END_SRC
+
+#+RESULTS:
+: Number of Dog Breeds: 133
+
+Load filenames for human and dog images.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+human_files = numpy.array(list(human_path.folder.glob("*/*")))
+dog_files = numpy.array(list(dog_path.folder.glob("*/*/*")))
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2019-01-04 02:36:51.819389
+: Elapsed: 0:00:00.240174
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+print('There are {:,} total human images.'.format(len(human_files)))
+print('There are {:,} total dog images.'.format(len(dog_files)))
+#+END_SRC
+
+#+RESULTS:
+: There are 13,233 total human images.
+: There are 8,351 total dog images.
+
+* Step 1: Detect Humans
+
+ In this section, we use OpenCV's implementation of [[http://docs.opencv.org/trunk/d7/d8b/tutorial_py_face_detection.html][Haar feature-based cascade classifiers]] to detect human faces in images.  
+
+OpenCV provides many pre-trained face detectors, stored as XML files on [[https://github.com/opencv/opencv/tree/master/data/haarcascades][github]].  We have downloaded one of these detectors and stored it in the ~haarcascades~ directory.  In the next code cell, we demonstrate how to use this detector to find human faces in a sample image.
+
+** Extract the Pre-Trained Face Detector
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+haar_path = DataPathTwo("haarcascade_frontalface_alt.xml", folder_key="HAAR_CASCADES")
+assert haar_path.from_folder.is_file()
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2019-01-03 23:37:45.846033
+: Elapsed: 0:00:00.018441
+
+#+BEGIN_SRC ipython :session dog :results none
+face_cascade = cv2.CascadeClassifier(str(haar_path.from_folder))
+#+END_SRC
+** Load a Color (BGR) Image
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+image = cv2.imread(str(human_files[0]))
+timer.end()
+print(image.shape)
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2018-12-30 13:58:02.288464
+: Elapsed: 0:00:00.000872
+: (250, 250, 3)
+
+** Convert the BGR Image To Grayscale
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2018-12-25 23:06:54.642989
+: Elapsed: 0:00:00.030376
+
+** Find Some Faces In the Image
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+faces = face_cascade.detectMultiScale(gray)
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2018-12-25 23:06:56.308149
+: Elapsed: 0:00:00.525062
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+print('Number of faces detected:', len(faces))
+#+END_SRC
+
+#+RESULTS:
+: Number of faces detected: 1
+
+Get the bounding box for each detected face.
+
+#+BEGIN_SRC ipython :session dog :results none
+for (x,y,w,h) in faces:
+    # add bounding box to color image
+    cv2.rectangle(image,(x,y),(x+w,y+h),(255,0,0),2)
+#+END_SRC
+    
+Convert the BGR image to an RGB image for plotting.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+cv_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2018-12-25 23:06:58.750697
+: Elapsed: 0:00:00.000304
+
+
+Display the image, along with bounding box.
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/face_bounded.png
+figure, axe = pyplot.subplots()
+figure.suptitle("OpenCV Face-Detection Bounding Box", weight="bold")
+image = axe.imshow(cv_rgb)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[20]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/face_bounded.png]]
+:END:
+
+[[file:face_bounded.png]]
+
+Before using any of the face detectors, it is standard procedure to convert the images to grayscale.  The ~detectMultiScale~ function executes the classifier stored in ~face_cascade~ and takes the grayscale image as a parameter.  
+
+In the above code, ~faces~ is a numpy array of detected faces, where each row corresponds to a detected face.  Each detected face is a 1D array with four entries that specifies the bounding box of the detected face.  The first two entries in the array (extracted in the above code as ~x~ and ~y~) specify the horizontal and vertical positions of the top left corner of the bounding box.  The last two entries in the array (extracted here as ~w~ and ~h~) specify the width and height of the box.
+
+** Write a Human Face Detector
+
+We can use this procedure to write a function that returns ~True~ if a human face is detected in an image and ~False~ otherwise.  This function, aptly named ~face_detector~, takes a string-valued file path to an image as input and appears in the code block below.
+
+#+BEGIN_SRC ipython :session dog :results none
+# returns "True" if face is detected in image stored at img_path
+def face_detector(img_path):
+    img = cv2.imread(img_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray)
+    return len(faces) > 0
+#+END_SRC
+
+** Assess the Human Face Detector
+
+Use the code cell below to test the performance of the ~face_detector~ function.  
+ - What percentage of the first 100 images in ~human_files~ have a detected human face?  
+ - What percentage of the first 100 images in ~dog_files~ have a detected human face? 
+ 
+Ideally, we would like 100% of human images with a detected face and 0% of dog images with a detected face.  You will see that our algorithm falls short of this goal, but still gives acceptable performance.  We extract the file paths for the first 100 images from each of the datasets and store them in the numpy arrays ~human_files_short~ and ~dog_files_short~.
+
+#+BEGIN_SRC ipython :session dog :results none
+human_files_short = human_files[:100]
+dog_files_short = dog_files[:100]
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+def human_f1_score(predictor: callable) -> list:
+    """Emits the F1 score
+
+    Args:
+     predictor: callable that predicts if an image is a human face
+
+    Returns:
+     list of predictions on the dog-files
+    """
+    timer.start()    
+    dog_humans = [predictor(str(image)) for image in dog_files_short]
+    true_positives = [predictor(str(image)) for image in human_files_short]
+    timer.end()
+
+    false_positives = sum(dog_humans)
+    true_positives = sum(true_positives)
+    false_negatives = len(human_files_short) - true_positives
+
+    print("Dogs Identified as Humans: {:.2f} %".format(
+        100 * false_positives/len(dog_files_short)))
+    print("Humans Identified as Humans: {:.2f} %".format(
+        100 * true_positives/len(human_files_short)))
+    print("F1: {:.2f}".format((2 * true_positives)/(2 * true_positives
+                                                + false_negatives
+                                                + false_positives)))
+    return dog_humans
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+human_scorer = partial(F1Scorer,
+                       true_images=human_files_short,
+                       false_images=dog_files_short)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output raw :exports both
+open_cv_scorer = human_scorer(face_detector)
+open_cv_scorer()
+#+END_SRC
+
+#+RESULTS:
+| Metric      |          Value |
+|-------------+----------------|
+| Accuracy    |           0.94 |
+| Precision   |           0.92 |
+| Recall      |           0.98 |
+| Specificity |           0.91 |
+| F1          |           0.95 |
+| Elapsed     | 0:00:09.744609 |
+# Out[176]:
+
+#+BEGIN_SRC ipython :session dog :results none
+def first_prediction(source: list, start:int=0) -> int:
+    """Gets the index of the first True prediction
+
+    Args:
+     source: list of True/False predictions
+     start: index to start the search from
+
+    Returns:
+     index of first True prediction found
+    """
+    for index, prediction in enumerate(source[start:]):
+        if prediction:
+            print("{}: {}".format(start + index, prediction))
+            break
+    return start + index
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+dogman_index = first_prediction(open_cv_scorer.false_image_predictions)
+#+END_SRC
+
+#+RESULTS:
+: 0: True
+
+It looks like the first dog was predicted to be a human.
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dog_man.png
+figure, axe = pyplot.subplots()
+source = dog_files_short[dogman_index]
+name = " ".join(
+    os.path.splitext(
+        os.path.basename(source))[0].split("_")[:-1]).title()
+figure.suptitle("Dog-Human OpenCV Prediction ({})".format(
+    name), weight="bold")
+image = Image.open(source)
+image = axe.imshow(image)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[28]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dog_man.png]]
+:END:
+
+[[file:dog_man.png]]
+
+I guess I can see where this might look like a human face. Maybe.
+
+We suggest the face detector from OpenCV as a potential way to detect human images in your algorithm, but you are free to explore other approaches, especially approaches that make use of deep learning :).  Please use the code cell below to design and test your own face detection algorithm.  If you decide to pursue this /optional/ task, report performance on ~human_files_short~ and ~dog_files_short~.
+
+** DLIB
+
+[[https://github.com/ageitgey/face_recognition][=face_recognition=]] is a python interface to [[http://dlib.net/][dlib's]] facial recognition code.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+path = str(human_files_short[0])
+image = face_recognition.load_image_file(path)
+locations = face_recognition.face_locations(image)
+image = mpimage.imread(path)
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dlib_box.png
+figure, axe = pyplot.subplots()
+figure.suptitle("dlib Face Recognition Bounding-Box", weight='bold')
+top, right, bottom, left = locations[0]
+width = right - left
+height = top - bottom
+rectangle = patches.Rectangle((top, right), width, height, fill=False)
+plot = axe.imshow(image)
+patch = axe.add_patch(rectangle)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[30]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dlib_box.png]]
+:END:
+
+[[file:dlib_box.png]]
+
+This box seems to be more tightly cropped than the Open CV version (it cuts off her forehead, cheeks, and chin).
+
+#+BEGIN_SRC ipython :session dog :results none
+def face_recognition_check(image_path: str):
+    image = face_recognition.load_image_file(str(image_path))
+    locations = face_recognition.face_locations(image)
+    return len(locations) > 0
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output raw :exports both
+dlib_dog_humans = human_scorer(face_recognition_check)
+dlib_dog_humans()
+#+END_SRC
+
+#+RESULTS:
+| Metric      |          Value |
+|-------------+----------------|
+| Accuracy    |           0.94 |
+| Precision   |           0.90 |
+| Recall      |           1.00 |
+| Specificity |           0.89 |
+| F1          |           0.95 |
+| Elapsed     | 0:00:31.238388 |
+
+Dlib took about three times as long to run as OpenCV did, misidentified a little more dogs as humans than OpenCV, but managed to get all the humans identified. Their F1 scores are the same so I guess it might depend how important it is to get all the human faces vs not identifying dogs as humans.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+dlib_dog_human_index = first_prediction(dlib_dog_humans.false_image_predictions)
+#+END_SRC
+
+#+RESULTS:
+: 0: True
+
+So it looks like they both stumbled on the bichon frise, let's look at a different one.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+dlib_dog_human_index = first_prediction(dlib_dog_humans.false_image_predictions, 10)
+#+END_SRC
+
+#+RESULTS:
+: 14: True
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dlib_dog_man.png
+figure, axe = pyplot.subplots()
+source = dog_files_short[dlib_dog_human_index]
+name = " ".join(
+    os.path.splitext(
+        os.path.basename(source))[0].split("_")[:-1]).title()
+figure.suptitle("Dog-Human DLib Prediction ({})".format(
+    name), weight="bold")
+image = Image.open(source)
+image = axe.imshow(image)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[35]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/dlib_dog_man.png]]
+:END:
+
+[[file:dlib_dog_man.png]]
+
+Maybe if it can't see the face in profile it thinks it's a face. There's only 11 to check, maybe later I'll look at them all.
+
+DLib did a little better than the OpenCV at recall, and a little worse at false positives. Strangely the non-CNN version did the same and it didn't require me to abandon the list comprehension (using the CNN model raised an out of memory error when I used a comprehension).
+
+*Update* - the CNN version seems to cause Out of Memory errors later on too, avoid it in notebooks and maybe save it for when you need some kind of production environment.
+
+* Step 2: Detect Dogs
+
+ In this section, we use a [[http://pytorch.org/docs/master/torchvision/models.html][pre-trained model]] to detect dogs in images.  
+
+** Obtain Pre-trained VGG-16 Model
+
+The code cell below downloads the VGG-16 model, along with weights that have been trained on [[http://www.image-net.org/][ImageNet]], a very large, very popular dataset used for image classification and other vision tasks.  ImageNet contains over 10 million URLs, each linking to an image containing an object from one of [[https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a][1000 categories]].
+
+*** Define the VGG16 Model
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+VGG16 = models.vgg16(pretrained=True)
+VGG16.eval()
+VGG16.to(device)
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: Ended: 2019-01-04 00:01:39.340308
+: Elapsed: 0:00:19.082395
+
+** Making Predictions with a Pre-trained Model
+
+In the next code cell, you will write a function that accepts a path to an image (such as ~dogImages/train/001.Affenpinscher/Affenpinscher_00001.jpg~) as input and returns the index corresponding to the ImageNet class that is predicted by the pre-trained VGG-16 model.  The output should always be an integer between 0 and 999, inclusive.
+
+ Before writing the function, make sure that you take the time to learn how to appropriately pre-process tensors for pre-trained models in the [[http://pytorch.org/docs/stable/torchvision/models.html][PyTorch documentation]].
+
+I found out how to fix the dimensions (using [[https://pytorch.org/docs/stable/tensors.html?highlight=unsqueeze#torch.Tensor.unsqueeze][unsqueeze]] to add an empty dimension) from [[http://blog.outcome.io/pytorch-quick-start-classifying-an-image/][this blog post]].
+
+#+BEGIN_SRC ipython :session dog :results none
+means = [0.485, 0.456, 0.406]
+deviations = [0.229, 0.224, 0.225]
+IMAGE_SIZE = 224
+IMAGE_HALF_SIZE = IMAGE_SIZE//2
+
+vgg_transform = transforms.Compose([transforms.Resize(255),
+                                    transforms.CenterCrop(IMAGE_SIZE),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(means,
+                                                         deviations)])
+#+END_SRC
+#+BEGIN_SRC ipython :session dog :results none
+def VGG16_predict(img_path: str) -> int:
+    '''
+    Uses a pre-trained VGG-16 model to obtain the index corresponding to 
+    predicted ImageNet class for image at specified path
+    
+    Args:
+        img_path: path to an image
+        
+    Returns:
+        Index corresponding to VGG-16 model's prediction
+    '''
+    image = Image.open(str(img_path))
+    image = vgg_transform(image).unsqueeze(0).to(device)
+    output = VGG16(image)
+    probabilities = torch.exp(output)
+    top_probability, top_class = probabilities.topk(1, dim=1)
+    return top_class.item()
+#+END_SRC
+
+This is the map mentioned in the next section [[https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a][from a github gist]].
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+path = dog_files_short[0]
+print(path)
+classification = VGG16_predict(path)
+print(imagenet[classification])
+#+END_SRC
+
+#+RESULTS:
+: /home/hades/datasets/dog-breed-classification/dogImages/valid/024.Bichon_frise/Bichon_frise_01708.jpg
+: toy poodle
+
+Is a Bichon Frise a type of toy poodle? According to [[https://en.wikipedia.org/wiki/Bichon_Frise][Wikipedia's article]], it doesn't appear that they are, but you can see why someone (or something) might think they are some kind of poodle.
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/bichon_frise.png
+bichon_frise = dog_path.folder.joinpath("valid/024.Bichon_frise/Bichon_frise_01708.jpg")
+image = Image.open(bichon_frise)
+figure, axe = pyplot.subplots()
+figure.suptitle("Bichon Frise", weight="bold")
+image = axe.imshow(image)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[42]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/bichon_frise.png]]
+:END:
+
+[[file:bichon_frise.png]]
+
+This was the same image that the Human Face Detectors thought was a human, I guess there's something ambiguous about this dog (or this image).
+** A VGG 16 Dog Detector
+
+ While looking at the [[https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a][dictionary]], you will notice that the categories corresponding to dogs appear in an uninterrupted sequence and correspond to dictionary keys 151-268, inclusive, to include all categories from ~'Chihuahua'~ to ~'Mexican hairless'~.  Thus, in order to check to see if an image is predicted to contain a dog by the pre-trained VGG-16 model, we need only check if the pre-trained model predicts an index between 151 and 268 (inclusive).
+
+  Use these ideas to complete the ~dog_detector~ function below, which returns ~True~ if a dog is detected in an image (and ~False~ if not).
+
+#+BEGIN_SRC ipython :session dog :results none
+DOG_LOWER, DOG_UPPER = 150, 260
+#+END_SRC
+
+
+#+BEGIN_SRC ipython :session dog :results none
+def dog_detector(img_path, predictor=VGG16_predict):
+    """Predicts if the image is a dog
+
+    Args:
+     img_path: path to image file
+     predictor: callable that maps the image to an ID
+    
+    Returns:
+     is-dog: True if the image contains a dog
+    """
+    return DOG_LOWER < predictor(img_path) < DOG_UPPER
+ #+END_SRC
+
+** Assess the Dog Detector
+ 
+ The code cell below will test the performance of the ~dog_detector~ function.  
+  - What percentage of the images in ~human_files_short~ have a detected dog?  
+  - What percentage of the images in ~dog_files_short~ have a detected dog?
+
+#+BEGIN_SRC ipython :session dog :results none
+def dog_f1_score(predictor: callable) -> list:
+    """Emits the F1 score
+
+    Args:
+     predictor: callable that predicts if an image is a dog
+
+    Returns:
+     list of predictions of humans as dogs
+    """
+    timer.start()    
+    true_dogs = [dog_detector(path, predictor) for path in dog_files_short]
+    false_dogs = [dog_detector(path, predictor) for path in human_files_short]
+    timer.end()
+
+    false_positives = sum(false_dogs)
+    true_positives = sum(true_dogs)
+    false_negatives = len(dog_files_short) - true_positives
+
+    print("Human Dogs: {:.2f} %".format(100 * false_positives/len(human_files_short)))
+    print("True Dogs: {:.2f} %".format(100 * true_positives/len(dog_files_short)))
+    print("F1: {:.2f}".format((2 * true_positives)/(2 * true_positives
+                                                    + false_negatives
+                                                    + false_positives)))
+    return false_dogs
+ #+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+dog_scorer = partial(F1Scorer, true_images=dog_files_short,
+                     false_images=human_files_short)
+vgg_predictor = partial(dog_detector, predictor=VGG16_predict)
+#+END_SRC
+
+ #+BEGIN_SRC ipython :session dog :results output raw :exports both
+vgg_scorer = dog_scorer(vgg_predictor)
+vgg_scorer()
+#+END_SRC
+ #+RESULTS:
+ | Metric      |          Value |
+ |-------------+----------------|
+ | Accuracy    |           0.97 |
+ | Precision   |           1.00 |
+ | Recall      |           0.94 |
+ | Specificity |           1.00 |
+ | F1          |           0.97 |
+ | Elapsed     | 0:00:24.802489 |
+
+ So it didn't mistake any of the humans for dogs, but it missed some of the real dogs.
+
+** Move it back to the CPU
+   The GPU runs out of memory fairly easily. This is an attempt to free up some of it before moving to the next model.
+#+BEGIN_SRC ipython :session dog :results output :exports both
+VGG16.to("cpu")
+#+END_SRC
+
+#+RESULTS:
+
+** Inception
+
+ We suggest VGG-16 as a potential network to detect dog images in your algorithm, but you are free to explore other pre-trained networks (such as [[http://pytorch.org/docs/master/torchvision/models.html#inception-v3][Inception-v3]], [[http://pytorch.org/docs/master/torchvision/models.html#id3][ResNet-50]], etc).  Please use the code cell below to test other pre-trained PyTorch models.  If you decide to pursue this /optional/ task, report performance on ~human_files_short~ and ~dog_files_short~.
+
+ #+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+inception = models.inception_v3(pretrained=True)
+inception.to(device)
+inception.eval()
+timer.end()
+ #+END_SRC
+
+ #+RESULTS:
+ : Ended: 2019-01-04 00:03:56.310132
+ : Elapsed: 0:00:11.572151
+
+ Before running this note that the transforms used in it are incorrect. Use the one further down.
+
+ #+BEGIN_SRC ipython :session dog :results none
+def inception_predicts(image_path: str) -> int:
+    """Predicts the category of the image
+
+    Args:
+     image_path: path to the image file
+
+    Returns:
+     classification: the resnet ID for the image
+    """
+    image = Image.open(str(image_path))
+    image = test_transforms(image).unsqueeze(0).to(device)
+    output = inception(image)
+    probabilities = torch.exp(output)
+    top_probability, top_class = probabilities.topk(1, dim=1)
+    return top_class.item()
+ #+END_SRC
+
+*** Troubleshooting the Error
+    The =inception_predicts= is throwing a Runtime Error saying that the sizes must be non-negative. I'll grab a file here to check it out.
+
+ #+BEGIN_SRC ipython :session dog :results output :exports both
+for path in dog_files_short:
+    try:
+        prediction = inception_predicts(path)
+    except RuntimeError as error:
+        print(error)
+        print(path)
+        break
+ #+END_SRC
+
+ #+RESULTS:
+ : Given input size: (2048x5x5). Calculated output size: (2048x0x0). Output size is too small at /pytorch/aten/src/THCUNN/generic/SpatialAveragePooling.cu:63
+ : /home/hades/datasets/dog-breed-classification/dogImages/valid/024.Bichon_frise/Bichon_frise_01708.jpg
+
+ So, this Bichon Frise dog image is giving us a problem. Let's take a look at it.
+
+ #+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/bichon_frise_error.png
+bad_path = dog_path.folder.joinpath("valid/024.Bichon_frise/Bichon_frise_01708.jpg")
+image = Image.open(bad_path)
+figure, axe = pyplot.subplots()
+figure.suptitle("Error-Producing Image", weight="bold")
+image = axe.imshow(image)
+ #+END_SRC
+
+ #+RESULTS:
+ :RESULTS:
+ # Out[51]:
+ [[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/bichon_frise_error.png]]
+ :END:
+
+ [[file:bichon_frise.png]]
+
+I couldn't find anyplace where pytorch documents it, but if you look at [[https://pytorch.org/docs/stable/_modules/torchvision/models/inception.html#inception_v3][the source code]] you can see that their first layer is using a stride of 2, which, according to the paper [[https://arxiv.org/abs/1512.00567][Rethinking the Inception Architecture for Computer Vision]], corresponds with an expected image size of 299 pixels, so we need a diferent transform from that used by the VGG model.
+
+ #+BEGIN_SRC ipython :session dog :results none
+inception_transforms = transforms.Compose([transforms.Resize(299),
+                                           transforms.ToTensor(),
+                                           transforms.Normalize(means,
+                                                                deviations)])
+ #+END_SRC
+
+ #+BEGIN_SRC ipython :session dog :results none
+def inception_predicts_two(image_path: str) -> int:
+    """Predicts the category of the image
+
+    Args:
+     image_path: path to the image file
+
+    Returns:
+     classification: the resnet ID for the image
+    """
+    image = Image.open(str(image_path))
+    image = inception_transforms(image).unsqueeze(0).to(device)
+    output = inception(image)
+    probabilities = torch.exp(output)
+    top_probability, top_class = probabilities.topk(1, dim=1)
+    return top_class.item()
+ #+END_SRC
+
+ #+BEGIN_SRC ipython :session dog :results output raw :exports both
+inception_predictor = partial(dog_detector, predictor=inception_predicts_two)
+inception_scorer = dog_scorer(inception_predictor)
+inception_scorer()
+ #+END_SRC
+
+ #+RESULTS:
+ | Metric      |          Value |
+ |-------------+----------------|
+ | Accuracy    |           0.97 |
+ | Precision   |           0.99 |
+ | Recall      |           0.95 |
+ | Specificity |           0.99 |
+ | F1          |           0.97 |
+ | Elapsed     | 0:00:24.605337 |
+
+ The inception had a little more false positives but also more true positives so in the end it came up about the same on the F1 score as the VGG 16 model. They both took about the same amount of time.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+inception_human_dog = first_prediction(inception_scorer.false_image_predictions)
+#+END_SRC
+
+#+RESULTS:
+: 18: True
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/inception_man_dog.png
+figure, axe = pyplot.subplots()
+source = human_files_short[inception_human_dog]
+name = " ".join(
+    os.path.splitext(
+        os.path.basename(source))[0].split("_")[:-1]).title()
+figure.suptitle("Human-Dog Inception Prediction ({})".format(
+    name), weight="bold")
+image = Image.open(source)
+image = axe.imshow(image)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[56]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/inception_man_dog.png]]
+:END:
+
+[[file:inception_man_dog.png]]
+
+Hmm... Was it George Clooney or the other guy that it thought was a dog?
+
+ #+BEGIN_SRC ipython :session dog :results none
+inception.to("cpu")
+ #+END_SRC
+* Step 2.1: Combine Them
+#+BEGIN_SRC ipython :session dog :results none
+class DogDetector:
+    """Detects dogs
+
+    Args:
+     model_definition: definition for the model
+     device: where to run the model (CPU or CUDA)
+     image_size: what to resize the file to (depends on the model-definition)
+     means: mean for each channel
+     deviations: standard deviation for each channel
+     dog_lower_bound: index below where dogs start
+     dog_upper_bound: index above where dogs end
+    """
+    def __init__(self,
+                 model_definition: nn.Module=models.inception_v3,
+                 image_size: int=299,
+                 means: list=[0.485, 0.456, 0.406],
+                 deviations = [0.229, 0.224, 0.225],
+                 dog_lower_bound: int=DOG_LOWER,
+                 dog_upper_bound: int=DOG_UPPER,
+                 device: torch.device=None) -> None:
+        self.model_definition = model_definition
+        self.image_size = image_size
+        self.means = means
+        self.deviations = deviations
+        self.dog_lower_bound = dog_lower_bound
+        self.dog_upper_bound = dog_upper_bound
+        self._device = device
+        self._model = None
+        self._transform = None
+        return
+
+    @property
+    def device(self) -> torch.device:
+        """The device to add the model to"""
+        if self._device is None:
+            self._device = torch.device("cuda"
+                                        if torch.cuda.is_available()
+                                        else "cpu")
+        return self._device
+
+    @property
+    def model(self) -> nn.Module:
+        """Build the model"""
+        if self._model is None:
+            self._model = self.model_definition(pretrained=True)
+            self._model.to(self.device)
+            self._model.eval()
+        return self._model
+
+    @property
+    def transform(self) -> transforms.Compose:
+        """The transformer for the image data"""
+        if self._transform is None:
+            self._transform = transforms.Compose([
+                transforms.Resize(self.image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(self.means,
+                                     self.deviations)])
+        return self._transform
+
+    def __call__(self, image_path: str) -> bool:
+        """Checks if there is a dog in the image"""
+        image = Image.open(str(image_path))
+        image = self.transform(image).unsqueeze(0).to(self.device)
+        output = self.model(image)
+        probabilities = torch.exp(output)
+        _, top_class = probabilities.topk(1, dim=1)
+        return self.dog_lower_bound < top_class.item() < self.dog_upper_bound
+#+END_SRC
+#+BEGIN_SRC ipython :session dog :results none
+class SpeciesDetector:
+    """Detect dogs and humans
+
+    """
+    def __init__(self) -> None:
+        self._dog_detector = None
+        return
+
+    @property
+    def dog_detector(self) -> DogDetector:
+        """Neural Network dog-detector"""
+        if self._dog_detector is None:
+            self._dog_detector = DogDetector()
+        return self._dog_detector
+
+    def is_human(self, image_path: str) -> bool:
+        """Checks if the image is a human
+        
+        Args:
+         image_path: path to the image
+
+        Returns:
+         True if there is a human face in the image
+        """
+        image = face_recognition.load_image_file(str(image_path))
+        faces = face_recognition.face_locations(image)
+        return len(faces) > 0
+
+    def is_dog(self, image_path: str) -> bool:        
+        """Checks if there is a dog in the image"""
+        return self.dog_detector(image_path)
+#+END_SRC
+* Step 3: Create a CNN to Classify Dog Breeds (from Scratch)
+** Introduction
+Now that we have functions for detecting humans and dogs in images, we need a way to predict breed from images.  In this step, you will create a CNN that classifies dog breeds.  You must create your CNN /from scratch/ (so, you can't use transfer learning /yet/!), and you must attain a test accuracy of at least 10%.  In Step 4 of this notebook, you will have the opportunity to use transfer learning to create a CNN that attains greatly improved accuracy.
+
+We mention that the task of assigning breed to dogs from images is considered exceptionally challenging.  To see why, consider that *even a human* would have trouble distinguishing between a [[https://en.wikipedia.org/wiki/Brittany_dog][Brittany]] and a [[https://en.wikipedia.org/wiki/Welsh_Springer_Spaniel][Welsh Springer Spaniel]].
+
+*** Brittany Versus Welsh Springer Spaniel
+**** Brittany
+
+[[file:Brittany_02625.jpg]]
+
+**** Welsh Springer Spaniel
+
+[[file:Welsh_springer_spaniel_08203.jpg]]
+
+*** Curly-Coated Retriever Versus American Water Spaniel
+ 
+ It is not difficult to find other dog breed pairs with minimal inter-class variation (for instance, [[https://en.wikipedia.org/wiki/Curly-coated_Retriever][Curly-Coated Retrievers]] and [[https://en.wikipedia.org/wiki/American_Water_Spaniel][American Water Spaniels]]).
+
+**** Curly-Coated Retriever 
+[[file:Curly-coated_retriever_03896.jpg]]
+
+**** American Water Spaniel
+
+[[file:American_water_spaniel_00649.jpg]]
+  
+*** Yellow Labrador Versus Chocolate Labrador Versus Black Labrador
+ Likewise, recall that [[https://en.wikipedia.org/wiki/Labrador_Retriever][labradors]] come in yellow, chocolate, and black.  Your vision-based algorithm will have to conquer this high intra-class variation to determine how to classify all of these different shades as the same breed.
+
+**** Yellow Labrador
+[[file:Labrador_retriever_06457.jpg]]
+**** Black Labrador
+[[file:Labrador_retriever_06456.jpg]]
+**** Chocolate Labrador
+[[file:Labrador_retriever_06445.jpg]]
+
+ We also mention that random chance presents an exceptionally low bar: setting aside the fact that the classes are slightly imabalanced, a random guess will provide a correct answer roughly 1 in 133 times, which corresponds to an accuracy of less than 1%.  
+ 
+Remember that the practice is far ahead of the theory in deep learning.  Experiment with many different architectures, and trust your intuition.  And, of course, have fun!
+
+** Specify Data Loaders for the Dog Dataset
+
+ Use the code cell below to write three separate [[http://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader][data loaders]] for the training, validation, and test datasets of dog images (located at ~dogImages/train~, ~dogImages/valid~, and ~dogImages/test~, respectively).  You may find [[http://pytorch.org/docs/stable/torchvision/datasets.html][this documentation on custom datasets]] to be a useful resource.  If you are interested in augmenting your training and/or validation data, check out the wide variety of [[http://pytorch.org/docs/stable/torchvision/transforms.html?highlight=transform][transforms]].
+
+ - [[https://pytorch.org/docs/stable/torchvision/transforms.html#torchvision.transforms.RandomResizedCrop][RandomResizedCrop]]
+ - [[https://pytorch.org/docs/stable/torchvision/transforms.html#torchvision.transforms.Resize][Resize]]
+ - [[https://pytorch.org/docs/stable/torchvision/transforms.html#torchvision.transforms.CenterCrop][CenterCrop]]
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-imports
+# python
+from functools import partial
+
+import argparse
+import os
+
+# pypi
+from dotenv import load_dotenv
+from PIL import Image, ImageFile
+from torchvision import datasets
+import numpy
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optimizer
+import torchvision.transforms as transforms
+
+# this project
+from neurotic.tangles.data_paths import DataPathTwo
+from neurotic.tangles.timer import Timer
+from neurotic.constants.imagenet_map import imagenet
+
+# the output won't show up if you don't flush it when redirecting it to a file
+print = partial(print, flush=True)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-transforms
+means = [0.485, 0.456, 0.406]
+deviations = [0.229, 0.224, 0.225]
+IMAGE_SIZE = 224
+IMAGE_HALF_SIZE = IMAGE_SIZE//2
+
+train_transform = transforms.Compose([
+    transforms.RandomRotation(30),
+    transforms.RandomResizedCrop(IMAGE_SIZE),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(means,
+                         deviations)])
+
+test_transform = transforms.Compose([transforms.Resize(255),
+                                      transforms.CenterCrop(IMAGE_SIZE),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize(means,
+                                                           deviations)])
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-datasets
+training = datasets.ImageFolder(root=str(dog_training_path.folder),
+                                transform=train_transform)
+validation = datasets.ImageFolder(root=str(dog_validation_path.folder),
+                                  transform=test_transform)
+testing = datasets.ImageFolder(root=str(dog_testing_path.folder),
+                               transform=test_transform)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-batches
+BATCH_SIZE = 10
+WORKERS = 0
+
+train_batches = torch.utils.data.DataLoader(training, batch_size=BATCH_SIZE,
+                                            shuffle=True, num_workers=WORKERS)
+validation_batches = torch.utils.data.DataLoader(
+    validation, batch_size=BATCH_SIZE, shuffle=True, num_workers=WORKERS)
+test_batches = torch.utils.data.DataLoader(
+    testing, batch_size=BATCH_SIZE, shuffle=True, num_workers=WORKERS)
+
+loaders_scratch = dict(train=train_batches,
+                       validate=validation_batches,
+                       test=test_batches)
+#+END_SRC
+
+ **Question 3:** Describe your chosen procedure for preprocessing the data. 
+ - How does your code resize the images (by cropping, stretching, etc)?  What size did you pick for the input tensor, and why?
+ - Did you decide to augment the dataset?  If so, how (through translations, flips, rotations, etc)?  If not, why not?
+
+- [[https://arxiv.org/abs/1409.1556][the original VGG paper]] describes the input as being 224 x 224
+- The training data is cropped to 224 and the test and validation data is first resized so the smaller edge is 255 and then is cropped back to 224.
+- The training data is augmented using rotation, random cropping, and horizontal flipping.
+
+** Define the CNN Architecture
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-constants
+LAYER_ONE_OUT = 16
+LAYER_TWO_OUT = LAYER_ONE_OUT * 2
+LAYER_THREE_OUT = LAYER_TWO_OUT * 2
+
+KERNEL = 3
+PADDING = 1
+FULLY_CONNECTED_OUT = 500
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both :noweb-ref scratch-hand-check
+conv_1 = nn.Conv2d(3, LAYER_ONE_OUT, KERNEL, padding=PADDING)
+conv_2 = nn.Conv2d(LAYER_ONE_OUT, LAYER_TWO_OUT, KERNEL, padding=PADDING)
+conv_3 = nn.Conv2d(LAYER_TWO_OUT, LAYER_THREE_OUT, KERNEL, padding=PADDING)
+
+pool = nn.MaxPool2d(2, 2)
+dropout = nn.Dropout(0.25)
+
+fully_connected_1 = nn.Linear((IMAGE_HALF_SIZE//4)**2 * LAYER_THREE_OUT, FULLY_CONNECTED_OUT)
+fully_connected_2 = nn.Linear(FULLY_CONNECTED_OUT, BREEDS)
+
+dataiter = iter(loaders_scratch['train'])
+images, labels = dataiter.next()
+
+x = pool(F.relu(conv_1(images)))
+print(x.shape)
+assert x.shape == torch.Size([BATCH_SIZE, 16, IMAGE_HALF_SIZE, IMAGE_HALF_SIZE])
+
+x = pool(F.relu(conv_2(x)))
+print(x.shape)
+assert x.shape == torch.Size([BATCH_SIZE, LAYER_TWO_OUT, IMAGE_HALF_SIZE//2, IMAGE_HALF_SIZE//2])
+
+x = pool(F.relu(conv_3(x)))
+print(x.shape)
+assert x.shape == torch.Size([BATCH_SIZE, LAYER_THREE_OUT, IMAGE_HALF_SIZE//4, IMAGE_HALF_SIZE//4])
+
+x = x.view(-1, ((IMAGE_HALF_SIZE//4)**2) * LAYER_THREE_OUT)
+print(x.shape)
+x = fully_connected_1(x)
+print(x.shape)
+x = fully_connected_2(x)
+print(x.shape)
+#+END_SRC
+
+#+RESULTS:
+: torch.Size([10, 16, 112, 112])
+: torch.Size([10, 32, 56, 56])
+: torch.Size([10, 64, 28, 28])
+: torch.Size([10, 50176])
+: torch.Size([10, 500])
+: torch.Size([10, 133])
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-model
+class Net(nn.Module):
+    """Naive Neural Network to classify dog breeds"""
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, LAYER_ONE_OUT,
+                               KERNEL, padding=PADDING)
+        self.conv2 = nn.Conv2d(LAYER_ONE_OUT, LAYER_TWO_OUT,
+                               KERNEL, padding=PADDING)
+        self.conv3 = nn.Conv2d(LAYER_TWO_OUT, LAYER_THREE_OUT,
+                               KERNEL, padding=PADDING)
+        # max pooling layer
+        self.pool = nn.MaxPool2d(2, 2)
+        # linear layer
+        self.fc1 = nn.Linear((IMAGE_HALF_SIZE//4)**2 * LAYER_THREE_OUT, FULLY_CONNECTED_OUT)
+        self.fc2 = nn.Linear(FULLY_CONNECTED_OUT, BREEDS)
+        # dropout layer (p=0.25)
+        self.dropout = nn.Dropout(0.25)
+        return
+
+    
+    def forward(self, x):
+        # add sequence of convolutional and max pooling layers
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+
+        x = x.view(-1, (IMAGE_HALF_SIZE//4)**2 * LAYER_THREE_OUT)
+        x = self.dropout(x)
+
+        x = self.dropout(F.relu(self.fc1(x)))
+        x = self.fc2(x)        
+        return x
+ #+END_SRC
+**You do NOT have to modify the code below this line.**
+
+#+BEGIN_SRC ipython :session dog :results output :exports both :noweb-ref scratch-build-model
+model_scratch = Net()
+if torch.cuda.is_available():
+    print("Using {} GPUs".format(torch.cuda.device_count()))
+    model_scratch = nn.DataParallel(model_scratch)
+model_scratch.to(device)
+#+END_SRC
+
+#+RESULTS:
+: Using 1 GPUs
+
+# __Question 4:__ Outline the steps you took to get to your final CNN architecture and your reasoning at each step.  
+
+# __Answer:__ 
+
+** Specify Loss Function and Optimizer
+# 
+Use the next code cell to specify a [[http://pytorch.org/docs/stable/nn.html#loss-functions][loss function]] and [[http://pytorch.org/docs/stable/optim.html][optimizer]].  Save the chosen loss function as ~criterion_scratch~, and the optimizer as ~optimizer_scratch~ below.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-criterion
+criterion_scratch = nn.CrossEntropyLoss()
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-optimizer
+optimizer_scratch = optimizer.SGD(model_scratch.parameters(),
+                                  lr=0.001,
+                                  momentum=0.9)
+#+END_SRC
+
+** Train and Validate the Model
+
+Train and validate your model in the code cell below.  [[http://pytorch.org/docs/master/notes/serialization.html][Save the final model parameters]] at filepath ~'model_scratch.pt'~.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref trainer
+class Trainer:
+    """Trains, validates, and tests the model
+
+    Args:
+     training_batches: batch-loaders for training
+     validation_batches: batch-loaders for validation
+     testing_batches: batch-loaders for testing
+     model: the network to train
+     model_path: where to save the best model
+     optimizer: the gradient descent object
+     criterion: object to do backwards propagation
+     device: where to put the data (cuda or cpu)
+     epochs: number of times to train on the data set
+     epoch_start: number to start the epoch count with
+     load_model: whether to load the model from a file
+     beep: whether timer should emit sounds
+    """
+    def __init__(self,
+                 training_batches: torch.utils.data.DataLoader,
+                 validation_batches: torch.utils.data.DataLoader,
+                 testing_batches: torch.utils.data.DataLoader,
+                 model: nn.Module,
+                 model_path: Path,
+                 optimizer: optimizer.SGD,
+                 criterion: nn.CrossEntropyLoss,
+                 device: torch.device=None,
+                 epochs: int=10,
+                 epoch_start: int=1,
+                 load_model: bool=False,
+                 beep: bool=False) -> None:
+        self.training_batches = training_batches
+        self.validation_batches = validation_batches
+        self.testing_batches = testing_batches
+        self.model = model
+        self.model_path = model_path
+        self.optimizer = optimizer
+        self.criterion = criterion
+        self.epochs = epochs
+        self.beep = beep
+        self._epoch_start = None
+        self.epoch_start = epoch_start
+        self.load_model = load_model
+        self._timer = None
+        self._epoch_end = None
+        self._device = device
+        return
+
+    @property
+    def epoch_start(self) -> int:
+        """The number to start the epoch count"""
+        return self._epoch_start
+
+    @epoch_start.setter
+    def epoch_start(self, new_start: int) -> None:
+        """Sets the epoch start, removes the epoch end"""
+        self._epoch_start = new_start
+        self._epoch_end = None
+        return
+
+    @property
+    def device(self) -> torch.device:
+        """The device to put the data on"""
+        if self._device is None:
+            self._device = torch.device("cuda" if torch.cuda.is_available()
+                                        else "cpu")
+        return self._device
+
+    @property
+    def epoch_end(self) -> int:
+        """the end of the epochs (not inclusive)"""
+        if self._epoch_end is None:
+            self._epoch_end = self.epoch_start + self.epochs
+        return self._epoch_end
+
+    @property
+    def timer(self) -> Timer:
+        """something to emit times"""
+        if self._timer is None:
+            self._timer = Timer(beep=self.beep)
+        return self._timer
+
+    def forward(self, batches: torch.utils.data.DataLoader,
+                training: bool) -> tuple:
+        """runs the forward pass
+
+        Args:
+         batches: data-loader
+         training: if true, runs the training, otherwise validates
+        Returns:
+         tuple: loss, correct, total
+        """
+        forward_loss = 0
+        correct = 0
+
+        if training:
+            self.model.train()
+        else:
+            self.model.eval()
+        for data, target in batches:
+            data, target = data.to(self.device), target.to(self.device)
+            if training:
+                self.optimizer.zero_grad()
+            output = self.model(data)
+            loss = self.criterion(output, target)
+            if training:
+                loss.backward()
+                self.optimizer.step()
+            forward_loss += loss.item() * data.size(0)
+
+            predictions = output.data.max(1, keepdim=True)[1]
+            correct += numpy.sum(
+                numpy.squeeze(
+                    predictions.eq(
+                        target.data.view_as(predictions))).cpu().numpy())
+        forward_loss /= len(batches.dataset)
+        return forward_loss, correct, len(batches.dataset)
+
+    def train(self) -> tuple:
+        """Runs the training
+
+        Returns:
+         training loss, correct, count
+        """
+        return self.forward(batches=self.training_batches, training=True)
+
+    def validate(self) -> tuple:
+        """Runs the validation
+
+        Returns:
+         validation loss, correct, count
+        """
+        return self.forward(batches=self.validation_batches, training=False)
+
+    def test(self) -> None:
+        """Runs the testing
+
+        """
+        self.timer.start()
+        self.model.load_state_dict(torch.load(self.model_path))
+        loss, correct, total = self.forward(batches=self.testing_batches,
+                                            training=False)
+        print("Test Loss: {:.3f}".format(loss))
+        print("Test Accuracy: {:.2f} ({}/{})".format(100 * correct/total,
+                                                     correct, total))
+        self.timer.end()
+        return
+
+    def train_and_validate(self):
+        """Trains and Validates the model
+        """
+        validation_loss_min = numpy.Inf
+        for epoch in range(self.epoch_start, self.epoch_end):
+            self.timer.start()
+            training_loss, training_correct, training_count = self.train()
+            (validation_loss, validation_correct,
+             validation_count) = self.validate()
+            self.timer.end()
+            print(("Epoch: {}\t"
+                   "Training - Loss: {:.2f}\t"
+                   "Accuracy: {:.2f}\t"
+                   "Validation - Loss: {:.2f}\t"
+                   "Accuracy: {:.2f}").format(
+                       epoch,
+                       training_loss,
+                       training_correct/training_count,
+                       validation_loss,
+                       validation_correct/validation_count,
+                ))
+
+            if validation_loss < validation_loss_min:
+                print(
+                    ("Validation loss decreased ({:.6f} --> {:.6f}). "
+                     "Saving model ...").format(
+                         validation_loss_min,
+                         validation_loss))
+                torch.save(self.model.state_dict(), self.model_path)
+                validation_loss_min = validation_loss
+        return
+
+    def __call__(self) -> None:
+        """Trains, Validates, and Tests the model"""
+        if self.load_model and self.model_path.is_file():
+            self.model.load_state_dict(torch.load(self.model_path))
+        print("Starting Training")
+        self.timer.start()
+        self.train_and_validate()
+        self.timer.end()
+        print("\nStarting Testing")
+        self.test()
+        return
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref model-trainer
+def train(epochs: int, train_batches: torch.utils.data.DataLoader,
+          validation_batches: torch.utils.data.DataLoader,
+          model: nn.Module,
+          optimizer: optimizer.SGD,
+          criterion: nn.CrossEntropyLoss,
+          epoch_start: int=1,
+          save_path: str="model_scratch.pt"):
+    """Trains the Model
+
+    Args:
+     epochs: number of times to train on the data set
+     train_batches: the batch-loaders for training
+     validation_batches: batch-loaders for validation
+     model: the network to train
+     optimizer: the gradient descent object
+     criterion: object to do backwards propagation
+     epoch_start: number to start the epoch count with
+     save_path: path to save the best network parameters
+    """
+    validation_loss_min = numpy.Inf
+    end = epoch_start + epochs
+    
+    for epoch in range(epoch_start, end):
+        timer.start()
+        training_loss = 0.0
+        validation_loss = 0.0
+        
+        model.train()
+        for data, target in train_batches:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            training_loss += loss.item() * data.size(0)
+
+        model.eval()
+        for data, target in validation_batches:
+            data, target = data.to(device), target.cuda(device)
+            output = model(data)
+            loss = criterion(output, target)
+            validation_loss += loss.item() * data.size(0)
+
+        training_loss /= len(train_batches.dataset)
+        validation_loss /= len(validation_batches.dataset)
+            
+        timer.end()
+        print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
+            epoch, 
+            training_loss,
+            validation_loss
+            ))
+        
+        if validation_loss < validation_loss_min:
+            print('Validation loss decreased ({:.6f} --> {:.6f}). Saving model ...'.format(
+                validation_loss_min,
+                validation_loss))
+            torch.save(model.state_dict(), save_path)
+            validation_loss_min = validation_loss            
+    return model
+#+END_SRC
+** Train the Model
+*** Handle the Broken Image
+One of the images is raising an OSError:
+
+#+BEGIN_SRC python
+OSError: image file is truncated (150 bytes not processed)
+#+END_SRC
+
+Let's find out which one it is.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+timer.start()
+broken = None
+for image in dog_files:
+    try:
+        opened = Image.open(image)
+        opened.convert("RGB")
+    except OSError as error:
+        print("{}: {}".format(error, image))
+        broken = image
+timer.end()
+#+END_SRC
+
+#+RESULTS:
+: image file is truncated (150 bytes not processed): /home/hades/datasets/dog-breed-classification/dogImages/train/098.Leonberger/Leonberger_06571.jpg
+: Ended: 2018-12-30 15:10:19.141003
+: Elapsed: 0:02:29.804925
+
+Okay, at least there's only one.
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/truncated_dog.png
+figure, axe = pyplot.subplots()
+name = " ".join(broken.name.split("_")[:-1]).title()
+figure.suptitle("Truncated Image ({})".format(name), weight="bold")
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+image = Image.open(broken)
+axe_image = axe.imshow(image)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[107]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/truncated_dog.png]]
+:END:
+
+[[file:truncated_dog.png]]
+
+I got the solution from [[https://stackoverflow.com/questions/12984426/python-pil-ioerror-image-file-truncated-with-big-images][this Stack Overflow post]], I don't know why but the image seems to be missing some pixels or something. Oh, well. The key to making it work:
+
+#+BEGIN_SRC python
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+#+END_SRC
+** Test the Model
+
+Try out your model on the test dataset of dog images.  Use the code cell below to calculate and print the test loss and accuracy.  Ensure that your test accuracy is greater than 10%.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref model-tester
+def test(test_batches: torch.utils.data.DataLoader,
+         model: nn.Module,
+         criterion: nn.CrossEntropyLoss) -> None:
+    """Test the model
+    
+    Args:
+     test_batches: batch loader of test images
+     model: the network to test
+     criterion: calculator for the loss
+    """
+    test_loss = 0.
+    correct = 0.
+    total = 0.
+
+    model.eval()
+    for data, target in test_batches:
+        data, target = data.to(device), target.to(device)
+        output = model(data)
+        loss = criterion(output, target)
+        test_loss += loss.item() * data.size(0)
+        # convert output probabilities to predicted class
+        predictions = output.data.max(1, keepdim=True)[1]
+        # compare predictions to true label
+        correct += numpy.sum(
+            numpy.squeeze(
+                predictions.eq(
+                    target.data.view_as(predictions))).cpu().numpy())
+        total += data.size(0)
+    test_loss /= len(test_batches.dataset)
+    print('Test Loss: {:.6f}\n'.format(test_loss))
+    print('\nTest Accuracy: %2d%% (%2d/%2d)' % (
+        100. * correct / total, correct, total))
+    return
+ #+END_SRC
+
+** Train and Test
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref train-and-test
+def train_and_test(train_batches: torch.utils.data.DataLoader,
+                   validate_batches: torch.utils.data.DataLoader,
+                   test_batches: torch.utils.data.DataLoader,
+                   model: nn.Module,
+                   model_path: Path,
+                   optimizer: optimizer.SGD,
+                   criterion: nn.CrossEntropyLoss,
+                   epochs: int=10,
+                   epoch_start: int=1,
+                   load_model: bool=False) -> None:
+    """Trains and Tests the Model
+
+    Args:
+     train_batches: batch-loaders for training
+     validate_batches: batch-loaders for validation
+     test_batches: batch-loaders for testing
+     model: the network to train
+     model_path: where to save the best model
+     optimizer: the gradient descent object
+     criterion: object to do backwards propagation
+     epochs: number of times to train on the data set
+     epoch_start: number to start the epoch count with
+     load_model: whether to load the model from a file
+    """
+    if load_model and model_path.is_file():
+        model.load_state_dict(torch.load(model_path))
+    print("Starting Training")
+    timer.start()
+    model_scratch = train(epochs=epochs,
+                          epoch_start=epoch_start,
+                          train_batches=train_batches,
+                          validation_batches=validate_batches,
+                          model=model,
+                          optimizer=optimizer, 
+                          criterion=criterion,
+                          save_path=model_path)
+    timer.end()
+    # load the best model
+    model.load_state_dict(torch.load(model_path))
+    print("Starting Testing")
+    timer.start()
+    test(test_batches, model, criterion)
+    timer.end()
+    return
+#+END_SRC
+
+** Train the Model
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-path
+model_path = DataPathTwo(
+    folder_key="MODELS",
+    filename="model_scratch.pt")
+assert model_path.folder.is_dir()
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both :noweb-ref scratch-train
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=0,
+               model_path=model_path.from_folder,
+               load_model=False)
+next_start = 11
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 16:35:14.192989
+Elapsed: 0:03:23.778459
+Epoch: 0 	Training Loss: 3.946975 	Validation Loss: 3.758706
+Validation loss decreased (inf --> 3.758706). Saving model ...
+Ended: 2019-01-01 16:38:39.497147
+Elapsed: 0:03:24.517456
+Epoch: 1 	Training Loss: 3.880984 	Validation Loss: 3.695643
+Validation loss decreased (3.758706 --> 3.695643). Saving model ...
+Ended: 2019-01-01 16:42:04.190248
+Elapsed: 0:03:23.903292
+Epoch: 2 	Training Loss: 3.870710 	Validation Loss: 3.718353
+Ended: 2019-01-01 16:45:28.479552
+Elapsed: 0:03:23.718292
+Epoch: 3 	Training Loss: 3.836664 	Validation Loss: 3.740289
+Ended: 2019-01-01 16:48:53.605419
+Elapsed: 0:03:24.555708
+Epoch: 4 	Training Loss: 3.819701 	Validation Loss: 3.659244
+Validation loss decreased (3.695643 --> 3.659244). Saving model ...
+Ended: 2019-01-01 16:52:33.198097
+Elapsed: 0:03:38.805586
+Epoch: 5 	Training Loss: 3.778872 	Validation Loss: 3.756706
+Ended: 2019-01-01 16:56:16.822584
+Elapsed: 0:03:43.055469
+Epoch: 6 	Training Loss: 3.752981 	Validation Loss: 3.679196
+Ended: 2019-01-01 16:59:42.861936
+Elapsed: 0:03:25.469331
+Epoch: 7 	Training Loss: 3.730930 	Validation Loss: 3.608311
+Validation loss decreased (3.659244 --> 3.608311). Saving model ...
+Ended: 2019-01-01 17:03:10.958002
+Elapsed: 0:03:27.305644
+Epoch: 8 	Training Loss: 3.705110 	Validation Loss: 3.636201
+Ended: 2019-01-01 17:06:38.939991
+Elapsed: 0:03:27.412824
+Epoch: 9 	Training Loss: 3.665519 	Validation Loss: 3.595410
+Validation loss decreased (3.608311 --> 3.595410). Saving model ...
+Ended: 2019-01-01 17:06:39.733176
+Elapsed: 0:03:28.206009
+Starting Testing
+Test Loss: 3.642843
+
+
+Test Accuracy: 14% (125/836)
+Ended: 2019-01-01 17:07:11.142926
+Elapsed: 0:00:30.815650
+#+end_example
+
+Hmm, seems suspiciously good all of a sudden. It looks like my GPU is faster than paper space's, too..
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 21
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 17:29:46.425198
+Elapsed: 0:03:40.954699
+Epoch: 0 	Training Loss: 3.662736 	Validation Loss: 3.631118
+Validation loss decreased (inf --> 3.631118). Saving model ...
+Ended: 2019-01-01 17:33:12.797754
+Elapsed: 0:03:25.528229
+Epoch: 1 	Training Loss: 3.612436 	Validation Loss: 3.610919
+Validation loss decreased (3.631118 --> 3.610919). Saving model ...
+Ended: 2019-01-01 17:36:49.466848
+Elapsed: 0:03:35.831733
+Epoch: 2 	Training Loss: 3.612902 	Validation Loss: 3.590953
+Validation loss decreased (3.610919 --> 3.590953). Saving model ...
+Ended: 2019-01-01 17:40:17.511898
+Elapsed: 0:03:27.192943
+Epoch: 3 	Training Loss: 3.564542 	Validation Loss: 3.566365
+Validation loss decreased (3.590953 --> 3.566365). Saving model ...
+Ended: 2019-01-01 17:43:45.639219
+Elapsed: 0:03:27.309572
+Epoch: 4 	Training Loss: 3.551703 	Validation Loss: 3.608934
+Ended: 2019-01-01 17:47:32.854824
+Elapsed: 0:03:46.646159
+Epoch: 5 	Training Loss: 3.542706 	Validation Loss: 3.533696
+Validation loss decreased (3.566365 --> 3.533696). Saving model ...
+Ended: 2019-01-01 17:51:02.330525
+Elapsed: 0:03:28.506819
+Epoch: 6 	Training Loss: 3.532894 	Validation Loss: 3.531388
+Validation loss decreased (3.533696 --> 3.531388). Saving model ...
+Ended: 2019-01-01 17:54:25.844725
+Elapsed: 0:03:22.697779
+Epoch: 7 	Training Loss: 3.482241 	Validation Loss: 3.564429
+Ended: 2019-01-01 17:57:48.563069
+Elapsed: 0:03:22.148237
+Epoch: 8 	Training Loss: 3.485189 	Validation Loss: 3.624133
+Ended: 2019-01-01 18:01:11.755236
+Elapsed: 0:03:22.621310
+Epoch: 9 	Training Loss: 3.461059 	Validation Loss: 3.594314
+Ended: 2019-01-01 18:01:12.326268
+Elapsed: 0:03:23.192342
+Starting Testing
+Test Loss: 3.537503
+
+
+Test Accuracy: 16% (138/836)
+Ended: 2019-01-01 18:01:42.764907
+Elapsed: 0:00:29.747148
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 31
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 18:45:17.404562
+Elapsed: 0:03:23.081286
+Epoch: 21 	Training Loss: 3.510303 	Validation Loss: 3.555182
+Validation loss decreased (inf --> 3.555182). Saving model ...
+Ended: 2019-01-01 18:48:41.215171
+Elapsed: 0:03:22.949288
+Epoch: 22 	Training Loss: 3.485824 	Validation Loss: 3.570289
+Ended: 2019-01-01 18:52:04.635395
+Elapsed: 0:03:22.849569
+Epoch: 23 	Training Loss: 3.438656 	Validation Loss: 3.543221
+Validation loss decreased (3.555182 --> 3.543221). Saving model ...
+Ended: 2019-01-01 18:55:28.409018
+Elapsed: 0:03:22.980693
+Epoch: 24 	Training Loss: 3.387092 	Validation Loss: 3.649569
+Ended: 2019-01-01 18:58:51.555922
+Elapsed: 0:03:22.576946
+Epoch: 25 	Training Loss: 3.381217 	Validation Loss: 3.529994
+Validation loss decreased (3.543221 --> 3.529994). Saving model ...
+Ended: 2019-01-01 19:02:15.743200
+Elapsed: 0:03:23.359857
+Epoch: 26 	Training Loss: 3.379801 	Validation Loss: 3.514583
+Validation loss decreased (3.529994 --> 3.514583). Saving model ...
+Ended: 2019-01-01 19:05:40.243125
+Elapsed: 0:03:23.700481
+Epoch: 27 	Training Loss: 3.334058 	Validation Loss: 3.469988
+Validation loss decreased (3.514583 --> 3.469988). Saving model ...
+Ended: 2019-01-01 19:09:04.218270
+Elapsed: 0:03:23.150903
+Epoch: 28 	Training Loss: 3.347201 	Validation Loss: 3.456167
+Validation loss decreased (3.469988 --> 3.456167). Saving model ...
+Ended: 2019-01-01 19:12:27.711756
+Elapsed: 0:03:22.677622
+Epoch: 29 	Training Loss: 3.320286 	Validation Loss: 3.444669
+Validation loss decreased (3.456167 --> 3.444669). Saving model ...
+Ended: 2019-01-01 19:15:51.375887
+Elapsed: 0:03:22.875358
+Epoch: 30 	Training Loss: 3.314001 	Validation Loss: 3.460704
+Ended: 2019-01-01 19:15:51.946497
+Elapsed: 0:03:23.445968
+Starting Testing
+Test Loss: 3.492875
+
+
+Test Accuracy: 17% (146/836)
+Ended: 2019-01-01 19:16:10.729405
+Elapsed: 0:00:18.109680
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 41
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 20:15:25.906348
+Elapsed: 0:05:12.167322
+Epoch: 31 	Training Loss: 3.311046 	Validation Loss: 3.446478
+Validation loss decreased (inf --> 3.446478). Saving model ...
+Ended: 2019-01-01 20:19:13.168084
+Elapsed: 0:03:46.461085
+Epoch: 32 	Training Loss: 3.270769 	Validation Loss: 3.550049
+Ended: 2019-01-01 20:22:38.973465
+Elapsed: 0:03:25.195274
+Epoch: 33 	Training Loss: 3.221883 	Validation Loss: 3.489280
+Ended: 2019-01-01 20:26:02.049299
+Elapsed: 0:03:22.483931
+Epoch: 34 	Training Loss: 3.271723 	Validation Loss: 3.507546
+Ended: 2019-01-01 20:29:24.932614
+Elapsed: 0:03:22.292605
+Epoch: 35 	Training Loss: 3.197156 	Validation Loss: 3.475409
+Ended: 2019-01-01 20:32:47.569786
+Elapsed: 0:03:22.046763
+Epoch: 36 	Training Loss: 3.210177 	Validation Loss: 3.477707
+Ended: 2019-01-01 20:36:09.752175
+Elapsed: 0:03:21.592504
+Epoch: 37 	Training Loss: 3.199346 	Validation Loss: 3.577469
+Ended: 2019-01-01 20:39:32.831340
+Elapsed: 0:03:22.489048
+Epoch: 38 	Training Loss: 3.158563 	Validation Loss: 3.442629
+Validation loss decreased (3.446478 --> 3.442629). Saving model ...
+Ended: 2019-01-01 20:42:56.293868
+Elapsed: 0:03:22.664005
+Epoch: 39 	Training Loss: 3.152231 	Validation Loss: 3.470943
+Ended: 2019-01-01 20:46:18.983529
+Elapsed: 0:03:22.098438
+Epoch: 40 	Training Loss: 3.124298 	Validation Loss: 3.429367
+Validation loss decreased (3.442629 --> 3.429367). Saving model ...
+Ended: 2019-01-01 20:46:19.801009
+Elapsed: 0:03:22.915918
+Starting Testing
+Test Loss: 3.348011
+
+
+Test Accuracy: 21% (179/836)
+Ended: 2019-01-01 20:46:42.494502
+Elapsed: 0:00:22.094465
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 51
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 22:01:17.285699
+Elapsed: 0:03:24.381614
+Epoch: 41 	Training Loss: 3.095166 	Validation Loss: 3.418227
+Validation loss decreased (inf --> 3.418227). Saving model ...
+Ended: 2019-01-01 22:04:43.173252
+Elapsed: 0:03:25.033381
+Epoch: 42 	Training Loss: 3.089258 	Validation Loss: 3.419117
+Ended: 2019-01-01 22:08:07.709900
+Elapsed: 0:03:23.945667
+Epoch: 43 	Training Loss: 3.071535 	Validation Loss: 3.433646
+Ended: 2019-01-01 22:11:33.153513
+Elapsed: 0:03:24.853880
+Epoch: 44 	Training Loss: 3.058665 	Validation Loss: 3.454817
+Ended: 2019-01-01 22:14:59.899762
+Elapsed: 0:03:26.156530
+Epoch: 45 	Training Loss: 3.072674 	Validation Loss: 3.494963
+Ended: 2019-01-01 22:18:26.207188
+Elapsed: 0:03:25.746042
+Epoch: 46 	Training Loss: 3.043788 	Validation Loss: 3.430311
+Ended: 2019-01-01 22:21:51.975083
+Elapsed: 0:03:25.177310
+Epoch: 47 	Training Loss: 3.015571 	Validation Loss: 3.382248
+Validation loss decreased (3.418227 --> 3.382248). Saving model ...
+Ended: 2019-01-01 22:25:18.237087
+Elapsed: 0:03:25.403639
+Epoch: 48 	Training Loss: 2.972451 	Validation Loss: 3.449296
+Ended: 2019-01-01 22:28:44.315967
+Elapsed: 0:03:25.498810
+Epoch: 49 	Training Loss: 2.989183 	Validation Loss: 3.428347
+Ended: 2019-01-01 22:32:10.738134
+Elapsed: 0:03:25.832058
+Epoch: 50 	Training Loss: 2.966034 	Validation Loss: 3.501775
+Ended: 2019-01-01 22:32:11.326703
+Elapsed: 0:03:26.420627
+Starting Testing
+Test Loss: 3.485910
+
+
+Test Accuracy: 18% (156/836)
+Ended: 2019-01-01 22:32:41.884173
+Elapsed: 0:00:29.644028
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 61
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 22:39:53.821378
+Elapsed: 0:04:15.535643
+Epoch: 51 	Training Loss: 3.024161 	Validation Loss: 3.409968
+Validation loss decreased (inf --> 3.409968). Saving model ...
+Ended: 2019-01-01 22:43:47.462698
+Elapsed: 0:03:52.776151
+Epoch: 52 	Training Loss: 2.979377 	Validation Loss: 3.512004
+Ended: 2019-01-01 22:47:35.580770
+Elapsed: 0:03:47.528679
+Epoch: 53 	Training Loss: 2.983352 	Validation Loss: 3.499196
+Ended: 2019-01-01 22:50:58.662565
+Elapsed: 0:03:22.501398
+Epoch: 54 	Training Loss: 2.944738 	Validation Loss: 3.458440
+Ended: 2019-01-01 22:54:21.531858
+Elapsed: 0:03:22.279749
+Epoch: 55 	Training Loss: 2.921185 	Validation Loss: 3.581930
+Ended: 2019-01-01 22:57:44.017339
+Elapsed: 0:03:21.925483
+Epoch: 56 	Training Loss: 2.928508 	Validation Loss: 3.449956
+Ended: 2019-01-01 23:01:06.668710
+Elapsed: 0:03:22.061753
+Epoch: 57 	Training Loss: 2.887215 	Validation Loss: 3.559204
+Ended: 2019-01-01 23:04:29.439919
+Elapsed: 0:03:22.181396
+Epoch: 58 	Training Loss: 2.909253 	Validation Loss: 3.458249
+Ended: 2019-01-01 23:07:51.804139
+Elapsed: 0:03:21.803807
+Epoch: 59 	Training Loss: 2.864969 	Validation Loss: 3.599446
+Ended: 2019-01-01 23:11:14.184534
+Elapsed: 0:03:21.789954
+Epoch: 60 	Training Loss: 2.820693 	Validation Loss: 3.432991
+Ended: 2019-01-01 23:11:14.775507
+Elapsed: 0:03:22.380927
+Starting Testing
+Test Loss: 3.370016
+
+
+Test Accuracy: 21% (176/836)
+Ended: 2019-01-01 23:11:44.949942
+Elapsed: 0:00:29.259563
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+next_start = 61
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 71
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-01 23:31:00.034455
+Elapsed: 0:03:21.658811
+Epoch: 61 	Training Loss: 2.968425 	Validation Loss: 3.469985
+Validation loss decreased (inf --> 3.469985). Saving model ...
+Ended: 2019-01-01 23:34:24.012685
+Elapsed: 0:03:22.630721
+Epoch: 62 	Training Loss: 2.980103 	Validation Loss: 3.449017
+Validation loss decreased (3.469985 --> 3.449017). Saving model ...
+Ended: 2019-01-01 23:37:47.137370
+Elapsed: 0:03:22.315870
+Epoch: 63 	Training Loss: 2.945722 	Validation Loss: 3.497296
+Ended: 2019-01-01 23:41:09.932696
+Elapsed: 0:03:22.226620
+Epoch: 64 	Training Loss: 2.940117 	Validation Loss: 3.398626
+Validation loss decreased (3.449017 --> 3.398626). Saving model ...
+Ended: 2019-01-01 23:44:33.204607
+Elapsed: 0:03:22.484337
+Epoch: 65 	Training Loss: 2.913762 	Validation Loss: 3.465828
+Ended: 2019-01-01 23:47:55.682608
+Elapsed: 0:03:21.909285
+Epoch: 66 	Training Loss: 2.877373 	Validation Loss: 3.525525
+Ended: 2019-01-01 23:51:18.110150
+Elapsed: 0:03:21.859021
+Epoch: 67 	Training Loss: 2.889807 	Validation Loss: 3.499459
+Ended: 2019-01-01 23:54:40.142934
+Elapsed: 0:03:21.464199
+Epoch: 68 	Training Loss: 2.882748 	Validation Loss: 3.364801
+Validation loss decreased (3.398626 --> 3.364801). Saving model ...
+Ended: 2019-01-01 23:58:02.359285
+Elapsed: 0:03:21.435096
+Epoch: 69 	Training Loss: 2.886337 	Validation Loss: 3.488435
+Ended: 2019-01-02 00:01:26.616419
+Elapsed: 0:03:23.688341
+Epoch: 70 	Training Loss: 2.867836 	Validation Loss: 3.417904
+Ended: 2019-01-02 00:01:27.309412
+Elapsed: 0:03:24.381334
+Starting Testing
+Test Loss: 3.359312
+
+
+Test Accuracy: 22% (191/836)
+Ended: 2019-01-02 00:02:29.963462
+Elapsed: 0:01:01.964477
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_scratch["train"],
+               validate_batches=loaders_scratch["validate"],
+               test_batches=loaders_scratch["test"],
+               model=model_scratch,
+               optimizer=optimizer_scratch, 
+               criterion=criterion_scratch,
+               epoch_start=next_start,
+               model_path=model_path.from_folder,
+               load_model=True)
+next_start = 81
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-02 00:13:59.560043
+Elapsed: 0:09:26.402859
+Epoch: 71 	Training Loss: 2.847764 	Validation Loss: 3.462033
+Validation loss decreased (inf --> 3.462033). Saving model ...
+Ended: 2019-01-02 00:21:40.896206
+Elapsed: 0:07:40.511212
+Epoch: 72 	Training Loss: 2.852644 	Validation Loss: 3.469687
+Ended: 2019-01-02 00:29:05.309753
+Elapsed: 0:07:23.845532
+Epoch: 73 	Training Loss: 2.840424 	Validation Loss: 3.545896
+Ended: 2019-01-02 00:33:46.928392
+Elapsed: 0:04:41.026761
+Epoch: 74 	Training Loss: 2.813888 	Validation Loss: 3.552435
+Ended: 2019-01-02 00:37:18.057707
+Elapsed: 0:03:30.560704
+Epoch: 75 	Training Loss: 2.807452 	Validation Loss: 3.491534
+Ended: 2019-01-02 00:40:41.064242
+Elapsed: 0:03:22.438088
+Epoch: 76 	Training Loss: 2.802119 	Validation Loss: 3.429099
+Validation loss decreased (3.462033 --> 3.429099). Saving model ...
+Ended: 2019-01-02 00:44:04.191818
+Elapsed: 0:03:22.138587
+Epoch: 77 	Training Loss: 2.809226 	Validation Loss: 3.482573
+Ended: 2019-01-02 00:47:26.187167
+Elapsed: 0:03:21.427162
+Epoch: 78 	Training Loss: 2.767340 	Validation Loss: 3.473212
+Ended: 2019-01-02 00:50:48.717819
+Elapsed: 0:03:21.962244
+Epoch: 79 	Training Loss: 2.750881 	Validation Loss: 3.435359
+Ended: 2019-01-02 00:54:11.744891
+Elapsed: 0:03:22.458406
+Epoch: 80 	Training Loss: 2.739076 	Validation Loss: 3.466524
+Ended: 2019-01-02 00:54:12.313860
+Elapsed: 0:03:23.027375
+Starting Testing
+Test Loss: 3.505263
+
+
+Test Accuracy: 21% (183/836)
+Ended: 2019-01-02 00:54:42.938753
+Elapsed: 0:00:29.924658
+#+end_example
+
+** Debug the CUDA Error
+The previous block of code raises an exception when first run.
+
+#+BEGIN_SRC python
+RuntimeError: cuda runtime error (59) : device-side assert triggered at /pytorch/aten/src/THC/generic/THCTensorMath.cu:26
+#+END_SRC
+
+And points to this line as the point where it crashes.
+
+#+BEGIN_SRC python
+loss.backward()
+#+END_SRC
+
+Re-runnig it gives a similar but different error.
+
+#+BEGIN_SRC python
+RuntimeError: CUDA error: device-side assert triggered
+#+END_SRC
+
+Happening here:
+
+#+BEGIN_SRC python
+data, target = data.to(device), target.to(device)
+#+END_SRC
+
+According to [[https://github.com/pytorch/pytorch/issues/1010][this bug report]] on GitHub, there's two things happening. One is that once the exception happens the CUDA session is dead so trying to move the data to CUDA raises an error just because we are trying to use it (and you can't until you restart the python session). In that same thread they note that the original exception indicates something wrong with the classes being output by the network. One error they list is if there's a negative label, another if the label is out of range for the number of categories, but In my case it might be that I was only outputting 10 classes (I copied the CIFAR model), not the 133 you need for the dog-breeds.
+
+*** load the model that got the best validation accuracy
+#+BEGIN_SRC ipython :session dog :results none
+model_scratch.load_state_dict(torch.load('model_scratch.pt'))
+#+END_SRC
+
+** Call the Test Function
+#+BEGIN_SRC ipython :session dog :results output :exports both
+test(loaders_scratch["test"], model_scratch, criterion_scratch)
+#+END_SRC
+
+#+RESULTS:
+: Test Loss: 3.492875
+: 
+: 
+: Test Accuracy: 17% (146/836)
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref scratch-cli
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Test or Train the Naive Dog Classifier")
+    parser.add_argument("--test", action="store_true",
+                        help="Only run the test")
+    parser.add_argument("--epochs", default=10, type=int,
+                        help="Training epochs (default: %(default)s)")
+    parser.add_argument(
+        "--epoch-offset", default=0, type=int,
+        help="Offset for the output of epochs (default: %(default)s)")
+    parser.add_argument("--restart", action="store_true",
+                        help="Wipe out old model.")
+
+    arguments = parser.parse_args()
+    if arguments.test:
+        test(loaders_scratch["test"], model_scratch, criterion_scratch)
+    else:
+        train_and_test(epochs=arguments.epochs,
+                       train_batches=loaders_scratch["train"],
+                       validate_batches=loaders_scratch["validate"],
+                       test_batches=loaders_scratch["test"],
+                       model=model_scratch,
+                       optimizer=optimizer_scratch, 
+                       criterion=criterion_scratch,
+                       epoch_start=arguments.epoch_offset,
+                       model_path=model_path.from_folder,
+                       load_model=not arguments.restart)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+model_scratch.to("cpu")
+#+END_SRC
+* Step 4: Create a CNN to Classify Dog Breeds (using Transfer Learning)
+
+ You will now use transfer learning to create a CNN that can identify dog breed from images.  Your CNN must attain at least 60% accuracy on the test set.
+
+** Specify Data Loaders for the Dog Dataset
+
+Use the code cell below to write three separate[ [[http://pytorch.org/docs/master/data.html#torch.utils.data.DataLoader][data loaders]] for the training, validation, and test datasets of dog images (located at ~dogImages/train~, ~dogImages/valid~, and ~dogImages/test~, respectively). 
+
+The =Inception V3= model expects a different image size so we can't re-use the previous data-transforms.
+#+BEGIN_SRC ipython :session dog :results none
+means = [0.485, 0.456, 0.406]
+deviations = [0.229, 0.224, 0.225]
+IMAGE_SIZE = 299
+
+transfer_train_transform = transforms.Compose([
+    transforms.RandomRotation(30),
+    transforms.RandomResizedCrop(IMAGE_SIZE),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(means,
+                         deviations)])
+
+transfer_test_transform = transforms.Compose([transforms.Resize(350),
+                                              transforms.CenterCrop(IMAGE_SIZE),
+                                              transforms.ToTensor(),
+                                              transforms.Normalize(means,
+                                                                   deviations)])
+#+END_SRC
+
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-transforms
+class Transformer:
+    """builds the data-sets
+
+    Args:
+     means: list of means for each channel
+     deviations: list of standard deviations for each channel
+     image_size: size to crop the image to
+    """
+    def __init__(self,
+                 means: list=[0.485, 0.456, 0.406],
+                 deviations: list=[0.229, 0.224, 0.225],
+                 image_size: int=299) -> None:
+        self.means = means
+        self.deviations = deviations
+        self.image_size = image_size
+        self._training = None
+        self._testing = None
+        return
+
+    @property
+    def training(self) -> transforms.Compose:
+        """The image transformers for the training"""
+        if self._training is None:
+            self._training = transforms.Compose([
+                transforms.RandomRotation(30),
+                transforms.RandomResizedCrop(self.image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(self.means,
+                                     self.deviations)])
+        return self._training
+
+    @property
+    def testing(self) -> transforms.Compose:
+        """Image transforms for the testing"""
+        if self._testing is None:
+            self._testing = transforms.Compose(
+                [transforms.Resize(350),
+                 transforms.CenterCrop(self.image_size),
+                 transforms.ToTensor(),
+                 transforms.Normalize(self.means,
+                                      self.deviations)])
+        return self._testing
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+transfer_training = datasets.ImageFolder(root=str(dog_training_path.folder),
+                                         transform=transfer_train_transform)
+transfer_validation = datasets.ImageFolder(root=str(dog_validation_path.folder),
+                                           transform=transfer_test_transform)
+transfer_testing = datasets.ImageFolder(root=str(dog_testing_path.folder),
+                                        transform=transfer_test_transform)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :noweb-ref transfer-datasets
+class DataSets:
+    """Builds the data-sets
+
+    Args:
+     training_path: path to the training set
+     validation_path: path to the validation set
+     testing_path: path to the test-set
+     transformer: object with the image transforms
+    """
+    def __init__(self, training_path: str, validation_path: str,
+                 testing_path: str, transformer: Transformer=None) -> None:
+        self.training_path = training_path
+        self.validation_path = validation_path
+        self.testing_path = testing_path
+        self._transformer = transformer
+        self._training = None
+        self._validation = None
+        self._testing = None
+        return
+
+    @property
+    def transformer(self) -> Transformer:
+        """Object with the image transforms"""
+        if self._transformer is None:
+            self._transformer = Transformer()
+        return self._transformer
+
+    @property
+    def training(self) -> datasets.ImageFolder:
+        """The training data set"""
+        if self._training is None:
+            self._training = datasets.ImageFolder(
+                root=str(self.training_path),
+                transform=self.transformer.training)
+        return self._training
+
+    @property
+    def validation(self) -> datasets.ImageFolder:
+        """The validation dataset"""
+        if self._validation is None:
+            self._validation = datasets.ImageFolder(
+                root=str(self.validation_path),
+                transform=self.transformer.testing)
+        return self._validation
+
+    @property
+    def testing(self) -> datasets.ImageFolder:
+        """The test set"""
+        if self._testing is None:
+            self._testing = datasets.ImageFolder(
+                root=str(self.testing_path),
+                transform=self.transformer.testing)
+        return self._testing
+#+END_SRC
+
+#+RESULTS:
+: # Out[23]:
+
+#+BEGIN_SRC ipython :session dog :results none
+BATCH_SIZE = 20
+WORKERS = 0
+
+transfer_train_batches = torch.utils.data.DataLoader(
+    transfer_training, batch_size=BATCH_SIZE,
+    shuffle=True, num_workers=WORKERS)
+transfer_validation_batches = torch.utils.data.DataLoader(
+    transfer_validation, batch_size=BATCH_SIZE,
+    shuffle=True, num_workers=WORKERS)
+transfer_test_batches = torch.utils.data.DataLoader(
+    transfer_testing, batch_size=BATCH_SIZE,
+    shuffle=True, num_workers=WORKERS)
+
+loaders_transfer = dict(train=transfer_train_batches,
+                        validate=transfer_validation_batches,
+                        test=transfer_test_batches)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-batches
+class Batches:
+    """The data batch loaders
+
+    Args:
+     datasets: a data-set builder
+     batch_size: the size of each batch loaded
+     workers: the number of processes to use
+    """
+    def __init__(self, datasets: DataSets,
+                 batch_size: int=20,
+                 workers: int=0) -> None:
+        self.datasets = datasets
+        self.batch_size = batch_size
+        self.workers = workers
+        self._training = None
+        self._validation = None
+        self._testing = None
+        return
+
+    @property
+    def training(self) -> torch.utils.data.DataLoader:
+        """The training batches"""
+        if self._training is None:
+            self._training = torch.utils.data.DataLoader(
+                self.datasets.training,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._training
+
+    @property
+    def validation(self) -> torch.utils.data.DataLoader:
+        """The validation batches"""
+        if self._validation is None:
+            self._validation = torch.utils.data.DataLoader(
+                self.datasets.validation,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._validation
+
+    @property
+    def testing(self) -> torch.utils.data.DataLoader:
+        """The testing batches"""
+        if self._testing is None:
+            self._testing = torch.utils.data.DataLoader(
+                self.datasets.testing,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._testing
+#+END_SRC
+
+** Model Architecture
+
+Use transfer learning to create a CNN to classify dog images by breed.  Use the code cells below, and save your initialized model as the variable ~model_transfer~.
+
+Although the constructor takes an =aux_logits= parameter, if you set it to false then it will raise an error saying there are unexpected keys in the state dict. But if you don't set it False it will return a tuple from the =forward= method so either set it to False after the constructor or catch a tuple as the output =(x, aux)= and throw away the second part (or figure out how to combine them).
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-model
+class Inception:
+    """Sets up the model, criterion, and optimizer for the transfer learning
+
+    Args:
+     classes: number of outputs for the final layer
+     model_path: path to a saved model
+     learning_rate: learning rate for the optimizer
+     momentum: momentum for the optimizer
+    """
+    def __init__(self, classes: int,
+                 model_path: str=None,
+                 learning_rate: float=0.001, momentum: float=0.9) -> None:
+        self.classes = classes
+        self.model_path = model_path
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self._device = None
+        self._model = None
+        self._classifier_inputs = None
+        self._criterion = None
+        self._optimizer = None
+        return
+
+    @property
+    def device(self) -> torch.device:
+        """Processor to use (cpu or cuda)"""
+        if self._device is None:
+            self._device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu")
+        return self._device
+
+    @property
+    def model(self) -> models.inception_v3:
+        """The inception model"""
+        if self._model is None:
+            self._model = models.inception_v3(pretrained=True)
+            self._model.aux_logits = False
+            for parameter in self._model.parameters():
+                parameter.requires_grad = False
+            classifier_inputs = self._model.fc.in_features
+            self._model.fc = nn.Linear(in_features=classifier_inputs,
+                                       out_features=self.classes,
+                                       bias=True)
+            self._model.to(self.device)
+            if self.model_path:
+                self._model.load_state_dict(torch.load(self.model_path))
+        return self._model
+
+    @property
+    def criterion(self) -> nn.CrossEntropyLoss:
+        """The loss callable"""
+        if self._criterion is None:
+            self._criterion = nn.CrossEntropyLoss()
+        return self._criterion
+
+    @property
+    def optimizer(self) -> optimizer.SGD:
+        """The Gradient Descent object"""
+        if self._optimizer is None:
+            self._optimizer = optimizer.SGD(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                momentum=self.momentum)
+        return self._optimizer
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+model_transfer = models.inception_v3(pretrained=True)
+model_transfer.aux_logits = False
+#+END_SRC
+
+The last layer of the classifier is the only one that I will change. In the case of the =Inception V3= model there is a single layer called /fc/, as opposed to multiple layers called /classifier/ as with the =VGG16= model.
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+print(model_transfer.fc)
+#+END_SRC
+
+#+RESULTS:
+: Linear(in_features=2048, out_features=1000, bias=True)
+
+#+BEGIN_SRC :session dog :results none :noweb-ref transfer-input-count
+CLASSIFIER_INPUTS = model_transfer.fc.in_features
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+print(CLASSIFIER_INPUTS) 
+print(model_transfer.fc.out_features)
+#+END_SRC
+
+#+RESULTS:
+: 2048
+: 1000
+
+The layer we're going to replace has 2,048 inputs and 1,000 outputs. We'll have to match the number of inputs and change it to our 133.
+
+** Freeze the Features Layers
+   We don't want to re-train the layers that we aren't changing.
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-freeze
+for parameter in model_transfer.parameters():
+    parameter.requires_grad = False
+#+END_SRC
+** The New Classifier
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-classifier
+model_transfer.fc = nn.Linear(in_features=CLASSIFIER_INPUTS,
+                              out_features=BREEDS,
+                              bias=True)
+#+END_SRC
+
+Now that we've finished the model we can transfer it to the GPU.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-to-gpu
+model_transfer.to(device)
+#+END_SRC
+
+*Question 5:* Outline the steps you took to get to your final CNN architecture and your reasoning at each step.  Describe why you think the architecture is suitable for the current problem.
+
+*Answer:*
+
+** Specify Loss Function and Optimizer
+
+ Use the next code cell to specify a [[http://pytorch.org/docs/master/nn.html#loss-functions][loss function]] and [[http://pytorch.org/docs/master/optim.htm][optimizer]]. Save the chosen loss function as ~criterion_transfer~, and the optimizer as ~optimizer_transfer~ below.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-criterion
+criterion_transfer = nn.CrossEntropyLoss()
+optimizer_transfer = optimizer.SGD(model_transfer.parameters(),
+                                  lr=0.001,
+                                  momentum=0.9)
+#+END_SRC
+
+** Train and Validate the Model
+
+Train and validate your model in the code cell below.  [[http://pytorch.org/docs/master/notes/serialization.html][Save the final model parameters]] at filepath ~'model_transfer.pt'~.
+
+#+BEGIN_SRC ipython :session dog :results none :noweb-ref transfer-path
+load_dotenv()
+transfer_path = DataPathTwo(
+    folder_key="MODELS",
+    filename="model_transfer.pt")
+assert transfer_path.folder.is_dir()
+#+END_SRC
+
+train the model
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+next_start = 0
+train_and_test(epochs=10,
+               train_batches=loaders_transfer["train"],
+               validate_batches=loaders_transfer["validate"],
+               test_batches=loaders_transfer["test"],
+               model=model_transfer,
+               optimizer=optimizer_transfer, 
+               criterion=criterion_transfer,
+               epoch_start=next_start,
+               model_path=transfer_path.from_folder,
+               load_model=True)
+next_start = 11
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-02 14:13:37.018699
+Elapsed: 0:06:48.482317
+Epoch: 0 	Training Loss: 4.584582 	Validation Loss: 3.974881
+Validation loss decreased (inf --> 3.974881). Saving model ...
+Ended: 2019-01-02 14:18:16.016775
+Elapsed: 0:04:37.536103
+Epoch: 1 	Training Loss: 3.881363 	Validation Loss: 3.166572
+Validation loss decreased (3.974881 --> 3.166572). Saving model ...
+Ended: 2019-01-02 14:22:53.485232
+Elapsed: 0:04:36.588149
+Epoch: 2 	Training Loss: 3.322699 	Validation Loss: 2.510366
+Validation loss decreased (3.166572 --> 2.510366). Saving model ...
+Ended: 2019-01-02 14:27:30.658970
+Elapsed: 0:04:36.386023
+Epoch: 3 	Training Loss: 2.882555 	Validation Loss: 2.045645
+Validation loss decreased (2.510366 --> 2.045645). Saving model ...
+Ended: 2019-01-02 14:32:08.034982
+Elapsed: 0:04:36.577826
+Epoch: 4 	Training Loss: 2.535070 	Validation Loss: 1.695476
+Validation loss decreased (2.045645 --> 1.695476). Saving model ...
+Ended: 2019-01-02 14:36:45.442350
+Elapsed: 0:04:36.597673
+Epoch: 5 	Training Loss: 2.282517 	Validation Loss: 1.438730
+Validation loss decreased (1.695476 --> 1.438730). Saving model ...
+Ended: 2019-01-02 14:41:22.877526
+Elapsed: 0:04:36.665022
+Epoch: 6 	Training Loss: 2.106102 	Validation Loss: 1.265148
+Validation loss decreased (1.438730 --> 1.265148). Saving model ...
+Ended: 2019-01-02 14:46:00.331287
+Elapsed: 0:04:36.686937
+Epoch: 7 	Training Loss: 1.964185 	Validation Loss: 1.132556
+Validation loss decreased (1.265148 --> 1.132556). Saving model ...
+Ended: 2019-01-02 14:50:37.780270
+Elapsed: 0:04:36.690618
+Epoch: 8 	Training Loss: 1.853342 	Validation Loss: 1.029743
+Validation loss decreased (1.132556 --> 1.029743). Saving model ...
+Ended: 2019-01-02 14:55:17.806556
+Elapsed: 0:04:39.249364
+Epoch: 9 	Training Loss: 1.773766 	Validation Loss: 0.940784
+Validation loss decreased (1.029743 --> 0.940784). Saving model ...
+Ended: 2019-01-02 14:55:18.572794
+Elapsed: 0:04:40.015602
+Starting Testing
+Test Loss: 0.934417
+
+
+Test Accuracy: 79% (663/836)
+Ended: 2019-01-02 14:56:02.683720
+Elapsed: 0:00:43.257673
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_transfer["train"],
+               validate_batches=loaders_transfer["validate"],
+               test_batches=loaders_transfer["test"],
+               model=model_transfer,
+               optimizer=optimizer_transfer, 
+               criterion=criterion_transfer,
+               epoch_start=next_start,
+               model_path=transfer_path.from_folder,
+               load_model=True)
+next_start = 21
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-02 15:26:12.921522
+Elapsed: 0:04:38.650248
+Epoch: 11 	Training Loss: 1.717101 	Validation Loss: 0.884212
+Validation loss decreased (inf --> 0.884212). Saving model ...
+Ended: 2019-01-02 15:30:53.458861
+Elapsed: 0:04:39.733010
+Epoch: 12 	Training Loss: 1.618626 	Validation Loss: 0.847518
+Validation loss decreased (0.884212 --> 0.847518). Saving model ...
+Ended: 2019-01-02 15:35:36.435201
+Elapsed: 0:04:42.182964
+Epoch: 13 	Training Loss: 1.572532 	Validation Loss: 0.790495
+Validation loss decreased (0.847518 --> 0.790495). Saving model ...
+Ended: 2019-01-02 15:40:23.432364
+Elapsed: 0:04:46.202611
+Epoch: 14 	Training Loss: 1.563192 	Validation Loss: 0.773963
+Validation loss decreased (0.790495 --> 0.773963). Saving model ...
+Ended: 2019-01-02 15:45:10.819144
+Elapsed: 0:04:46.624421
+Epoch: 15 	Training Loss: 1.521934 	Validation Loss: 0.739375
+Validation loss decreased (0.773963 --> 0.739375). Saving model ...
+Ended: 2019-01-02 15:49:50.757408
+Elapsed: 0:04:39.171584
+Epoch: 16 	Training Loss: 1.483127 	Validation Loss: 0.713196
+Validation loss decreased (0.739375 --> 0.713196). Saving model ...
+Ended: 2019-01-02 15:54:35.249712
+Elapsed: 0:04:43.691666
+Epoch: 17 	Training Loss: 1.447578 	Validation Loss: 0.676684
+Validation loss decreased (0.713196 --> 0.676684). Saving model ...
+Ended: 2019-01-02 15:59:22.447243
+Elapsed: 0:04:46.437846
+Epoch: 18 	Training Loss: 1.420482 	Validation Loss: 0.668860
+Validation loss decreased (0.676684 --> 0.668860). Saving model ...
+Ended: 2019-01-02 16:04:56.014361
+Elapsed: 0:05:32.622334
+Epoch: 19 	Training Loss: 1.393358 	Validation Loss: 0.643561
+Validation loss decreased (0.668860 --> 0.643561). Saving model ...
+Ended: 2019-01-02 16:11:09.837667
+Elapsed: 0:06:13.031439
+Epoch: 20 	Training Loss: 1.379648 	Validation Loss: 0.616452
+Validation loss decreased (0.643561 --> 0.616452). Saving model ...
+Ended: 2019-01-02 16:11:10.693556
+Elapsed: 0:06:13.887328
+Starting Testing
+Test Loss: 0.622291
+
+
+Test Accuracy: 83% (694/836)
+Ended: 2019-01-02 16:11:53.271431
+Elapsed: 0:00:41.294960
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_transfer["train"],
+               validate_batches=loaders_transfer["validate"],
+               test_batches=loaders_transfer["test"],
+               model=model_transfer,
+               optimizer=optimizer_transfer, 
+               criterion=criterion_transfer,
+               epoch_start=next_start,
+               model_path=transfer_path.from_folder,
+               load_model=True)
+next_start = 31
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-02 16:27:22.181110
+Elapsed: 0:06:12.959051
+Epoch: 21 	Training Loss: 1.369191 	Validation Loss: 0.615535
+Validation loss decreased (inf --> 0.615535). Saving model ...
+Ended: 2019-01-02 16:32:54.251089
+Elapsed: 0:05:31.240680
+Epoch: 22 	Training Loss: 1.349598 	Validation Loss: 0.608102
+Validation loss decreased (0.615535 --> 0.608102). Saving model ...
+Ended: 2019-01-02 16:38:24.768387
+Elapsed: 0:05:29.590730
+Epoch: 23 	Training Loss: 1.328140 	Validation Loss: 0.580409
+Validation loss decreased (0.608102 --> 0.580409). Saving model ...
+Ended: 2019-01-02 16:44:37.204340
+Elapsed: 0:06:11.616493
+Epoch: 24 	Training Loss: 1.302289 	Validation Loss: 0.579699
+Validation loss decreased (0.580409 --> 0.579699). Saving model ...
+Ended: 2019-01-02 16:50:40.173444
+Elapsed: 0:06:01.920900
+Epoch: 25 	Training Loss: 1.301648 	Validation Loss: 0.556117
+Validation loss decreased (0.579699 --> 0.556117). Saving model ...
+Ended: 2019-01-02 16:58:09.520609
+Elapsed: 0:07:28.454592
+Epoch: 26 	Training Loss: 1.291084 	Validation Loss: 0.560936
+Ended: 2019-01-02 17:06:29.424792
+Elapsed: 0:08:18.914038
+Epoch: 27 	Training Loss: 1.269271 	Validation Loss: 0.553170
+Validation loss decreased (0.556117 --> 0.553170). Saving model ...
+Ended: 2019-01-02 17:11:51.077403
+Elapsed: 0:05:20.617876
+Epoch: 28 	Training Loss: 1.279075 	Validation Loss: 0.538389
+Validation loss decreased (0.553170 --> 0.538389). Saving model ...
+Ended: 2019-01-02 17:16:39.051666
+Elapsed: 0:04:47.173351
+Epoch: 29 	Training Loss: 1.265386 	Validation Loss: 0.542516
+Ended: 2019-01-02 17:21:21.075985
+Elapsed: 0:04:41.467619
+Epoch: 30 	Training Loss: 1.270218 	Validation Loss: 0.515962
+Validation loss decreased (0.538389 --> 0.515962). Saving model ...
+Ended: 2019-01-02 17:21:21.859711
+Elapsed: 0:04:42.251345
+Starting Testing
+Test Loss: 0.530569
+
+
+Test Accuracy: 84% (710/836)
+Ended: 2019-01-02 17:22:03.701375
+Elapsed: 0:00:40.822156
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+train_and_test(epochs=10,
+               train_batches=loaders_transfer["train"],
+               validate_batches=loaders_transfer["validate"],
+               test_batches=loaders_transfer["test"],
+               model=model_transfer,
+               optimizer=optimizer_transfer, 
+               criterion=criterion_transfer,
+               epoch_start=next_start,
+               model_path=transfer_path.from_folder,
+               load_model=True)
+next_start = 41
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Ended: 2019-01-02 17:33:05.881213
+Elapsed: 0:06:02.006331
+Epoch: 31 	Training Loss: 1.235642 	Validation Loss: 0.522926
+Validation loss decreased (inf --> 0.522926). Saving model ...
+Ended: 2019-01-02 17:38:04.117551
+Elapsed: 0:04:57.388768
+Epoch: 32 	Training Loss: 1.236169 	Validation Loss: 0.499674
+Validation loss decreased (0.522926 --> 0.499674). Saving model ...
+Ended: 2019-01-02 17:42:45.373980
+Elapsed: 0:04:40.462383
+Epoch: 33 	Training Loss: 1.207324 	Validation Loss: 0.520123
+Ended: 2019-01-02 17:47:27.900541
+Elapsed: 0:04:41.969748
+Epoch: 34 	Training Loss: 1.214840 	Validation Loss: 0.493772
+Validation loss decreased (0.499674 --> 0.493772). Saving model ...
+Ended: 2019-01-02 17:52:10.276314
+Elapsed: 0:04:41.562289
+Epoch: 35 	Training Loss: 1.203570 	Validation Loss: 0.515322
+Ended: 2019-01-02 17:56:51.141366
+Elapsed: 0:04:40.318848
+Epoch: 36 	Training Loss: 1.197851 	Validation Loss: 0.497713
+Ended: 2019-01-02 18:01:31.460943
+Elapsed: 0:04:39.762188
+Epoch: 37 	Training Loss: 1.171090 	Validation Loss: 0.492738
+Validation loss decreased (0.493772 --> 0.492738). Saving model ...
+Ended: 2019-01-02 18:06:26.908997
+Elapsed: 0:04:54.673244
+Epoch: 38 	Training Loss: 1.178850 	Validation Loss: 0.478802
+Validation loss decreased (0.492738 --> 0.478802). Saving model ...
+Ended: 2019-01-02 18:12:00.753954
+Elapsed: 0:05:33.069191
+Epoch: 39 	Training Loss: 1.174218 	Validation Loss: 0.480273
+Ended: 2019-01-02 18:17:50.020231
+Elapsed: 0:05:48.700523
+Epoch: 40 	Training Loss: 1.156336 	Validation Loss: 0.490211
+Ended: 2019-01-02 18:17:50.577065
+Elapsed: 0:05:49.257357
+Starting Testing
+Test Loss: 0.497481
+
+
+Test Accuracy: 86% (721/836)
+Ended: 2019-01-02 18:18:50.238427
+Elapsed: 0:00:56.443503
+#+end_example
+
+#+BEGIN_SRC ipython :session dog :results none
+trainer = Trainer(epochs=10,
+                  training_batches=loaders_transfer["train"],
+                  validation_batches=loaders_transfer["validate"],
+                  testing_batches=loaders_transfer["test"],
+                  model=model_transfer,
+                  device=device,
+                  optimizer=optimizer_transfer, 
+                  criterion=criterion_transfer,
+                  model_path=transfer_path.from_folder,
+                  load_model=True)
+#+END_SRC
+#+BEGIN_SRC ipython :session dog :results output :exports both
+trainer.epoch_start = 41
+trainer()
+trainer.epoch_start = 51
+#+END_SRC
+
+** Transfer CLI
+
+#+BEGIN_SRC python :noweb-ref transfer-imports
+# python
+from pathlib import Path
+from functools import partial
+
+import argparse
+
+# pypi
+from dotenv import load_dotenv
+from PIL import ImageFile
+from torchvision import datasets
+import numpy
+import torch
+import torch.nn as nn
+import torch.optim as optimizer
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+# this project
+from neurotic.tangles.data_paths import DataPathTwo
+from neurotic.tangles.timer import Timer
+
+# the output won't show up if you don't flush it when redirecting it to a file
+print = partial(print, flush=True)
+#+END_SRC
+
+#+BEGIN_SRC python :noweb-ref transfer-cli
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Test or Train the Inception V3 Dog Classifier")
+    parser.add_argument("--test-only", action="store_true",
+                        help="Only run the test")
+    parser.add_argument("--epochs", default=10, type=int,
+                        help="Training epochs (default: %(default)s)")
+    parser.add_argument(
+        "--epoch-offset", default=1, type=int,
+        help="Offset for the output of epochs (default: %(default)s)")
+    parser.add_argument("--restart", action="store_true",
+                        help="Wipe out old model.")
+
+    arguments = parser.parse_args()
+
+    data_sets = DataSets(training_path=dog_training_path.folder,
+                         validation_path=dog_validation_path.folder,
+                         testing_path=dog_testing_path.folder)
+    batches = Batches(datasets=data_sets)
+    inception = Inception(classes=len(data_sets.training.classes)
+    trainer = Trainer(epochs=arguments.epochs,
+                      epoch_start=arguments.epoch_offset,
+                      training_batches=batches.training,
+                      validation_batches=batches.validation,
+                      testing_batches=batches.testing,
+                      model=inception.model,
+                      device=inception.device,
+                      optimizer=inception.optimizer,
+                      criterion=inception.criterion,
+                      model_path=transfer_path.from_folder,
+                      load_model=True,
+                      beep=False)
+    if arguments.test_only:
+        trainer.test()
+    else:
+        trainer()
+#+END_SRC
+
+
+model_transfer = # train(n_epochs, loaders_transfer, model_transfer, optimizer_transfer, criterion_transfer, use_cuda, 'model_transfer.pt')
+
+# load the model that got the best validation accuracy (uncomment the line below)
+#model_transfer.load_state_dict(torch.load('model_transfer.pt'))
+
+
+# ### (IMPLEMENTATION) Test the Model
+# 
+# Try out your model on the test dataset of dog images. Use the code cell below to calculate and print the test loss and accuracy.  Ensure that your test accuracy is greater than 60%.
+
+# In[ ]:
+
+
+test(loaders_transfer, model_transfer, criterion_transfer, use_cuda)
+
+
+# ### (IMPLEMENTATION) Predict Dog Breed with the Model
+# 
+# Write a function that takes an image path as input and returns the dog breed (~Affenpinscher~, ~Afghan hound~, etc) that is predicted by your model.  
+
+# In[ ]:
+
+
+### TODO: Write a function that takes a path to an image as input
+### and returns the dog breed that is predicted by the model.
+* The Dog Breed Classifier
+** Dog Predictor
+#+BEGIN_SRC ipython :session dog :results none
+class DogPredictor:
+    """Makes dog-breed predictions
+    
+    Args:
+     paths: DogPaths object
+     model_path: path to the model's state-dict
+     data_sets: a DataSets object
+     inception: an Inception object
+    """
+    def __init__(self, model_path: str=None, paths: DogPaths=None,
+                 data_sets: DataSets=None, inception: Inception=None) -> None:
+        self.model_path = model_path
+        self._paths = paths
+        self._data_sets = data_sets
+        self._inception = inception
+        self._breeds = None
+        return
+
+    @property
+    def paths(self) -> DogPaths:
+        """Object with the paths to the image files"""
+        if self._paths is None:
+            self._paths = DogPaths()
+        return self._paths
+
+    @property
+    def data_sets(self) -> DataSets:
+        if self._data_sets is None:
+            self._data_sets = DataSets(
+                training_path=self.paths.training.folder,
+                validation_path=self.paths.validation.folder,
+                testing_path=self.paths.testing.folder)
+        return self._data_sets
+
+    @property
+    def inception(self) -> Inception:
+        """An Inception object"""
+        if self._inception is None:
+            self._inception = Inception(
+                classes=len(self.data_sets.training.classes),
+                model_path=self.model_path)
+            model.eval()
+        return self._inception
+
+    @property
+    def breeds(self) -> list:
+        """A list of dog-breeds"""
+        if self._breeds is None:
+            self._breeds = [name[4:].replace("_", " ")
+                            for name in self.data_sets.training.classes]
+        return self._breeds
+
+    def predict_index(self, image_path:str) -> int:
+        """Predicts the index of the breed of the dog in the image
+
+        Args:
+         image_path: path to the image
+        Returns:
+         index in the breeds list for the image
+        """
+        model = self.inception.model        
+        image = Image.open(image_path)
+        tensor = self.data_sets.transformer.testing(image)
+        # add a batch number
+        tensor = tensor.unsqueeze_(0)
+        tensor = tensor.to(self.inception.device)
+        x = torch.autograd.Variable(tensor)
+        output = model(x)
+        return output.data.cpu().numpy().argmax()
+
+    def __call__(self, image_path) -> str:
+        """Predicts the breed of the dog in the image
+
+        Args:
+         image_path: path to the image
+        Returns:
+         name of the breed
+        """
+        return self.breeds[self.predict_index(image_path)]
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+predictor = DogPredictor(model_path=transfer_path.from_folder)
+files = list(predictor.paths.testing.folder.glob("*/*.jpg"))
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results output :exports both
+case = numpy.random.choice(files, 1)[0]
+print("Sample: {}".format(case))
+predicted = predictor(case)
+print("Predicted: {}".format(predicted))
+#+END_SRC
+
+#+RESULTS:
+: Sample: /home/hades/datasets/dog-breed-classification/dogImages/test/029.Border_collie/Border_collie_02077.jpg
+: Predicted: Border collie
+
+# list of class names by index, i.e. a name can be accessed like class_names[0]
+#+BEGIN_SRC ipython :session dog :results none
+class_names = [item[4:].replace("_", " ") for item in data_transfer['train'].classes]
+#+END_SRC
+
+
+#+BEGIN_SRC ipython :session dog :results none
+def predict_breed_transfer(img_path):
+    # load the image and return the predicted breed
+    image = Image.open(img_path)
+    return None
+#+END_SRC
+
+# ---
+# <a id='step5'></a>
+# ## Step 5: Write your Algorithm
+# 
+# Write an algorithm that accepts a file path to an image and first determines whether the image contains a human, dog, or neither.  Then,
+# - if a __dog__ is detected in the image, return the predicted breed.
+# - if a __human__ is detected in the image, return the resembling dog breed.
+# - if __neither__ is detected in the image, provide output that indicates an error.
+# 
+# You are welcome to write your own functions for detecting humans and dogs in images, but feel free to use the ~face_detector~ and ~human_detector~ functions developed above.  You are __required__ to use your CNN from Step 4 to predict dog breed.  
+# 
+# Some sample output for our algorithm is provided below, but feel free to design your own user experience!
+# 
+# ![Sample Human Output](images/sample_human_output.png)
+# 
+# 
+# ### (IMPLEMENTATION) Write your Algorithm
+
+#+BEGIN_SRC ipython :session dog :results none
+class DogBreedClassifier:
+    """Tries To predict the dog-breed for an image
+
+    Args:
+     model_path: path to the inception-model
+    """
+    def __init__(self, model_path: str) -> None:
+        self.model_path = model_path
+        self._breed_predictor = None
+        self._species_detector = None
+        return
+
+    @property
+    def breed_predictor(self) -> DogPredictor:
+        """Predictor of dog-breeds"""
+        if self._breed_predictor is None:
+            self._breed_predictor = DogPredictor(model_path=self.model_path)
+        return self._breed_predictor
+
+    @property
+    def species_detector(self) -> SpeciesDetector:
+        """Detector of humans and dogs"""
+        if self._species_detector is None:
+            self._species_detector = SpeciesDetector()
+        return self._species_detector
+
+    def __call__(self, image_path:str) -> None:
+        """detects the dog-breed and displays the image
+
+        Args:
+         image_path: path to the image
+        """
+        is_dog = self.species_detector.is_dog(image_path)
+        is_human = self.species_detector.is_human(image_path)
+
+        if not is_dog and not is_human:
+            species = "Error: Neither Human nor Dog"
+            breed = "?"
+        else:
+            breed = self.breed_predictor(image_path)
+
+        if is_dog and is_human:
+            species = "Human-Dog Hybrid"
+        elif is_dog:
+            species = "Dog"
+        elif is_human:
+            species = "Human"
+        self.render(image_path, species, breed)
+        return
+
+    def render(self, image_path: str, species: str, breed: str) -> None:
+        """Renders the image
+
+        Args:
+         image_path: path to the image to render
+         species: identified species
+         breed: identified breed
+        """
+        figure, axe = pyplot.subplots()
+        figure.suptitle(species, weight="bold")
+        axe.set_xlabel(breed)
+        image = Image.open(image_path)
+        axe.tick_params(dict(axis="both",
+                             which="both",
+                             bottom=False,
+                             top=False))
+        axe.get_xaxis().set_ticks([])
+        axe.get_yaxis().set_ticks([])
+        axe_image = axe.imshow(image)
+        return
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dog :results none
+classifier = DogBreedClassifier(model_path=transfer_path.from_folder)
+#+END_SRC
+
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_one.png
+case = numpy.random.choice(human_files, 1)[0]
+classifier(case)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[79]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_one.png]]
+:END:
+
+[[file:test_one.png]]
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_two.png
+case = numpy.random.choice(dog_files, 1)[0]
+classifier(case)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[82]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_two.png]]
+:END:
+
+[[file:test_two.png]]
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_three.png
+case = "rabbit.jpg"
+classifier(case)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[69]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_three.png]]
+:END:
+
+[[file:test_three.png]]
+
+Rabbit image from [[https://commons.wikimedia.org/wiki/File:Oryctolagus_cuniculus_Tasmania_2.jpg][Wikimedia]].
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_four.png
+case = "hot_dog.jpg"
+classifier(case)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[88]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_four.png]]
+:END:
+
+[[file:test_four.png]]
+
+The Hot Dog is also from [[https://commons.wikimedia.org/wiki/File:NCI_Visuals_Food_Hot_Dog.jpg][Wikimedia]].
+
+#+BEGIN_SRC ipython :session dog :results raw drawer :ipyfile ../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_five.png
+case = human_files_short[18]
+classifier(case)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[89]:
+[[file:../../../files/posts/nano/dog-breed-classifier/dog-breed-classification/test_five.png]]
+:END:
+
+[[file:test_five.png]]
+def run_app(img_path):
+    ## handle cases for a human face, dog, and neither
+    
+
+
+# ---
+# <a id='step6'></a>
+# ## Step 6: Test Your Algorithm
+# 
+# In this section, you will take your new algorithm for a spin!  What kind of dog does the algorithm think that _you_ look like?  If you have a dog, does it predict your dog's breed accurately?  If you have a cat, does it mistakenly think that your cat is a dog?
+# 
+# ### (IMPLEMENTATION) Test Your Algorithm on Sample Images!
+# 
+# Test your algorithm at least six images on your computer.  Feel free to use any images you like.  Use at least two human and two dog images.  
+# 
+# __Question 6:__ Is the output better than you expected :) ?  Or worse :( ?  Provide at least three possible points of improvement for your algorithm.
+
+# __Answer:__ (Three possible points for improvement)
+
+# In[ ]:
+
+
+## TODO: Execute your algorithm from Step 6 on
+## at least 6 images on your computer.
+## Feel free to use as many code cells as needed.
+
+## suggested code, below
+for file in np.hstack((human_files[:3], dog_files[:3])):
+    run_app(file)
+

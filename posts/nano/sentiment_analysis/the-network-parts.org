@@ -1,0 +1,272 @@
+#+BEGIN_COMMENT
+.. title: The Network Parts
+.. slug: the-network-parts
+.. date: 2018-11-11 14:44:07 UTC-08:00
+.. tags: sentiment analysis,lecture
+.. category: Sentiment Analysis
+.. link: 
+.. description: Breaking out the parts of the Neural Network
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+This is an initial exploration of some of the parts that are going to make up the Neural Network as well as a little inspection of the data and how we're going to use it.
+* Set Up
+#+BEGIN_SRC python :tangle network_helpers.py :exports none
+<<imports>>
+
+<<constants>>
+ 
+<<network-plot>>
+
+<<update-input-layer>>
+
+<<get-target-for-label>>
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+** Imports
+*** The Tangle
+#+BEGIN_SRC python :noweb-ref imports
+from collections import Counter
+import numpy
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+*** Python
+#+BEGIN_SRC python :session sentiment :results none
+import pickle
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC python :session sentiment :results none
+from graphviz import Graph
+import numpy
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session sentiment :results none
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+** Loading The Pickles
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("total_count.pkl")
+with path.from_folder.open("rb") as reader:
+    total_counts = pickle.load(reader)
+#+END_SRC
+** Some Constants
+#+BEGIN_SRC python :noweb-ref constants
+SPLIT_ON_THIS = " "
+#+END_SRC
+* The Data
+The Reviews.
+
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("reviews.txt")
+output_path = DataPath("reviews.pkl", check_exists=False)
+if not output_path.from_folder.is_file():
+    with open(path.from_folder,'r') as reader:
+        reviews = [line.rstrip() for line in reader]
+    with output_path.from_folder.open('wb') as writer:
+        pickle.dump(reviews, writer)
+#+END_SRC
+
+The labels.
+
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("labels.txt")
+output_path = DataPath("labels.pkl", check_exists=False)
+if not output_path.from_folder.is_file():
+    with path.from_folder.open() as reader:
+        labels = (line.rstrip() for line in reader)
+        labels = [line.upper() for line in labels]
+    with output_path.from_folder.open("wb") as writer:
+        pickle.dump(labels, writer)
+#+END_SRC
+
+* Transforming Text into Numbers
+#+BEGIN_SRC python :noweb-ref network-plot
+def plot_network():
+    """
+    Creates a simplified plot of our network (simple_network.dot.png)
+    """
+    graph = Graph(format="png")
+    graph.attr(rankdir="LR")
+    
+    graph.node("a", "horrible")
+    graph.node("b", "excellent")
+    graph.node("c", "terrible")
+    graph.node("d", "")
+    graph.node("e", "")
+    graph.node("f", "")
+    graph.node("g", "")
+    graph.node("h", "positive")
+    
+    graph.edges(["ad", "ae", "af", "ag",
+                 "bd", "be", "bf", "bg",
+                 "cd", "ce" , "cf", "cg"])
+    graph.edges(["dh", 'eh', 'fh', 'gh'])
+    graph.render("graphs/simple_network.dot")
+    graph
+    return
+#+END_SRC
+
+This is one potential way to classify the sentiment of a review using a neural network. In this case if any of the terms (/horrible, excellent,/ or /terrible/) exists the input is a one for that term and the output is the sum of the multiplication of the weights times the inputs.
+
+* Creating the Input/Output Data
+** The Vocabulary
+We're going to create a "vocabulary" which is just a list of all the words in our reviews.
+
+#+BEGIN_SRC python :session sentiment :results none
+vocab = total_counts.keys()
+#+END_SRC
+
+Here's our vocabulary size.
+#+BEGIN_SRC python :session sentiment :results output :exports both
+vocab_size = len(vocab)
+print("{:,}".format(vocab_size))
+assert vocab_size==74074
+#+END_SRC
+
+#+RESULTS:
+: 74,074
+** Layer 0
+
+Now we're going to create a numpy array called /layer_0/ and initialize it to all [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.zeros.html][zeros]]. This will represent our input layer, so it will be a 2-dimensional matrix with 1 row and /vocab_size/ columns.
+
+#+BEGIN_SRC python :session sentiment :results none
+layer_0 = numpy.zeros((1, vocab_size))
+#+END_SRC
+
+Now we can double-check the shape to make sure it matches what we're expecting.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+shape = layer_0.shape
+print("{}, {:,}".format(*shape))
+assert shape == (1,74074)
+#+END_SRC
+
+#+RESULTS:
+: 1, 74,074
+
+** Word 2 Index
+=layer_0= contains one entry for every word in the vocabulary. We need to make sure we know the index of each word, so we'rec going to create a lookup table that stores the index of every word.
+
+#+BEGIN_SRC python :session sentiment :results none
+word2index = {word: index for index, word in enumerate(vocab)}
+#+END_SRC
+
+Here's the first ten entries in the lookup table.
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports both
+print("|Term| Index|")
+print("|-+-|")
+keys = list(word2index.keys())[:10]
+for key in keys:
+    print("|{}|{}|".format(key, word2index[key]))
+#+END_SRC
+
+#+RESULTS:
+| Term     | Index |
+|----------+-------|
+| bromwell |     0 |
+| high     |     1 |
+| is       |     2 |
+| a        |     3 |
+| cartoon  |     4 |
+| comedy   |     5 |
+| .        |     6 |
+| it       |     7 |
+| ran      |     8 |
+| at       |     9 |
+
+** Update Input Layer
+The =update_input_layer= will count how many times each word is used in the review and then store those counts at the appropriate indices inside =layer_0=. To make this useable in other posts you have to pass in the =word2index= table, but in the actual Neural Network we're going to use a class so it will look a little different.
+
+#+BEGIN_SRC python :noweb-ref update-input-layer
+def update_input_layer(review:str, layer_0: numpy.ndarray, word2index: dict) -> Counter:
+    """ Modify the global layer_0 to represent the vector form of review.
+    The element at a given index of layer_0 should represent
+    how many times the given word occurs in the review.
+
+    Args:
+        review: the string of the review
+        layer_0: array representing layer 0
+        word2index: dict mapping word to index in layer_0
+    Returns:
+         counter for the tokens (used for troubleshooting)
+    """
+    # clear out previous state by resetting the layer to be all 0s
+    layer_0 *= 0
+    tokens = review.split(SPLIT_ON_THIS)
+    counter = Counter()
+    counter.update(tokens)
+    for key, value in counter.items():
+        layer_0[:, word2index[key]] = value
+    return counter
+#+END_SRC
+
+Here's what happens when you update =layer_0= with the first review. 
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+update_input_layer(reviews[0])
+print(layer_0)
+#+END_SRC
+
+#+RESULTS:
+: [[4. 5. 4. ... 0. 0. 0.]]
+
+It doesn't look exciting, but if we remember that we initialized the values as all zeros, then we can see that something is changing.
+** Get Target For Labels
+  =get_target_for_labels= returns =0= or =1=, depending on whether the given label is =NEGATIVE= or =POSITIVE=, respectively. This will allow us to use the labels as we were given them and map them to numbers inside the neural net. An alternative might be to pre-process the labels or make this a dictionary.
+
+#+BEGIN_SRC python :noweb-ref get-target-for-label
+def get_target_for_label(label: str) -> int:
+    """Convert a label to `0` or `1`.
+    Args:
+        label(string) - Either "POSITIVE" or "NEGATIVE".
+    Returns:
+        `0` or `1`.
+    """
+    return 1 if label=="POSITIVE" else 0
+#+END_SRC
+
+So, here's the first label.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+print(labels[0])
+#+END_SRC
+
+#+RESULTS:
+: POSITIVE
+
+And here's what we mapped it to.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+output = get_target_for_label(labels[0])
+assert output == 1
+print(output)
+#+END_SRC
+
+#+RESULTS:
+: 1
+
+And here we go with the second label.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+print(labels[1])
+#+END_SRC
+
+#+RESULTS:
+: NEGATIVE
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+output = get_target_for_label(labels[1])
+assert output == 0
+print(output)
+#+END_SRC
+
+#+RESULTS:
+: 0
+

@@ -1,0 +1,378 @@
+#+BEGIN_COMMENT
+.. title: Making the Network More Efficient
+.. slug: making-the-network-more-efficient
+.. date: 2018-11-13 14:45:07 UTC-08:00
+.. tags: sentiment analysis
+.. category: Sentiment Analysis
+.. link: 
+.. description: Improving the efficiency of our Sentiment Analysis network.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Set Up
+#+BEGIN_SRC ipython :session sentiment :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+** Imports
+*** Python
+#+BEGIN_SRC python :session sentiment :results none
+from collections import Counter
+from functools import partial
+from pathlib import Path
+import pickle
+#+END_SRC
+*** PyPy
+#+BEGIN_SRC python :session sentiment :results none
+from tabulate import tabulate
+import numpy
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session sentiment :results none
+from network_helpers import update_input_layer
+from neurotic.tangles.data_paths import DataPath
+from sentiment_renetwork import SentimentRenetwork
+#+END_SRC
+* Loading the Network
+  I pickled our last network where we converted it from counting all the tokens in a review to just noting if the word was in the review.
+#+BEGIN_SRC python :session sentiment :results none
+sentimental = SentimentRenetwork(learning_rate=0.1, verbose=True)
+with DataPath("x_train.pkl").from_folder.open("rb") as reader:
+    x_train = pickle.load(reader)
+
+with DataPath("y_train.pkl").from_folder.open("rb") as reader:
+    y_train = pickle.load(reader)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath('x_test.pkl').from_folder.open("rb") as reader:
+    x_test = pickle.load(reader)
+
+with DataPath("y_test.pkl").from_folder.open("rb") as reader:
+    y_test = pickle.load(reader)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath("sentimental_renetwork.pkl").from_folder.open("rb") as reader:
+    sentimental = pickle.load(reader)
+#+END_SRC
+
+* Analyzing Inefficiencies in our Network
+  One of the problems with the way we're doing this is that the input layer is fairly large.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+print(sentimental.input_layer.shape)
+#+END_SRC
+
+#+RESULTS:
+: (1, 72810)
+
+It has almost 73,000 inputs, and most of the reviews are going to only match a small subset of the nodes, so when we do our calculations to pass values on to the hidden layers, most of the arithmetic isn't doing anything because the 0 input is being multiplied by the weight, which sets it to 0 before then being added to the other inputs. Numpy is fast, but maybe getting rid of the extra computations will make it better.
+
+Let's look at a toy example, we'll start with an empty input layer.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+input_layer = numpy.zeros(10)
+print(input_layer)
+#+END_SRC
+
+#+RESULTS:
+: [0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Now, we'll say that our review has two token in it that match our vocabulary.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+input_layer[7] = 1
+input_layer[1] = 1
+print(input_layer)
+#+END_SRC
+
+#+RESULTS:
+: [0. 1. 0. 0. 0. 0. 0. 1. 0. 0.]
+
+Okay, so that's the input layer, now we'll make a set of weights.
+
+#+BEGIN_SRC python :session sentiment :results none
+weights_input_to_hidden = numpy.random.randn(10, 5)
+#+END_SRC
+
+And now we'll take the dot-product to see what the input to the hidden layer will be.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+hidden_output = input_layer.dot(weights_input_to_hidden)
+print(hidden)
+#+END_SRC
+
+#+RESULTS:
+: [-2.94776967 -1.0695755   1.30840025  1.1845772  -1.73688691]
+
+
+But what happens if we only update the nodes that have a value?
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+indices = [1, 7]
+hidden_layer = numpy.zeros(5)
+for index in indices:
+    hidden_layer += (1 * weights_input_to_hidden[index])
+print(hidden_layer)
+assert numpy.allclose(hidden_layer, hidden_output)
+#+END_SRC
+
+#+RESULTS:
+: [-2.94776967 -1.0695755   1.30840025  1.1845772  -1.73688691]
+
+We get the same outcome but this time we did fewer computations. 
+
+But now, you might be wondering - /Why are we multiplying the weights by 1?/. And that's a good question, the answer is that is a translation of what the neural network is doing - every node that matches a token in the review gets a one which is multiplied by the weights - but looking at it, it doesn't make sense, does it?
+
+** Take Two
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+hidden_layer = numpy.zeros(5)
+for index in indices:
+    hidden_layer += (weights_input_to_hidden[index])
+assert numpy.allclose(hidden_output, hidden_layer)
+print(hidden_layer)
+#+END_SRC
+
+#+RESULTS:
+: [-2.94776967 -1.0695755   1.30840025  1.1845772  -1.73688691]
+
+So now we've reduced our calculation to two additions. Of course, there's the question of the efficiency of a for loop in python versus vector multiplication in numpy. But maybe it helps.
+
+* Making our Network More Efficient
+ We're going to make the =SentimentNetwork= more efficient by eliminating unnecessary multiplications and additions that occur during forward and backward propagation. Unfortunately this is going to require more work than with the previous example.
+
+#+BEGIN_SRC python :tangle sentimental_network.py :exports none
+<<senti-mental-imports>>
+
+<<senti-mental>>
+
+<<senti-mental-target-for-label>>
+
+<<senti-mental-train>>
+
+<<senti-mental-run>>
+#+END_SRC
+** Imports
+   We're going to eliminate the input layer entirely here so I'm going to use the pre-noise-reduction network.
+#+BEGIN_SRC python :noweb-ref senti-mental
+# python standard library
+from datetime import datetime
+
+# from pypi
+import numpy
+
+# this project
+from sentiment_network import (
+    Classification,
+    SentimentNetwork,
+    )
+#+END_SRC
+** The Sentimental Constructor
+   We're adding a hidden layer to the network.
+#+BEGIN_SRC python :noweb-ref senti-mental
+class SentiMental(SentimentNetwork):
+    """Implements a slightly optimized version"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hidden_layer = None
+        self._target_for_label = None
+        return
+
+    @property
+    def hidden_layer(self) -> numpy.ndarray:
+        """The hidden layer nodes"""
+        if self._hidden_layer is None:
+            self._hidden_layer = numpy.zeros((1, self.hidden_nodes))
+        return self._hidden_layer
+
+    @hidden_layer.setter
+    def hidden_layer(self, nodes: numpy.ndarray) -> None:
+        """Set the hidden nodes"""
+        self._hidden_layer = nodes
+        return
+#+END_SRC
+** Target for the Label
+   Although we have a method to get the target I'm going to add a dictionary version as well
+
+#+BEGIN_SRC python :noweb-ref senti-mental-target-for-label
+    @property
+    def target_for_label(self):
+        """target to label map"""
+        if self._target_for_label is None:
+            self._target_for_label = dict(POSITIVE=1, NEGATIVE=0)
+        return self._target_for_label
+#+END_SRC
+
+** The Train Method
+   Because we're eliminating the input layer and adding a hidden layer we have to re-do the training method from scratch.
+#+BEGIN_SRC python :noweb-ref senti-mental-train
+    def train(self, reviews:list, labels:list) -> None:
+        """Trains the model
+
+        Args:
+         reviews: list of reviews
+         labels: list of labels for each review
+        """
+        # there are side-effects that require self.reviews and self.labels
+        # maybe I should re-factor.
+        self.reviews, self.labels = reviews, labels
+
+        # make sure out we have a matching number of reviews and labels
+        assert(len(reviews) == len(labels))
+        if self.verbose:
+            start = datetime.now()
+            correct_so_far = 0
+        
+        # loop through all the given reviews and run a forward and backward pass,
+        # updating weights for every item
+        reviews_labels = zip(reviews, labels)
+        n_records = len(reviews)
+
+        for index, (review, label) in enumerate(reviews_labels):
+            # feed-forward
+            # Note: I keep thining I can just call run, but our error correction needs
+            # the input layer so we have to do all the calculations
+            # input layer is a list of indices for unique words in the review
+            # that are in our vocabulary
+
+            input_layer = [self.word_to_index[token]
+                           for token in set(review.split(self.tokenizer))
+                           if token in self.word_to_index]
+            self.hidden_layer *= 0
+
+            # here there's no multiplcation, just an implicit multiplication of 1
+            for node in input_layer:
+                self.hidden_layer += self.weights_input_to_hidden[node]
+
+            hidden_outputs = self.hidden_layer.dot(self.weights_hidden_to_output)
+            output = self.sigmoid(hidden_outputs)
+
+            # Backpropagation
+            # we need to calculate the output_error separately to update our correct count
+            output_error = output - self.target_for_label[label]
+
+            # we applied a sigmoid to the output so we need to apply the derivative
+            hidden_to_output_delta = output_error * self.sigmoid_output_to_derivative(output)
+
+            input_to_hidden_error = hidden_to_output_delta.dot(self.weights_hidden_to_output.T)
+            # we didn't apply a function to the inputs to the hidden layer
+            # so we don't need a derivative
+            input_to_hidden_delta = input_to_hidden_error
+
+            self.weights_hidden_to_output -= self.learning_rate * self.hidden_layer.T.dot(
+                hidden_to_output_delta)
+            for node in input_layer:
+                self.weights_input_to_hidden[node] -= (
+                    self.learning_rate
+                    * input_to_hidden_delta[0])
+            if self.verbose:
+                if (output < 0.5 and label=="NEGATIVE") or (output >= 0.5 and label=="POSITIVE"):
+                    correct_so_far += 1
+                if not index % 1000:
+                    elapsed_time = datetime.now() - start
+                    reviews_per_second = (index/elapsed_time.seconds
+                                          if elapsed_time.seconds > 0 else 0)
+                    print(
+                        "Progress: {:.2f} %".format(100 * index/len(reviews))
+                        + " Speed(reviews/sec): {:.2f}".format(reviews_per_second)
+                        + " Error: {}".format(output_error[0])
+                        + " #Correct: {}".format(correct_so_far)
+                        + " #Trained: {}".format(index+1)
+                        + " Training Accuracy: {:.2f} %".format(
+                            correct_so_far * 100/float(index+1))
+                        )
+        if self.verbose:
+            print("Training Time: {}".format(datetime.now() - start))
+        return
+#+END_SRC
+** The Run Method
+   As with training, the method is different enought that we have to re-do it.
+#+BEGIN_SRC python :noweb-ref senti-mental-run
+    def run(self, review: str, translate: bool=True) -> Classification:
+        """
+        Returns a POSITIVE or NEGATIVE prediction for the given review.
+
+        Args:
+         review: the review to classify
+         translate: convert output to a string
+
+        Returns:
+         classification for the review
+        """
+        nodes = [self.word_to_index[token]
+                 for token in set(review.split(self.tokenizer))
+                 if token in self.word_to_index]
+        self.hidden_layer *= 0
+        for node in nodes:
+            self.hidden_layer += self.weights_input_to_hidden[node]
+
+        hidden_outputs = self.hidden_layer.dot(self.weights_hidden_to_output)
+        output = self.sigmoid(hidden_outputs)
+        if translate:
+            output = "POSITIVE" if output[0] >= 0.5 else "NEGATIVE"
+        return output
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+from sentimental_network import SentiMental
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+sentimental = SentiMental(learning_rate=0.1, verbose=True)
+sentimental.train(x_train, y_train)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 500.00 Error: [-0.12803969] #Correct: 745 #Trained: 1001 Training Accuracy: 74.43 %
+Progress: 8.33 % Speed(reviews/sec): 666.67 Error: [-0.05466563] #Correct: 1542 #Trained: 2001 Training Accuracy: 77.06 %
+Progress: 12.50 % Speed(reviews/sec): 750.00 Error: [-0.76659525] #Correct: 2378 #Trained: 3001 Training Accuracy: 79.24 %
+Progress: 16.67 % Speed(reviews/sec): 666.67 Error: [-0.13244093] #Correct: 3185 #Trained: 4001 Training Accuracy: 79.61 %
+Progress: 20.83 % Speed(reviews/sec): 714.29 Error: [-0.03716464] #Correct: 3997 #Trained: 5001 Training Accuracy: 79.92 %
+Progress: 25.00 % Speed(reviews/sec): 750.00 Error: [-0.00921009] #Correct: 4835 #Trained: 6001 Training Accuracy: 80.57 %
+Progress: 29.17 % Speed(reviews/sec): 777.78 Error: [-0.00274399] #Correct: 5703 #Trained: 7001 Training Accuracy: 81.46 %
+Progress: 33.33 % Speed(reviews/sec): 727.27 Error: [-0.0040905] #Correct: 6555 #Trained: 8001 Training Accuracy: 81.93 %
+Progress: 37.50 % Speed(reviews/sec): 750.00 Error: [-0.02414385] #Correct: 7412 #Trained: 9001 Training Accuracy: 82.35 %
+Progress: 41.67 % Speed(reviews/sec): 769.23 Error: [-0.11133286] #Correct: 8282 #Trained: 10001 Training Accuracy: 82.81 %
+Progress: 45.83 % Speed(reviews/sec): 785.71 Error: [-0.05147756] #Correct: 9143 #Trained: 11001 Training Accuracy: 83.11 %
+Progress: 50.00 % Speed(reviews/sec): 750.00 Error: [-0.00178148] #Correct: 10006 #Trained: 12001 Training Accuracy: 83.38 %
+Progress: 54.17 % Speed(reviews/sec): 764.71 Error: [-0.3016099] #Correct: 10874 #Trained: 13001 Training Accuracy: 83.64 %
+Progress: 58.33 % Speed(reviews/sec): 777.78 Error: [-0.00105685] #Correct: 11741 #Trained: 14001 Training Accuracy: 83.86 %
+Progress: 62.50 % Speed(reviews/sec): 750.00 Error: [-0.49072786] #Correct: 12584 #Trained: 15001 Training Accuracy: 83.89 %
+Progress: 66.67 % Speed(reviews/sec): 761.90 Error: [-0.18036635] #Correct: 13414 #Trained: 16001 Training Accuracy: 83.83 %
+Progress: 70.83 % Speed(reviews/sec): 772.73 Error: [-0.17892538] #Correct: 14265 #Trained: 17001 Training Accuracy: 83.91 %
+Progress: 75.00 % Speed(reviews/sec): 782.61 Error: [-0.00702446] #Correct: 15127 #Trained: 18001 Training Accuracy: 84.03 %
+Progress: 79.17 % Speed(reviews/sec): 760.00 Error: [-0.99885025] #Correct: 16000 #Trained: 19001 Training Accuracy: 84.21 %
+Progress: 83.33 % Speed(reviews/sec): 769.23 Error: [-0.02833534] #Correct: 16873 #Trained: 20001 Training Accuracy: 84.36 %
+Progress: 87.50 % Speed(reviews/sec): 777.78 Error: [-0.22776195] #Correct: 17746 #Trained: 21001 Training Accuracy: 84.50 %
+Progress: 91.67 % Speed(reviews/sec): 785.71 Error: [-0.22165232] #Correct: 18630 #Trained: 22001 Training Accuracy: 84.68 %
+Progress: 95.83 % Speed(reviews/sec): 766.67 Error: [-0.13901935] #Correct: 19489 #Trained: 23001 Training Accuracy: 84.73 %
+Training Time: 0:00:31.545636
+#+end_example
+
+That trained much faster than the earlier models.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+sentimental.test(x_test, y_test)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00% Speed(reviews/sec): 0.00 #Correct: 1 #Tested: 1 Testing Accuracy: 100.00 %
+Progress: 10.00% Speed(reviews/sec): 0.00 #Correct: 92 #Tested: 101 Testing Accuracy: 91.09 %
+Progress: 20.00% Speed(reviews/sec): 0.00 #Correct: 178 #Tested: 201 Testing Accuracy: 88.56 %
+Progress: 30.00% Speed(reviews/sec): 0.00 #Correct: 268 #Tested: 301 Testing Accuracy: 89.04 %
+Progress: 40.00% Speed(reviews/sec): 0.00 #Correct: 351 #Tested: 401 Testing Accuracy: 87.53 %
+Progress: 50.00% Speed(reviews/sec): 0.00 #Correct: 442 #Tested: 501 Testing Accuracy: 88.22 %
+Progress: 60.00% Speed(reviews/sec): 0.00 #Correct: 533 #Tested: 601 Testing Accuracy: 88.69 %
+Progress: 70.00% Speed(reviews/sec): 0.00 #Correct: 610 #Tested: 701 Testing Accuracy: 87.02 %
+Progress: 80.00% Speed(reviews/sec): 0.00 #Correct: 689 #Tested: 801 Testing Accuracy: 86.02 %
+Progress: 90.00% Speed(reviews/sec): 0.00 #Correct: 777 #Tested: 901 Testing Accuracy: 86.24 %
+#+end_example
+
+I still can't figure out why the test-set does better than the training set.

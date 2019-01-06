@@ -1,0 +1,247 @@
+#+BEGIN_COMMENT
+.. title: Removing Noise
+.. slug: removing-noise
+.. date: 2018-11-11 16:30:38 UTC-08:00
+.. tags: sentiment analysis,lecture
+.. category: Sentiment Analysis
+.. link: 
+.. description: Improving the Network by handling noise.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Set Up
+#+BEGIN_SRC python :session sentiment :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+** Imports
+*** Python
+#+BEGIN_SRC python :session sentiment :results none
+from collections import Counter
+from functools import partial
+from pathlib import Path
+import pickle
+#+END_SRC
+*** PyPy
+#+BEGIN_SRC python :session sentiment :results none
+from tabulate import tabulate
+import numpy
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session sentiment :results none
+from network_helpers import update_input_layer
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+** Constants
+#+BEGIN_SRC python :session sentiment :results none
+SPLIT_ON_THIS = " "
+#+END_SRC
+* Understanding Neural Noise
+
+We're going to try and figure out why the Neural Network isn't improving as much as we want it to. First, let's checkout the first review.
+
+** The Pickles
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath("total_counts.pkl").from_folder.open("rb") as reader:
+    total_counts = pickle.load(reader)
+vocab_size = len(total_counts)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("reviews.pkl")
+with path.from_folder.open("rb") as reader:
+    reviews = pickle.load(reader)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+vocab = total_counts.keys()
+word2index = {word: index for index, word in enumerate(vocab)}
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+layer_0 = numpy.zeros((1, vocab_size))
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+counter = update_input_layer(reviews[0], layer_0, word2index)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+print(sorted(layer_0[0], reverse=True)[:10])
+#+END_SRC
+
+#+RESULTS:
+: [27.0, 15.0, 9.0, 6.0, 5.0, 5.0, 4.0, 4.0, 4.0, 4.0]
+
+So it looks like two of the words in the first review have a disproportionate representation. Lets see what they are.
+#+BEGIN_SRC python :session sentiment :results none
+table = partial(tabulate, tablefmt="orgtbl", headers="keys")
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+def print_most_common(counter: Counter, count: int=10, bottom=False) -> None:
+    """Prints most common tokens as an org-tabel"""
+    tokens, counts = [], []
+    for token, count in sorted(counter.items(), reverse=bottom)[:count]:
+        tokens.append(token)
+        counts.append(count)
+    print(table(dict(Token=tokens, Count=counts)))
+    return
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports both
+print_most_common(counter)
+#+END_SRC
+
+#+RESULTS:
+| Token  | Count |
+|--------+-------|
+|        |    15 |
+| .      |    27 |
+| a      |     4 |
+| about  |     1 |
+| adults |     1 |
+| age    |     1 |
+| all    |     1 |
+| and    |     1 |
+| as     |     2 |
+| at     |     2 |
+
+So, as I noted before, the dominant tokens aren't revealing as far as sentiment goes. A smarter tokenizer would probably have helped.
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports both
+print_most_common(total_counts)
+#+END_SRC
+
+#+RESULTS:
+| Token       |   Count |
+|-------------+---------|
+|             | 1049343 |
+| .           |  327192 |
+| a           |  163009 |
+| aa          |       5 |
+| aaa         |       9 |
+| aaaaaaah    |       1 |
+| aaaaah      |       1 |
+| aaaaatch    |       1 |
+| aaaahhhhhhh |       1 |
+| aaaand      |       1 |
+
+You can see that it gets even worse when you look at the overall corpus. All these unuseful tokens are adding too much noise to the dataset.
+
+* Reducing Noise in Our Input Data
+
+Rather than using a tokenizer that knows stop-words, punctuation, etc. we're going to just stop using counts and rely on the neural network to figure out which weights between the input layer and the hidden layer to zero-out. To do this we just have to convert the inputs from word counts to just binary inputs (is the token in the review or not)?
+
+I'm going to keep extending this class so I'll tangle it out so I can import it elsewhere so the next two blocks are actually in a module named =sentiment_renetwork=.
+#+BEGIN_SRC python :tangle sentiment_renetwork.py :exports none
+<<imports>>
+
+<<sentiment-re-network>>
+#+END_SRC
+
+#+BEGIN_SRC python :noweb-ref imports
+from sentiment_network import SentimentNetwork
+#+END_SRC
+
+#+BEGIN_SRC python :noweb-ref sentiment-re-network
+class SentimentRenetwork(SentimentNetwork):
+    """Re-do of the Sentiment Network
+
+    .. uml::
+    
+       SentimentRenetwork --|> SentimentNetwork
+
+    This is a re-implementation that doesn't use counts as inputs
+    """
+    def update_input_layer(self, review: str) -> None:
+        """Update the counts in the input layer
+
+        Args:
+         review: A movie review
+        """
+        self.input_layer *= 0
+        tokens = set(review.split(self.tokenizer))
+        for token in tokens:
+            if token in self.word_to_index:
+                self.input_layer[:, self.word_to_index[token]] = 1
+        return
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+from sentiment_renetwork import SentimentRenetwork
+sentimental = SentimentRenetwork(learning_rate=0.1, verbose=True)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath("x_train.pkl").from_folder.open("rb") as reader:
+    x_train = pickle.load(reader)
+
+with DataPath("y_train.pkl").from_folder.open("rb") as reader:
+    y_train = pickle.load(reader)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+sentimental.train(x_train, y_train)
+#+END_SRC
+
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.12803969] #Correct: 745 #Trained: 1001 Training Accuracy: 74.43 %
+Progress: 8.33 % Speed(reviews/sec): 285.71 Error: [-0.05466563] #Correct: 1542 #Trained: 2001 Training Accuracy: 77.06 %
+Progress: 12.50 % Speed(reviews/sec): 300.00 Error: [-0.76659525] #Correct: 2378 #Trained: 3001 Training Accuracy: 79.24 %
+Progress: 16.67 % Speed(reviews/sec): 285.71 Error: [-0.13244093] #Correct: 3185 #Trained: 4001 Training Accuracy: 79.61 %
+Progress: 20.83 % Speed(reviews/sec): 294.12 Error: [-0.03716464] #Correct: 3997 #Trained: 5001 Training Accuracy: 79.92 %
+Progress: 25.00 % Speed(reviews/sec): 300.00 Error: [-0.00921009] #Correct: 4835 #Trained: 6001 Training Accuracy: 80.57 %
+Progress: 29.17 % Speed(reviews/sec): 304.35 Error: [-0.00274399] #Correct: 5703 #Trained: 7001 Training Accuracy: 81.46 %
+Progress: 33.33 % Speed(reviews/sec): 307.69 Error: [-0.0040905] #Correct: 6555 #Trained: 8001 Training Accuracy: 81.93 %
+Progress: 37.50 % Speed(reviews/sec): 300.00 Error: [-0.02414385] #Correct: 7412 #Trained: 9001 Training Accuracy: 82.35 %
+Progress: 41.67 % Speed(reviews/sec): 303.03 Error: [-0.11133286] #Correct: 8282 #Trained: 10001 Training Accuracy: 82.81 %
+Progress: 45.83 % Speed(reviews/sec): 305.56 Error: [-0.05147756] #Correct: 9143 #Trained: 11001 Training Accuracy: 83.11 %
+Progress: 50.00 % Speed(reviews/sec): 300.00 Error: [-0.00178148] #Correct: 10006 #Trained: 12001 Training Accuracy: 83.38 %
+Progress: 54.17 % Speed(reviews/sec): 302.33 Error: [-0.3016099] #Correct: 10874 #Trained: 13001 Training Accuracy: 83.64 %
+Progress: 58.33 % Speed(reviews/sec): 304.35 Error: [-0.00105685] #Correct: 11741 #Trained: 14001 Training Accuracy: 83.86 %
+Progress: 62.50 % Speed(reviews/sec): 306.12 Error: [-0.49072786] #Correct: 12584 #Trained: 15001 Training Accuracy: 83.89 %
+Progress: 66.67 % Speed(reviews/sec): 307.69 Error: [-0.18036635] #Correct: 13414 #Trained: 16001 Training Accuracy: 83.83 %
+Progress: 70.83 % Speed(reviews/sec): 309.09 Error: [-0.17892538] #Correct: 14265 #Trained: 17001 Training Accuracy: 83.91 %
+Progress: 75.00 % Speed(reviews/sec): 305.08 Error: [-0.00702446] #Correct: 15127 #Trained: 18001 Training Accuracy: 84.03 %
+Progress: 79.17 % Speed(reviews/sec): 306.45 Error: [-0.99885025] #Correct: 16000 #Trained: 19001 Training Accuracy: 84.21 %
+Progress: 83.33 % Speed(reviews/sec): 307.69 Error: [-0.02833534] #Correct: 16873 #Trained: 20001 Training Accuracy: 84.36 %
+Progress: 87.50 % Speed(reviews/sec): 308.82 Error: [-0.22776195] #Correct: 17746 #Trained: 21001 Training Accuracy: 84.50 %
+Progress: 91.67 % Speed(reviews/sec): 305.56 Error: [-0.22165232] #Correct: 18630 #Trained: 22001 Training Accuracy: 84.68 %
+Progress: 95.83 % Speed(reviews/sec): 306.67 Error: [-0.13901935] #Correct: 19489 #Trained: 23001 Training Accuracy: 84.73 %
+Training Time: 0:01:18.649050
+#+end_example
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+with DataPath("sentimental_renetwork.pkl", check_exists=False).from_folder.open("wb") as writer:
+    pickle.dump(sentimental, writer)
+#+END_SRC
+
+#+RESULTS:
+
+Here's how well it does on the test-set.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+sentimental.test(x_test, y_test)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00% Speed(reviews/sec): 0.00 #Correct: 1 #Tested: 1 Testing Accuracy: 100.00 %
+Progress: 10.00% Speed(reviews/sec): 0.00 #Correct: 92 #Tested: 101 Testing Accuracy: 91.09 %
+Progress: 20.00% Speed(reviews/sec): 0.00 #Correct: 178 #Tested: 201 Testing Accuracy: 88.56 %
+Progress: 30.00% Speed(reviews/sec): 0.00 #Correct: 268 #Tested: 301 Testing Accuracy: 89.04 %
+Progress: 40.00% Speed(reviews/sec): 0.00 #Correct: 351 #Tested: 401 Testing Accuracy: 87.53 %
+Progress: 50.00% Speed(reviews/sec): 0.00 #Correct: 442 #Tested: 501 Testing Accuracy: 88.22 %
+Progress: 60.00% Speed(reviews/sec): 0.00 #Correct: 533 #Tested: 601 Testing Accuracy: 88.69 %
+Progress: 70.00% Speed(reviews/sec): 0.00 #Correct: 610 #Tested: 701 Testing Accuracy: 87.02 %
+Progress: 80.00% Speed(reviews/sec): 0.00 #Correct: 689 #Tested: 801 Testing Accuracy: 86.02 %
+Progress: 90.00% Speed(reviews/sec): 0.00 #Correct: 777 #Tested: 901 Testing Accuracy: 86.24 %
+#+end_example
+
+Oddly, it does better on the test set than the training set?

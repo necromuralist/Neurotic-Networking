@@ -1,0 +1,220 @@
+#+BEGIN_COMMENT
+.. title: Transfer Learning One More Time
+.. slug: transfer-learning-one-more-time
+.. date: 2018-11-25 14:55:58 UTC-08:00
+.. tags: pytorch,transfer learning,exercise,classification
+.. category: PyTorch
+.. link: 
+.. description: This is a re-do of the image classification post (Part 8 of the pytorch exercises).
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+#+BEGIN_SRC python :session pytorch :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+I spent so much time debugging the original post that I though I'd re-do it without all the flailing around.
+
+* Introduction
+  This is from [[https://github.com/udacity/deep-learning-v2-pytorch.git][Udacity's Deep Learning Repository]] which supports their Deep Learning Nanodegree.
+
+This uses a model trained on [[http://www.image-net.org/][ImageNet]] ([[http://pytorch.org/docs/0.3.0/torchvision/models.html][available from torchvision]]) to classify the [[https://www.kaggle.com/c/dogs-vs-cats][dataset of cat and dog photos]] that we used earlier. We're going to use a method called [[https://en.wikipedia.org/wiki/Transfer_learning][transfer learning]] where we will use the layers of the pretrained model all the way up until the final classifier which we will define ourselves and train on our new data-set. This way we can take advantage of what the model has already learned for image detection and only train a few layers.
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC python :session pytorch :results none
+from collections import OrderedDict
+from datetime import datetime
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC python :session pytorch :results none
+from torch import nn
+from torch import optim
+from torchvision import datasets, transforms, models
+import torch
+import torch.nn.functional as F
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session pytorch :results none
+from neurotic.tangles.data_paths import DataPathTwo
+from neurotic.models.fashion import (
+    train_only,
+    test_only,
+    )
+#+END_SRC
+** Dotenv
+   For some reason dotenv has stopped working unless it's called in the notebook. Maybe this will fix it
+#+BEGIN_SRC python :session pytorch :results none :exports none
+from dotenv import load_dotenv
+load_dotenv()
+#+END_SRC
+* The Data
+We're going to have to resize the images to be 224x224 to work with the pre-trained models and match the means (~[0.485, 0.456, 0.406]~) and the standard deviations (~[0.229, 0.224, 0.225]~) that were used to normalize the original data set.
+
+#+BEGIN_SRC python :session pytorch :results none
+means = [0.485, 0.456, 0.406]
+deviations = [0.229, 0.224, 0.225]
+PIXELS = 224
+
+train_transforms = transforms.Compose([transforms.RandomRotation(30),
+                                       transforms.RandomResizedCrop(PIXELS),
+                                       transforms.RandomHorizontalFlip(),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(means,
+                                                            deviations)])
+
+test_transforms = transforms.Compose([transforms.Resize(255),
+                                      transforms.CenterCrop(PIXELS),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize(means,
+                                                           deviations)])
+#+END_SRC
+
+** Load the Data
+   As I mentioned we're using the same Cat and Dog images as before. So first I make my path-setter (which maybe isn't as useful as it was when I had dotenv working better).
+#+BEGIN_SRC python :session pytorch :results none
+train_path = DataPathTwo(folder_key="CAT_DOG_TRAIN")
+test_path = DataPathTwo(folder_key="CAT_DOG_TEST")
+#+END_SRC
+
+So now we set up the testing and training data sets.
+
+#+BEGIN_SRC python :session pytorch :results none
+train_data = datasets.ImageFolder(train_path.folder,
+                                  transform=train_transforms)
+test_data = datasets.ImageFolder(test_path.folder,
+                                 transform=test_transforms)
+#+END_SRC
+
+And create the batch-iterators with a batch-size of 64.
+#+BEGIN_SRC python :session pytorch :results none
+BATCH_SIZE = 64
+train_batches = torch.utils.data.DataLoader(train_data, batch_size=BATCH_SIZE,
+                                            shuffle=True)
+test_batches = torch.utils.data.DataLoader(test_data, batch_size=BATCH_SIZE)
+#+END_SRC
+
+* The DenseNet Model
+I'm going to load the [[http://pytorch.org/docs/0.3.0/torchvision/models.html#id5][DenseNet]] model.
+
+#+BEGIN_SRC python :session pytorch :results none
+model = models.densenet121(pretrained=True)
+#+END_SRC
+
+It actually emits a warning that the code is using an incorrect method call somewhere, but I'll ignore that.
+
+#+BEGIN_EXAMPLE
+ UserWarning: nn.init.kaiming_normal is now deprecated in favor of nn.init.kaiming_normal_.
+  nn.init.kaiming_normal(m.weight.data)
+#+END_EXAMPLE
+
+** Freeze The Model Parameters
+   We need to freeze the parameters before training so we don't end up trying to re-train our pre-trained network.
+
+#+BEGIN_SRC python :session pytorch :results none
+for param in model.parameters():
+    param.requires_grad = False
+#+END_SRC
+
+** The Classifier
+   So this is the part where we add our own classifier at the end so that we can train it on cats and dogs. I'll use the original 500 fully connected nodes instead of the 256 I ended up with in my previous attempt.
+
+To figure out the inputs to the layer we can just look at the original =classifier= layer in the model.
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+print(model.classifier)
+#+END_SRC
+
+#+RESULTS:
+: Linear(in_features=1024, out_features=1000, bias=True)
+
+So we need to make sure we have 1,024 inputs to our classification layer and change the number of outputs to 2 (since we have only dogs and cats). We're also going to use two layers, the first one will have a ReLU activation and the second (the output) will have a [[https://pytorch.org/docs/stable/nn.html?highlight=logsoftmax#torch.nn.LogSoftmax][Log-Softmax]] activation.
+
+#+BEGIN_SRC python :session pytorch :results none
+HIDDEN_NODES = 500
+INPUT_NODES = 1024
+OUTPUT_NODES = 2
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results none
+classifier = nn.Sequential(OrderedDict([
+                          ('fully_connected_layer',
+                           nn.Linear(INPUT_NODES, HIDDEN_NODES)),
+                          ('relu', nn.ReLU()),
+                          ("dropout", nn.Dropout(p=0.2)),
+                          ('fully_connected_layer_2',
+                           nn.Linear(HIDDEN_NODES, OUTPUT_NODES)),
+                          ('output', nn.LogSoftmax(dim=1))
+                          ]))
+model.classifier = classifier
+#+END_SRC
+
+So we now have a (mostly) pre-trained deep neural network with an untrained classifier.
+
+* Add Some CUDA
+  To speed this up somewhat I'll add (if it's available) a little cuda.
+#+BEGIN_SRC python :session pytorch :results none
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results none
+model.to(device)
+#+END_SRC
+
+** Add some more CUDA
+   This next bit doesn't work on any of my machines, but maybe someday.
+#+BEGIN_SRC python :session pytorch :results output :exports both
+if torch.cuda.device_count() > 1:
+    print("Using {} GPUs".format(torch.cuda.device_count()))
+    model = nn.DataParallel(model)
+    model.to(device)
+else:
+    print("Only 1 GPU available")
+#+END_SRC
+
+#+RESULTS:
+: Only 1 GPU available
+
+* Train It
+  First we'll set up our criterion - Negative Log Likelihood Loss ([[https://pytorch.org/docs/stable/nn.html?highlight=nllloss#torch.nn.NLLLoss][NLLLoss]]) and optimizer - [[https://pytorch.org/docs/stable/optim.html?highlight=adam#torch.optim.Adam][Adam]] Optimization. Amazingly this only needs one pass through the data set. There's 352 batches in the training data-set so I won't print out each of the outcomes for the epochs.
+
+#+BEGIN_SRC python :session pytorch :results none
+LEARNING_RATE = 0.003
+EPOCHS = 1
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results none
+criterion = nn.NLLLoss()
+optimizer = optim.Adam(model.classifier.parameters(), lr=LEARNING_RATE)
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+start = datetime.now()
+outcome = train_only(model, optimizer, criterion,
+                     train_batches,
+                     epochs=EPOCHS, emit=False, device=device)
+print("Training Time: {}".format(datetime.now() - start))
+#+END_SRC
+
+#+RESULTS:
+: Training Time: 0:10:35.847469
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+start = datetime.now()
+test_outcome = test_only(model, test_batches, device)
+print("Test Time: {}".format(datetime.now() - start))
+#+END_SRC
+
+#+RESULTS:
+: Test Time: 0:00:46.695136
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+print(test_outcome)
+#+END_SRC
+
+#+RESULTS:
+: 0.9788
+
+The key bit here was that I was earlier forgetting to add dropout, dropping the accuracy to between .5 and .6.

@@ -1,0 +1,311 @@
+#+BEGIN_COMMENT
+.. title: Simple Autoencoder
+.. slug: simple-autoencoder
+.. date: 2018-12-17 23:30:13 UTC-08:00
+.. tags: autoencoder
+.. category: Autoencoder
+.. link: 
+.. description: A simple autoencoder.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Introduction
+We'll start off by building a simple autoencoder to compress the MNIST dataset. With autoencoders, we pass input data through an encoder that makes a compressed representation of the input. Then, this representation is passed through a decoder to reconstruct the input data. Generally the encoder and decoder will be built with neural networks, then trained on example data.
+* Compressed Representation
+
+A compressed representation can be great for saving and sharing any kind of data in a way that is more efficient than storing raw data. In practice, the compressed representation often holds key information about an input image and we can use it for denoising images or other kinds of reconstruction and transformation!
+* Set Up
+In this notebook, we'll be build a simple network architecture for the encoder and decoder. Let's get started by importing our libraries and getting the dataset.
+** Imports
+*** PyPi
+#+BEGIN_SRC python :session autoencoder :results none
+from dotenv import load_dotenv
+from torchvision import datasets
+import matplotlib.pyplot as pyplot
+import numpy
+import seaborn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.transforms as transforms
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session autoencoder :results none
+from neurotic.tangles.data_paths import DataPathTwo
+#+END_SRC
+** Plotting
+#+BEGIN_SRC python :session autoencoder :results none
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=3)
+#+END_SRC
+** The Data
+*** Data Transformer
+#+BEGIN_SRC python :session autoencoder :results none
+transform = transforms.ToTensor()
+#+END_SRC
+
+*** Load the Data
+#+BEGIN_SRC python :session autoencoder :results output :exports both
+load_dotenv()
+path = DataPathTwo(folder_key="MNIST")
+print(path.folder)
+#+END_SRC
+
+#+RESULTS:
+: /home/hades/datasets/MNIST
+
+#+BEGIN_SRC python :session autoencoder :results none
+train_data = datasets.MNIST(root=path.folder, train=True,
+                            download=True, transform=transform)
+test_data = datasets.MNIST(root=path.folder, train=False,
+                           download=True, transform=transform)
+#+END_SRC
+
+*** Training and Test Batch Loaders
+**** Some Constants
+#+BEGIN_SRC python :session autoencoder :results none
+# number of subprocesses to use for data loading
+NUM_WORKERS = 0
+# how many samples per batch to load
+BATCH_SIZE = 20
+#+END_SRC
+
+Prepare the loaders.
+
+#+BEGIN_SRC python :session autoencoder :results none
+train_loader = torch.utils.data.DataLoader(train_data,
+                                           batch_size=BATCH_SIZE,
+                                           num_workers=NUM_WORKERS)
+test_loader = torch.utils.data.DataLoader(test_data,
+                                          batch_size=BATCH_SIZE,
+                                          num_workers=NUM_WORKERS)
+#+END_SRC
+
+* Visualize the Data
+** Obtain One Batch of Training Images
+
+#+BEGIN_SRC python :session autoencoder :results none
+dataiter = iter(train_loader)
+images, labels = dataiter.next()
+images = images.numpy()
+#+END_SRC
+
+** Get One Image From the Batch
+#+BEGIN_SRC python :session autoencoder :results none
+img = numpy.squeeze(images[0])
+#+END_SRC
+
+#+BEGIN_SRC python :session autoencoder :results raw drawer :ipyfile ../../../files/posts/autoencoders/simple-autoencoder/first_image.png
+figure, axe = pyplot.subplots()
+figure.suptitle("First Image", weight="bold")
+image = axe.imshow(img, cmap='gray')
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[11]:
+[[file:../../../files/posts/autoencoders/simple-autoencoder/first_image.png]]
+:END:
+
+[[file:first_image.png]]
+
+* Linear Autoencoder
+** Description
+We'll train an autoencoder with these images by flattening them into 784 length vectors. The images from this dataset are already normalized such that the values are between 0 and 1. Let's start by building a simple autoencoder. The encoder and decoder should be made of **one linear layer**. The units that connect the encoder and decoder will be the /compressed representation/.
+
+Since the images are normalized between 0 and 1, we need to use a **sigmoid activation on the output layer** to get values that match this input value range.
+
+ - The input images will be flattened into 784 length vectors. The targets are the same as the inputs. 
+ - The encoder and decoder will be made of two linear layers, each.
+ - The depth dimensions should change as follows: 784 inputs > **encoding_dim** > 784 outputs.
+ - All layers will have ReLu activations applied except for the final output layer, which has a sigmoid activation.
+
+**The compressed representation should be a vector with dimension ~encoding_dim=32~.**
+** Architecture Definition
+
+#+BEGIN_SRC python :session autoencoder :results none
+rows, columns = img.shape
+IMAGE_DIMENSION = rows * columns
+#+END_SRC
+
+#+BEGIN_SRC python :session autoencoder :results none
+class Autoencoder(nn.Module):
+    """"" simple autoencoder-decoder
+
+    Args:
+     encoding_dim: the dimension of the encoded image
+    """
+    def __init__(self, encoding_dim:int):
+        super().__init__()
+        self.encoder = nn.Linear(IMAGE_DIMENSION, encoding_dim)
+        self.activation_one = nn.ReLU()
+        self.decoder = nn.Linear(encoding_dim, IMAGE_DIMENSION)
+        self.activation_output = nn.Sigmoid()
+        return
+        
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Does one feed-forward pass
+
+        Args:
+         x: flattened MNIST image
+
+        Returns:
+         the encoded-decoded version of the image
+        """
+        x = self.activation_one(self.encoder(x))
+        return self.activation_output(self.decoder(x))
+#+END_SRC
+
+** Initialize the Auto-Encoder
+
+#+BEGIN_SRC python :session autoencoder :results output :exports both
+encoding_dim = 32
+model = Autoencoder(encoding_dim)
+print(model)
+#+END_SRC
+
+#+RESULTS:
+: Autoencoder(
+:   (encoder): Linear(in_features=784, out_features=32, bias=True)
+:   (activation_one): ReLU()
+:   (decoder): Linear(in_features=32, out_features=784, bias=True)
+:   (activation_output): Sigmoid()
+: )
+
+
+** Training
+ 
+Here I'll write a bit of code to train the network. I'm not too interested in validation here, so I'll just monitor the training loss and the test loss afterwards. 
+
+We are not concerned with labels in this case, just images, which we can get from the ~train_loader~. Because we're comparing pixel values in input and output images, it will be best to use a loss that is meant for a regression task. Regression is all about comparing /quantities/ rather than probabilistic values. So, in this case, I'll use [[https://pytorch.org/docs/stable/nn.html?highlight=mseloss#torch.nn.MSELoss][~MSELoss~]], which calculates the Mean-Squared Error between the predicted and the actual value, and compare output images and input images as follows:
+
+#+BEGIN_SRC python
+loss = criterion(outputs, images)
+#+END_SRC
+
+Otherwise, this is pretty straightfoward training with PyTorch. We flatten our images, pass them into the autoencoder, and record the training loss as we go.
+
+*** Specify the Loss Function
+#+BEGIN_SRC python :session autoencoder :results none
+criterion = nn.MSELoss()
+#+END_SRC
+
+*** Specifiy the Optimizer
+    We're going to use the [[https://pytorch.org/docs/stable/optim.html?highlight=adam#torch.optim.Adam][Adam]] optimizer instead of Stochastic Gradient Descent.
+
+#+BEGIN_SRC python :session autoencoder :results none
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+#+END_SRC
+
+*** And Now We Train
+#+BEGIN_SRC python :session autoencoder :results output :exports both
+n_epochs = 20
+
+for epoch in range(1, n_epochs+1):
+    # monitor training loss
+    train_loss = 0.0
+    
+    ###################
+    # train the model #
+    ###################
+    for data in train_loader:
+        # _ stands in for labels, here
+        images, _ = data
+        # flatten images
+        images = images.view(images.size(0), -1)
+        # clear the gradients of all optimized variables
+        optimizer.zero_grad()
+        # forward pass: compute predicted outputs by passing inputs to the model
+        outputs = model(images)
+        # calculate the loss
+        loss = criterion(outputs, images)
+        # backward pass: compute gradient of the loss with respect to model parameters
+        loss.backward()
+        # perform a single optimization step (parameter update)
+        optimizer.step()
+        # update running training loss
+        train_loss += loss.item()*images.size(0)
+            
+    # print avg training statistics 
+    train_loss = train_loss/len(train_loader)
+    print('Epoch: {} \tTraining Loss: {:.6f}'.format(
+        epoch, 
+        train_loss
+        ))
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Epoch: 1 	Training Loss: 0.622334
+Epoch: 2 	Training Loss: 0.297601
+Epoch: 3 	Training Loss: 0.258895
+Epoch: 4 	Training Loss: 0.250710
+Epoch: 5 	Training Loss: 0.247124
+Epoch: 6 	Training Loss: 0.244808
+Epoch: 7 	Training Loss: 0.243222
+Epoch: 8 	Training Loss: 0.242119
+Epoch: 9 	Training Loss: 0.241254
+Epoch: 10 	Training Loss: 0.240563
+Epoch: 11 	Training Loss: 0.239997
+Epoch: 12 	Training Loss: 0.239529
+Epoch: 13 	Training Loss: 0.239120
+Epoch: 14 	Training Loss: 0.238747
+Epoch: 15 	Training Loss: 0.238395
+Epoch: 16 	Training Loss: 0.238030
+Epoch: 17 	Training Loss: 0.237546
+Epoch: 18 	Training Loss: 0.237213
+Epoch: 19 	Training Loss: 0.236916
+Epoch: 20 	Training Loss: 0.236473
+#+end_example
+
+** Checking out the results
+
+Below I've plotted some of the test images along with their reconstructions. For the most part these look pretty good except for some blurriness in some parts.
+
+
+*** Obtain One Batch Of Test Images
+#+BEGIN_SRC python :session autoencoder :results none
+dataiter = iter(test_loader)
+images, labels = dataiter.next()
+
+images_flatten = images.view(images.size(0), -1)
+
+# get sample outputs
+output = model(images_flatten)
+# prep images for display
+images = images.numpy()
+
+
+# output is resized into a batch of images
+output = output.view(BATCH_SIZE, 1, 28, 28)
+# use detach when it's an output that requires_grad
+output = output.detach().numpy()
+#+END_SRC
+
+#+BEGIN_SRC python :session autoencoder :results raw drawer :ipyfile ../../files/posts/nano/autoencoders/simple-autoencoder/recomposed.png
+figure, axes = pyplot.subplots(nrows=2, ncols=10, sharex=True, sharey=True, figsize=(10,8))
+
+# input images on top row, reconstructions on bottom
+for images, row in zip([images, output], axes):
+    for img, ax in zip(images, row):
+        ax.imshow(numpy.squeeze(img), cmap='gray')
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[19]:
+[[file:../../files/posts/nano/autoencoders/simple-autoencoder/recomposed.png]]
+:END:
+
+[[file:recomposed.png]]

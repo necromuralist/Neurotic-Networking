@@ -1,0 +1,614 @@
+#+BEGIN_COMMENT
+.. title: The Sentiment Analyzer
+.. slug: the-sentiment-analyzer
+.. date: 2018-11-11 15:10:27 UTC-08:00
+.. tags: lectures,sentiment analysis
+.. category: Sentiment Analysis
+.. link: 
+.. description: The first implementation of a Neural Network for Sentiment Analysis.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Set Up
+#+BEGIN_SRC python :session sentiment :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+** Imports
+*** Python
+#+BEGIN_SRC python :session sentiment :results none
+import pickle
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session sentiment :results none
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+** The Data
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("reviews.pkl")
+with path.from_folder.open('rb') as reader:
+    reviews = pickle.load(reader)
+#+END_SRC
+** The Labels
+   A similar deal except casting the labels to upper case.
+
+#+BEGIN_SRC python :session sentiment :results none
+path = DataPath("labels.pkl")
+with path.from_folder.open('rb') as reader:
+    labels = pickle.load(reader)
+#+END_SRC
+
+
+**Note:** The data in =reviews.txt= we're using has already been preprocessed a bit and contains only lower case characters. If we were working from raw data, where we didn't know it was all lower case, we would want to add a step here to convert it. That's so we treat different variations of the same word, like `The`, `the`, and `THE`, all the same way.
+
+* Encapsulate our neural network in a class
+   I'm going to try and break up the class so that I can make notes. You can't really do that in a notebook, though, so I'm going to tangle it out. The following Class is going to end up in a module named =sentiment_network=.
+#+BEGIN_SRC python :tangle sentiment_network.py
+<<imports>>
+
+<<constants>>
+
+<<sentiment-network>>
+
+    <<sentiment-network-review-vocabulary>>
+    
+    <<sentiment-network-review-vocabulary-size>>
+    
+    <<sentiment-network-label-vocabulary>>
+    
+    <<sentiment-network-label-vocabulary-size>>
+    
+    <<sentiment-network-word-to-index>>
+    
+    <<sentiment-network-label-to-index>>
+    
+    <<sentiment-network-input-nodes>>
+    
+    <<sentiment-network-weights-input-to-hidden>>
+    
+    <<sentiment-network-weights-hidden-to-output>>
+    
+    <<sentiment-network-input-layer>>
+
+<<sentiment-network-update-input-layer>>
+
+<<sentiment-network-get-target-for-label>>
+
+<<sentiment-network-sigmoid>>
+
+<<sentiment-network-sigmoid-output-2-derivative>>
+
+<<sentiment-network-train>>
+
+<<sentiment-network-test>>
+
+<<sentiment-network-run>>
+#+END_SRC
+
+** Imports
+#+BEGIN_SRC python :noweb-ref imports
+# From python
+from collections import Counter
+from datetime import datetime
+from typing import (
+    List,
+    Union,
+    )
+# from pypi
+import numpy
+#+END_SRC
+** Constants
+#+BEGIN_SRC python :noweb-ref constants
+SPLIT_ON_THIS = " "
+Review = List[str]
+Label = List[str]
+Classification = Union[int, str]
+#+END_SRC
+** Sentiment Network Constructor
+   To make this more like a SKlearn implementation I'm not going to add the training and testing data at this point. This will break one of the examples given. Oh well.
+#+BEGIN_SRC python :noweb-ref sentiment-network
+class SentimentNetwork:
+    """A network to predict if a review is positive or negative
+
+    Args:
+     hidden_nodes: Number of nodes to create in the hidden layer
+     learning_rate: Learning rate to use while training        
+     output_nodes: Number of output nodes (should always be 1)
+     tokenizer: what to split on
+     verbose: whether to output update information
+    """
+    def __init__(self,
+                 hidden_nodes: int=10, 
+                 learning_rate: float=0.1,
+                 output_nodes: int=1,
+                 tokenizer:str=" ",
+                 verbose:bool=False) -> None:
+        # Assign a seed to our random number generator to ensure we get
+        # reproducable results during development 
+        numpy.random.seed(1)
+        self.hidden_nodes = hidden_nodes
+        self.learning_rate = learning_rate
+        self.output_nodes = output_nodes
+        self.tokenizer = tokenizer
+        self.verbose = verbose
+        self._review_vocabulary = None
+        self._label_vocabulary = None
+        self._review_vocabulary_size = None
+        self._label_vocabulary_size = None
+        self._word_to_index = None
+        self._label_to_index = None
+        self._input_nodes = None
+        self._weights_input_to_hidden = None
+        self._weights_hidden_to_output = None
+        self._input_layer = None
+        return
+#+END_SRC
+** The Review Vocabulary
+   This takes the training reviews and tokenizes them so we have a set of unique tokens to work with. This requires that =self.reviews= and =self.tokenizer= are set.
+#+BEGIN_SRC python :noweb-ref sentiment-network-review-vocabulary
+@property
+def review_vocabulary(self) -> List:
+    """list of tokens in the reviews"""
+    if self._review_vocabulary is None:
+        vocabulary = set()
+        for review in self.reviews:
+            vocabulary.update(set(review.split(self.tokenizer)))
+        self._review_vocabulary = list(vocabulary)
+    return self._review_vocabulary
+#+END_SRC
+** The Review Vocabulary Size
+   This is the number of tokens we ended up with after tokenizing the training reviews.
+#+BEGIN_SRC python :noweb-ref sentiment-network-review-vocabulary-size
+@property
+def review_vocabulary_size(self) -> int:
+    """The amount of tokens in our reviews"""
+    if self._review_vocabulary_size is None:
+        self._review_vocabulary_size = len(self.review_vocabulary)
+    return self._review_vocabulary_size
+#+END_SRC
+** The Label Vocabulary
+   These are the labels - there should only be two in this case. This requires that =self.labels= has been set.
+#+BEGIN_SRC python :noweb-ref sentiment-network-label-vocabulary
+@property
+def label_vocabulary(self) -> List:
+    """List of sentiment labels"""
+    if self._label_vocabulary is None:
+        self._label_vocabulary = list(set(self.labels))
+    return self._label_vocabulary
+#+END_SRC
+** The Label Vocabulary Size
+   The number of labels we ended up with.
+#+BEGIN_SRC python :noweb-ref sentiment-network-label-vocabulary-size
+@property
+def label_vocabulary_size(self) -> int:
+    """The amount of tokens in our labels"""
+    if self._label_vocabulary_size is None:
+        self._label_vocabulary_size = len(self.label_vocabulary)
+    return self._label_vocabulary_size
+#+END_SRC
+** The Word To Index Map
+   This is a map to find the index in our review vocabulary where a word is. This requires that =self.review_vocabulary= has been set.
+#+BEGIN_SRC python :noweb-ref sentiment-network-word-to-index
+@property
+def word_to_index(self) -> dict:
+    """maps a word to the index in our review vocabulary"""
+    if self._word_to_index is None:
+        self._word_to_index = {
+            word: index
+            for index, word in enumerate(self.review_vocabulary)}
+    return self._word_to_index
+#+END_SRC
+** The Label To Index Map
+   This finds the index where a label is in our vocabulary of labels. This requires that =self.label_vocabulary= has been set.
+#+BEGIN_SRC python :noweb-ref sentiment-network-label-to-index
+@property
+def label_to_index(self) -> dict:
+    """maps a label to the index in our label vocabulary"""
+    if self._label_to_index is None:
+        self._label_to_index = {
+            label: index
+            for index, label in enumerate(self.label_vocabulary)}
+    return self._label_to_index
+#+END_SRC
+** Input Nodes
+   The number of input nodes is the size of our vocabulary built from the reviews. This requires =self.review_vocabulary= to have been set.
+#+BEGIN_SRC python :noweb-ref sentiment-network-input-nodes
+@property
+def input_nodes(self) -> int:
+    """Number of input nodes"""
+    if self._input_nodes is None:
+        self._input_nodes = len(self.review_vocabulary)
+    return self._input_nodes
+#+END_SRC
+** Weight From the Input Layer To the Hidden Layer
+   This is a matrix with as many rows as the number of input nodes and as many columns as the number of hidden nodes. This relies on =self.input_nodes= and =self.hidden_nodes=.
+#+BEGIN_SRC python :noweb-ref sentiment-network-weights-input-to-hidden
+@property
+def weights_input_to_hidden(self) -> numpy.ndarray:
+    """Weights for edges from input to hidden layer"""
+    if self._weights_input_to_hidden is None:
+        self._weights_input_to_hidden = numpy.zeros(
+            (self.input_nodes, self.hidden_nodes))
+    return self._weights_input_to_hidden
+
+@weights_input_to_hidden.setter
+def weights_input_to_hidden(self, weights: numpy.ndarray) -> None:
+    """Set the weights"""
+    self._weights_input_to_hidden = weights
+    return
+#+END_SRC
+** Weight From the Hidden Layer To the Output Layer
+   This is a matrix with as many rows as the number of hidden nodes and as many columns as the number of output nodes (which should be 1). This depends of =self.hidden_nodes= and =self.output_nodes=.
+#+BEGIN_SRC python :noweb-ref sentiment-network-weights-hidden-to-output
+@property
+def weights_hidden_to_output(self) -> numpy.ndarray:
+    """Weights for edges from hidden to output layer"""
+    if self._weights_hidden_to_output is None:
+        self._weights_hidden_to_output = numpy.random.random(
+            (self.hidden_nodes, self.output_nodes))
+    return self._weights_hidden_to_output
+
+@weights_hidden_to_output.setter
+def weights_hidden_to_output(self, weights: numpy.ndarray) -> None:
+    """updates the weights"""
+    self._weights_hidden_to_output = weights
+    return
+#+END_SRC
+** The Input Layer
+   This is the layer where we will set the tokens for a particular review that we are going to categorize. This depends on =self.input_nodes=.
+#+BEGIN_SRC python :noweb-ref sentiment-network-input-layer
+@property
+def input_layer(self) -> numpy.ndarray:
+    """The Input Layer for the review tokens"""
+    if self._input_layer is None:
+        self._input_layer = numpy.zeros((1, self.input_nodes))
+    return self._input_layer
+
+@input_layer.setter
+def input_layer(self, layer: numpy.ndarray) -> None:
+    """Set the input layer"""
+    self._input_layer = layer
+    return
+#+END_SRC
+** Update the Input Layer
+#+BEGIN_SRC python :noweb-ref sentiment-network-update-input-layer
+    def update_input_layer(self, review: str) -> None:
+        """Update the counts in the input layer
+
+        Args:
+         review: A movie review
+        """
+        # reset any previous inputs
+        self.input_layer *= 0
+        tokens = review.split(self.tokenizer)
+        counter = Counter()
+        counter.update(tokens)
+        for key, value in counter.items():
+            if key in self.word_to_index:
+                self.input_layer[:, self.word_to_index[key]] = value
+        return
+#+END_SRC
+** Get the Target for the Label
+   This converts a string label to an integer.
+#+BEGIN_SRC python :noweb-ref sentiment-network-get-target-for-label                
+    def get_target_for_label(self, label: str) -> int:
+        """Convert a label to `0` or `1`.
+        Args:
+         label(string) - Either "POSITIVE" or "NEGATIVE".
+        Returns:
+         `0` or `1`.
+        """
+        return 1 if label=="POSITIVE" else 0
+#+END_SRC
+** The Sigmoid
+#+BEGIN_SRC python :noweb-ref sentiment-network-sigmoid        
+    def sigmoid(self, x: numpy.ndarray) -> numpy.ndarray:
+        """calculates the sigmoid for the input
+
+        Args:
+         x: vector to calculate the sigmoid
+
+        Returns:
+         sigmoid of x
+        """
+        return 1/(1 + numpy.exp(-x))
+#+END_SRC
+** Sigmoid Derivative
+#+BEGIN_SRC python :noweb-ref sentiment-network-sigmoid-output-2-derivative
+    def sigmoid_output_to_derivative(self, output: numpy.ndarray) -> numpy.ndarray:
+        """Calculates the derivative if the sigmoid
+
+        Args:
+         output: the sigmoid output
+        """
+        return output * (1 - output)
+#+END_SRC
+** Train the Network
+#+BEGIN_SRC python :noweb-ref sentiment-network-train
+    def train(self, training_reviews: Review, training_labels: Label) -> int:
+        """Trains the model
+
+        Args:
+         training_reviews: list of reviews
+         training_labels: listo of labels for the reviews
+
+        Returns:
+         count of correct
+        """
+        # there are side-effects that require self.reviews and self.labels
+        self.reviews, self.labels = training_reviews, training_labels
+
+        assert(len(training_reviews) == len(training_labels))
+        correct_so_far = 0
+
+        if self.verbose:        
+            # Remember when we started for printing time statistics
+            start = datetime.now()
+
+        # loop through all the given reviews and run a forward and backward pass,
+        # updating weights for every item
+        reviews_labels = zip(training_reviews, training_labels)
+        n_records = len(training_reviews)
+
+        for index, (review, label) in enumerate(reviews_labels):
+            # feed-forward
+            self.update_input_layer(review)
+            hidden_inputs = self.input_layer.dot(self.weights_input_to_hidden)
+            hidden_outputs = hidden_inputs.dot(self.weights_hidden_to_output)
+            output = self.sigmoid(hidden_outputs)
+
+            # Backpropagation
+            # we need to calculate the output_error separately
+            # to update our correct count
+            output_error = output - self.get_target_for_label(label)
+
+            # we applied a sigmoid to the output
+            # so we need to apply the derivative
+            hidden_to_output_delta = (
+                output_error
+                ,* self.sigmoid_output_to_derivative(output))
+
+            input_to_hidden_error = hidden_to_output_delta.dot(
+                self.weights_hidden_to_output.T)
+            # we didn't apply a function to the inputs to the hidden layer
+            # so we don't need a derivative
+            input_to_hidden_delta = input_to_hidden_error
+
+            # our delta is based on the derivative which is heading
+            # in the opposite direction of what we want so we need to negate it
+            self.weights_hidden_to_output -= (
+                self.learning_rate
+                ,* hidden_inputs.T.dot(hidden_to_output_delta))
+            self.weights_input_to_hidden -= (
+                self.learning_rate
+                ,* self.input_layer.T.dot(input_to_hidden_delta))
+
+            if ((output < 0.5 and label=="NEGATIVE")
+                or (output >= 0.5 and label=="POSITIVE")):
+                correct_so_far += 1
+            if self.verbose and not index % 1000:
+                elapsed_time = datetime.now() - start
+                reviews_per_second = (index/elapsed_time.seconds
+                                      if elapsed_time.seconds > 0 else 0)
+                print(
+                    "Progress: {:.2f} %".format(100 * index/len(training_reviews))
+                    + " Speed(reviews/sec): {:.2f}".format(reviews_per_second)
+                    + " Error: {}".format(output_error[0])
+                    + " #Correct: {}".format(correct_so_far)
+                    + " #Trained: {}".format(index+1)
+                    + " Training Accuracy: {:.2f} %".format(
+                        correct_so_far * 100/float(index+1))
+                    )
+        if self.verbose:
+            print("Training Time: {}".format(datetime.now() - start))
+        return correct_so_far
+#+END_SRC
+** Test The Model
+#+BEGIN_SRC python :noweb-ref sentiment-network-test    
+    def test(self, testing_reviews: list, testing_labels:list) -> int:
+        """
+        Attempts to predict the labels for the given testing_reviews,
+        and uses the test_labels to calculate the accuracy of those predictions.
+
+        Returns:
+         correct: number of correct predictions
+        """
+        
+        # keep track of how many correct predictions we make
+        correct = 0
+
+        # we'll time how many predictions per second we make
+        start = datetime.now()
+
+        # Loop through each of the given reviews and call run to predict
+        # its label.
+        reviews_and_labels = zip(testing_reviews, testing_labels)
+        for index, (review, label) in enumerate(reviews_and_labels):
+            prediction = self.run(review)
+            if prediction == label:
+                correct += 1
+
+            if not index % 100:
+                elapsed_time = datetime.now() - start
+                reviews_per_second = (index/elapsed_time.seconds
+                                      if elapsed_time.seconds > 0 else 0)
+                
+                print(
+                    "Progress: {:.2f}%".format(
+                        100 * index/len(testing_reviews))
+                    + " Speed(reviews/sec): {:.2f}".format(reviews_per_second)
+                    + " #Correct: {}".format(correct)
+                    + " #Tested: {}".format(index + 1)
+                    + " Testing Accuracy: {:.2f} %".format(
+                        correct * 100/(index+1))
+                )
+        return correct
+#+END_SRC
+** Run a Prediction
+#+BEGIN_SRC python :noweb-ref sentiment-network-run    
+    def run(self, review: str) -> str:
+        """
+        Returns a POSITIVE or NEGATIVE prediction for the given review.
+        """
+        review = review.lower()
+        self.update_input_layer(review)
+        hidden_inputs = self.input_layer.dot(self.weights_input_to_hidden)
+        hidden_outputs = hidden_inputs.dot(self.weights_hidden_to_output)
+        output = self.sigmoid(hidden_outputs)
+        return "POSITIVE" if output[0] >= 0.5 else "NEGATIVE"
+#+END_SRC
+* Test The Network
+  So now we'll actually try and run the network to see how it does.
+#+BEGIN_SRC python :session sentiment :results none
+%reload_ext autoreload
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+from sentiment_network import SentimentNetwork
+#+END_SRC
+
+We'll be using the last 1,000 labels to test the network and all but the last to train it.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+BOUNDARY = -1000
+x_test, y_test = reviews[BOUNDARY:],labels[BOUNDARY:]
+print(len(x_test))
+#+END_SRC
+
+#+RESULTS:
+: 1000
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+x_train, y_train = reviews[:BOUNDARY],labels[:BOUNDARY]
+print(len(x_train))
+#+END_SRC
+
+#+RESULTS:
+: 24000
+
+Since I split this up into multiple posts I'm going to pickle up the data-sets to make sure that they're only being created once.
+
+#+BEGIN_SRC python :session sentiment :results none
+pickles = dict(x_test=x_test, y_test=y_test,
+               x_train=x_train, y_train=y_train)
+for potential_pickle, collection in pickles.items():
+    potential_path = DataPath("{}.pkl".format(potential_pickle), check_exists=False)
+    if not potential_path.from_folder.is_file():
+        with potential_path.from_folder.open("wb") as writer:
+            pickle.dump(collection, writer)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+untrained = SentimentNetwork(learning_rate=0.1, verbose=True)
+#+END_SRC
+
+Run the following cell to actually train the network. During training, it will display the model's accuracy repeatedly as it trains so you can see how well it's doing.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+untrained.train(x_train, y_train)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 125.00 Error: [-0.50133709] #Correct: 492 #Trained: 1001 Training Accuracy: 49.15 %
+Progress: 8.33 % Speed(reviews/sec): 153.85 Error: [-0.46896641] #Correct: 940 #Trained: 2001 Training Accuracy: 46.98 %
+Progress: 12.50 % Speed(reviews/sec): 150.00 Error: [-0.76053545] #Correct: 1401 #Trained: 3001 Training Accuracy: 46.68 %
+Progress: 16.67 % Speed(reviews/sec): 142.86 Error: [-0.5175674] #Correct: 1860 #Trained: 4001 Training Accuracy: 46.49 %
+Progress: 20.83 % Speed(reviews/sec): 142.86 Error: [-0.7057053] #Correct: 2329 #Trained: 5001 Training Accuracy: 46.57 %
+Progress: 25.00 % Speed(reviews/sec): 146.34 Error: [-0.87768714] #Correct: 2859 #Trained: 6001 Training Accuracy: 47.64 %
+Progress: 29.17 % Speed(reviews/sec): 142.86 Error: [-0.42471556] #Correct: 3376 #Trained: 7001 Training Accuracy: 48.22 %
+Progress: 33.33 % Speed(reviews/sec): 140.35 Error: [-0.25287871] #Correct: 3931 #Trained: 8001 Training Accuracy: 49.13 %
+Progress: 37.50 % Speed(reviews/sec): 138.46 Error: [-0.13143902] #Correct: 4508 #Trained: 9001 Training Accuracy: 50.08 %
+Progress: 41.67 % Speed(reviews/sec): 136.99 Error: [-0.30215181] #Correct: 5141 #Trained: 10001 Training Accuracy: 51.40 %
+Progress: 45.83 % Speed(reviews/sec): 137.50 Error: [-0.83628373] #Correct: 5690 #Trained: 11001 Training Accuracy: 51.72 %
+Progress: 50.00 % Speed(reviews/sec): 136.36 Error: [-0.2236724] #Correct: 6318 #Trained: 12001 Training Accuracy: 52.65 %
+Progress: 54.17 % Speed(reviews/sec): 136.84 Error: [-0.00040756] #Correct: 6873 #Trained: 13001 Training Accuracy: 52.87 %
+Progress: 58.33 % Speed(reviews/sec): 137.25 Error: [-0.24857157] #Correct: 7463 #Trained: 14001 Training Accuracy: 53.30 %
+Progress: 62.50 % Speed(reviews/sec): 136.36 Error: [-0.56169307] #Correct: 8091 #Trained: 15001 Training Accuracy: 53.94 %
+Progress: 66.67 % Speed(reviews/sec): 136.75 Error: [-0.30580514] #Correct: 8710 #Trained: 16001 Training Accuracy: 54.43 %
+Progress: 70.83 % Speed(reviews/sec): 136.00 Error: [-0.85096669] #Correct: 9343 #Trained: 17001 Training Accuracy: 54.96 %
+Progress: 75.00 % Speed(reviews/sec): 136.36 Error: [-0.0031485] #Correct: 9973 #Trained: 18001 Training Accuracy: 55.40 %
+Progress: 79.17 % Speed(reviews/sec): 135.71 Error: [-0.73531052] #Correct: 10671 #Trained: 19001 Training Accuracy: 56.16 %
+Progress: 83.33 % Speed(reviews/sec): 136.05 Error: [-0.14522187] #Correct: 11341 #Trained: 20001 Training Accuracy: 56.70 %
+Progress: 87.50 % Speed(reviews/sec): 135.48 Error: [-0.38478658] #Correct: 11973 #Trained: 21001 Training Accuracy: 57.01 %
+Progress: 91.67 % Speed(reviews/sec): 134.97 Error: [-0.39655627] #Correct: 12678 #Trained: 22001 Training Accuracy: 57.62 %
+Progress: 95.83 % Speed(reviews/sec): 134.50 Error: [-0.55767025] #Correct: 13345 #Trained: 23001 Training Accuracy: 58.02 %
+#+end_example
+
+That most likely didn't train very well. Part of the reason may be because the learning rate is too high. Run the following cell to recreate the network with a smaller learning rate, `0.01`, and then train the new network.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both 
+trainer = SentimentNetwork(learning_rate=0.01, verbose=True)
+trainer.train(x_train, y_train)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.73627527] #Correct: 482 #Trained: 1001 Training Accuracy: 48.15 %
+Progress: 8.33 % Speed(reviews/sec): 333.33 Error: [-0.27663369] #Correct: 1065 #Trained: 2001 Training Accuracy: 53.22 %
+Progress: 12.50 % Speed(reviews/sec): 333.33 Error: [-0.41620613] #Correct: 1743 #Trained: 3001 Training Accuracy: 58.08 %
+Progress: 16.67 % Speed(reviews/sec): 333.33 Error: [-0.41925862] #Correct: 2378 #Trained: 4001 Training Accuracy: 59.44 %
+Progress: 20.83 % Speed(reviews/sec): 333.33 Error: [-0.3792133] #Correct: 3022 #Trained: 5001 Training Accuracy: 60.43 %
+Progress: 25.00 % Speed(reviews/sec): 333.33 Error: [-0.31493906] #Correct: 3670 #Trained: 6001 Training Accuracy: 61.16 %
+Progress: 29.17 % Speed(reviews/sec): 333.33 Error: [-0.19472257] #Correct: 4380 #Trained: 7001 Training Accuracy: 62.56 %
+Progress: 33.33 % Speed(reviews/sec): 333.33 Error: [-0.20326775] #Correct: 5068 #Trained: 8001 Training Accuracy: 63.34 %
+Progress: 37.50 % Speed(reviews/sec): 333.33 Error: [-0.17244992] #Correct: 5751 #Trained: 9001 Training Accuracy: 63.89 %
+Progress: 41.67 % Speed(reviews/sec): 333.33 Error: [-0.74943668] #Correct: 6475 #Trained: 10001 Training Accuracy: 64.74 %
+Progress: 45.83 % Speed(reviews/sec): 333.33 Error: [-0.34768212] #Correct: 7171 #Trained: 11001 Training Accuracy: 65.18 %
+Progress: 50.00 % Speed(reviews/sec): 333.33 Error: [-0.23588717] #Correct: 7895 #Trained: 12001 Training Accuracy: 65.79 %
+Progress: 54.17 % Speed(reviews/sec): 325.00 Error: [-0.67639111] #Correct: 8634 #Trained: 13001 Training Accuracy: 66.41 %
+Progress: 58.33 % Speed(reviews/sec): 325.58 Error: [-0.18425262] #Correct: 9360 #Trained: 14001 Training Accuracy: 66.85 %
+Progress: 62.50 % Speed(reviews/sec): 326.09 Error: [-0.31647149] #Correct: 10083 #Trained: 15001 Training Accuracy: 67.22 %
+Progress: 66.67 % Speed(reviews/sec): 326.53 Error: [-0.31838031] #Correct: 10791 #Trained: 16001 Training Accuracy: 67.44 %
+Progress: 70.83 % Speed(reviews/sec): 326.92 Error: [-0.71363956] #Correct: 11494 #Trained: 17001 Training Accuracy: 67.61 %
+Progress: 75.00 % Speed(reviews/sec): 327.27 Error: [-0.03786987] #Correct: 12237 #Trained: 18001 Training Accuracy: 67.98 %
+Progress: 79.17 % Speed(reviews/sec): 327.59 Error: [-0.89039967] #Correct: 12995 #Trained: 19001 Training Accuracy: 68.39 %
+Progress: 83.33 % Speed(reviews/sec): 327.87 Error: [-0.19787345] #Correct: 13741 #Trained: 20001 Training Accuracy: 68.70 %
+Progress: 87.50 % Speed(reviews/sec): 328.12 Error: [-0.60033441] #Correct: 14484 #Trained: 21001 Training Accuracy: 68.97 %
+Progress: 91.67 % Speed(reviews/sec): 323.53 Error: [-0.47631941] #Correct: 15242 #Trained: 22001 Training Accuracy: 69.28 %
+Progress: 95.83 % Speed(reviews/sec): 323.94 Error: [-0.47388592] #Correct: 15995 #Trained: 23001 Training Accuracy: 69.54 %
+Training Time: 0:01:15.489437
+#+end_example
+
+This actually did better, but let's see what a smaller learning rate will do.
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+trainer = SentimentNetwork(learning_rate=0.001, verbose=True)
+trainer.train(x_train, y_train)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.42248049] #Correct: 472 #Trained: 1001 Training Accuracy: 47.15 %
+Progress: 8.33 % Speed(reviews/sec): 333.33 Error: [-0.27087125] #Correct: 1046 #Trained: 2001 Training Accuracy: 52.27 %
+Progress: 12.50 % Speed(reviews/sec): 333.33 Error: [-0.45852835] #Correct: 1708 #Trained: 3001 Training Accuracy: 56.91 %
+Progress: 16.67 % Speed(reviews/sec): 333.33 Error: [-0.41728936] #Correct: 2334 #Trained: 4001 Training Accuracy: 58.34 %
+Progress: 20.83 % Speed(reviews/sec): 333.33 Error: [-0.37365937] #Correct: 2959 #Trained: 5001 Training Accuracy: 59.17 %
+Progress: 25.00 % Speed(reviews/sec): 315.79 Error: [-0.25350906] #Correct: 3595 #Trained: 6001 Training Accuracy: 59.91 %
+Progress: 29.17 % Speed(reviews/sec): 318.18 Error: [-0.22273178] #Correct: 4292 #Trained: 7001 Training Accuracy: 61.31 %
+Progress: 33.33 % Speed(reviews/sec): 320.00 Error: [-0.22148954] #Correct: 4985 #Trained: 8001 Training Accuracy: 62.30 %
+Progress: 37.50 % Speed(reviews/sec): 321.43 Error: [-0.164888] #Correct: 5670 #Trained: 9001 Training Accuracy: 62.99 %
+Progress: 41.67 % Speed(reviews/sec): 322.58 Error: [-0.70030978] #Correct: 6381 #Trained: 10001 Training Accuracy: 63.80 %
+Progress: 45.83 % Speed(reviews/sec): 305.56 Error: [-0.37677934] #Correct: 7082 #Trained: 11001 Training Accuracy: 64.38 %
+Progress: 50.00 % Speed(reviews/sec): 307.69 Error: [-0.25747753] #Correct: 7812 #Trained: 12001 Training Accuracy: 65.09 %
+Progress: 54.17 % Speed(reviews/sec): 302.33 Error: [-0.66038851] #Correct: 8550 #Trained: 13001 Training Accuracy: 65.76 %
+Progress: 58.33 % Speed(reviews/sec): 304.35 Error: [-0.21017589] #Correct: 9271 #Trained: 14001 Training Accuracy: 66.22 %
+Progress: 62.50 % Speed(reviews/sec): 306.12 Error: [-0.32861519] #Correct: 9993 #Trained: 15001 Training Accuracy: 66.62 %
+Progress: 66.67 % Speed(reviews/sec): 307.69 Error: [-0.31545046] #Correct: 10705 #Trained: 16001 Training Accuracy: 66.90 %
+Progress: 70.83 % Speed(reviews/sec): 309.09 Error: [-0.70497608] #Correct: 11411 #Trained: 17001 Training Accuracy: 67.12 %
+Progress: 75.00 % Speed(reviews/sec): 310.34 Error: [-0.04885612] #Correct: 12162 #Trained: 18001 Training Accuracy: 67.56 %
+Progress: 79.17 % Speed(reviews/sec): 316.67 Error: [-0.79732231] #Correct: 12916 #Trained: 19001 Training Accuracy: 67.98 %
+Progress: 83.33 % Speed(reviews/sec): 312.50 Error: [-0.2568252] #Correct: 13678 #Trained: 20001 Training Accuracy: 68.39 %
+Progress: 87.50 % Speed(reviews/sec): 313.43 Error: [-0.59070143] #Correct: 14418 #Trained: 21001 Training Accuracy: 68.65 %
+Progress: 91.67 % Speed(reviews/sec): 305.56 Error: [-0.42520887] #Correct: 15181 #Trained: 22001 Training Accuracy: 69.00 %
+Progress: 95.83 % Speed(reviews/sec): 302.63 Error: [-0.50276096] #Correct: 15931 #Trained: 23001 Training Accuracy: 69.26 %
+Training Time: 0:01:19.701444
+#+end_example
+
+Surprisingly it did around the same (maybe a little worse). It looks like tuning the learning rate isn't enough.
+

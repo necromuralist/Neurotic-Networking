@@ -1,0 +1,271 @@
+#+BEGIN_COMMENT
+.. title: Okay, but what about this deep-learning stuff?
+.. slug: okay-but-what-about-this-deep-learning-stuff
+.. date: 2018-10-24 13:26:12 UTC-07:00
+.. tags: neural networks,hidden layers,deep learning,grokking
+.. category: Grokking
+.. link: 
+.. description: Starting to add hidden layers to the network.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Imports
+** From Python
+#+BEGIN_SRC python :session grok :results none
+from typing import List
+#+END_SRC
+** From Pypi
+#+BEGIN_SRC python :session grok :results none
+from graphviz import Digraph
+import numpy
+#+END_SRC
+* Typing
+  This is to develop some type hinting.
+#+BEGIN_SRC python :session grok :results none
+Vector = List[float]
+Matrix = List[Vector]
+#+END_SRC
+* What is this about?
+  I previously looked at a model with multiple inputs and outputs to predict whether a team would win or lose and how the fans would feel in response to the outcome. Now I'm going to stack the network on top of another one to 'deepen' the network.
+
+#+BEGIN_SRC python :session grok :results raw drawer :ipyfile ../../../files/posts/grokking/03_forward_propagation/okay-but-what-about-this-deep-learning-stuff/hidden_layer.dot.png
+graph = Digraph(comment="Hidden Layers", format="png")
+# input layer
+graph.node("A", "Toes")
+graph.node("B", "Wins")
+graph.node("C", "Fans")
+
+# Hidden Layer
+graph.node("D", "H1")
+graph.node("E", "H2")
+graph.node("F", "H3")
+
+# Output Layer
+graph.node("G", "Hurt")
+graph.node("H", "Win")
+graph.node("I", "Sad")
+
+# Input to hidden edges
+graph.edges(["AD", "AE", "AF",
+             "BD", "BE", "BF",
+             "CD", "CE", "CF",
+])
+
+# Hidden to output egdes
+graph.edges(["DG", "DH", "DI",
+             "EG", "EH", "EI",
+             "FG", "FH", "FI",
+])
+graph.render("graphs/hidden_layer.dot")
+graph
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[11]:
+[[file:../../../files/posts/grokking/03_forward_propagation/okay-but-what-about-this-deep-learning-stuff/hidden_layer.dot.png]]
+:END:
+
+[[file:hidden_layer.dot.png]]
+
+These networks between the input and output layers are called /hidden layers/.
+
+* Okay, so how do you implement that?
+  It works like our previous model except that you insert an extra vector-matrix-multiplication call between the inputs and outputs. For this example I'm going to do it as a class so that I can check the hidden layer's values more easily, but otherwise you would do it using matrices and vectors.
+
+#+BEGIN_SRC python :session grok :results none
+class HiddenLayer:
+    """Implements a neural network with one hidden layer
+
+    Args:
+     inputs: vector of input values
+     input_to_hidden_weights: vector of weights for the first layer
+     hidden_to_output_weights: vector of weights of the second layer
+    """
+    def __init__(self, inputs: Vector, input_to_hidden_weights: Vector,
+                 hidden_to_output_weights: Vector) -> None:
+        self.inputs = inputs
+        self.input_to_hidden_weights = input_to_hidden_weights
+        self.hidden_to_output_weights = hidden_to_output_weights
+        self._hidden_output = None
+        self._predictions = None
+        return
+
+    @property
+    def hidden_output(self) -> Vector:
+        """the output of the hidden layer"""
+        if self._hidden_output is None:
+            self._hidden_output = self.vector_matrix_multiplication(
+                self.inputs,
+                self.input_to_hidden_weights)
+        return self._hidden_output
+
+    @property
+    def predictions(self) -> Vector:
+        """Predictions for the inputs"""
+        if self._predictions is None:
+            self._predictions = self.vector_matrix_multiplication(
+                self.hidden_output,
+                self.hidden_to_output_weights,
+            )
+        return self._predictions
+    
+    def vector_matrix_multiplication(self, vector: Vector,
+                                     matrix: Matrix) -> Vector:
+        """calculates the dot-product for each row of the matrix
+
+        Args:
+         vector: input with one cell for each row in the matrix
+         matrix: input with rows of the same length as the vector
+
+        Returns:
+         vector: dot-products for the vector and matrix rows
+        """
+        vector_length = len(vector)
+        assert vector_length == len(matrix)
+        rows = range(len(matrix))
+        return [self.dot_product(vector, matrix[row]) for row in rows]
+
+    def dot_product(self, vector_1:Vector, vector_2:Vector) -> float:
+        """Calculate the dot-product of the two vectors
+
+        Returns:
+         dot-product: the dot product of the two vectors
+        """
+        vector_length = len(vector_1)
+        assert vector_length == len(vector_2)
+        entries = range(vector_length)
+        return sum((vector_1[entry] * vector_2[entry] for entry in entries))
+#+END_SRC
+
+* Let's try it out
+** The Input Layer To Hidden Layer Weights
+
+| Toes | Wins | Fans |       |
+|------+------+------+-------|
+|  0.1 |  0.2 | -0.1 | h_{0} |
+| -0.1 |  0.1 |  0.9 | h_{1} |
+|  0.1 |  0.4 |  0.1 | h_{2} |
+
+#+BEGIN_SRC python :session grok :results none
+input_to_hidden_weights = [[0.1, 0.2, -0.1],
+                           [-0.1, 0.1, 0.9],
+                           [0.1, 0.4, 0.1]]
+#+END_SRC
+** The Weights From the Hidden Layer to the Outputs
+
+|  h0 |  h1 |   h2 |      |
+|-----+-----+------+------|
+| 0.3 | 1.1 | -0.3 | hurt |
+| 0.1 | 0.2 |  0.0 | won  |
+| 0.0 | 1.3 |  0.1 | sad  |
+
+#+BEGIN_SRC python :session grok :results none
+hidden_layer_to_output_weights = [[0.3, 1.1, -0.3],
+                                  [0.1, 0.2, 0.0],
+                                  [0.0, 1.3, 0.1]]
+#+END_SRC
+
+** Testing it Out
+
+#+BEGIN_SRC python :session grok :results none
+toes = [8.5, 9.5, 9.9, 9.0]
+wins = [0.65, 0.8, 0.8, 0.9]
+fans = [1.2, 1.3, 0.5, 1.0]
+#+END_SRC
+
+
+#+BEGIN_SRC python :session grok :results none
+expected_hiddens = [0.86, 0.295, 1.23]
+expected_outputs = [0.214, 0.145, 0.507]
+#+END_SRC
+
+#+BEGIN_SRC python :session grok :results none
+first_input = [toes[0], wins[0], fans[0]]
+#+END_SRC
+
+#+BEGIN_SRC python :session grok :results output raw :exports both
+network = HiddenLayer(first_input,
+                       input_to_hidden_weights,
+                       hidden_layer_to_output_weights)
+hidden_outputs = network.hidden_output
+expected_actual = zip(expected_hiddens, hidden_outputs)
+tolerance = 0.1**5
+labels = "h0 h1 h2".split()
+print("|Node | Expected | Actual")
+print("|-+-+-|")
+for index, (expected, actual) in enumerate(expected_actual):
+    print("|{} | {}| {:.2f}".format(labels[index], expected, actual))
+    assert abs(expected - actual) < tolerance
+#+END_SRC
+
+#+RESULTS:
+| Node | Expected | Actual |
+|------+----------+--------|
+| h0   |     0.86 |   0.86 |
+| h1   |    0.295 |   0.29 |
+| h2   |     1.23 |   1.23 |
+
+#+BEGIN_SRC python :session grok :results output raw :exports both
+outputs = network.predictions
+expected_actual = zip(expected_outputs, outputs)
+tolerance = 0.1**3
+labels = "Hurt Won Sad".split()
+print("|Node | Expected | Actual")
+print("|-+-+-|")
+for index, (expected, actual) in enumerate(expected_actual):
+    print("|{} | {}| {:.3f}".format(labels[index], expected, actual))
+    assert abs(expected - actual) < tolerance
+#+END_SRC
+
+#+RESULTS:
+| Node | Expected | Actual |
+|------+----------+--------|
+| Hurt |    0.214 |  0.214 |
+| Won  |    0.145 |  0.145 |
+| Sad  |    0.507 |  0.506 |
+
+* Okay, but can we do that with numpy?
+
+#+BEGIN_SRC python :session grok :results none
+def one_hidden_layer(inputs: Vector, weights: Matrix) -> numpy.ndarray:
+    """Converts arguments to numpy and calculates predictions
+
+    Args:
+     inputs: array of inputs
+     weights: matrix with two rows of weights
+
+    Returns:
+     predictions: predicted values for each output node
+    """
+    inputs, weights = numpy.array(inputs), numpy.array(weights)
+    hidden = inputs.dot(weights[0].T)
+    return hidden.dot(weights[1].T)
+#+END_SRC
+
+One thing to watch out for here is that the dot product won't raise an error if you don't transpose the weights, but you will get the wrong values.
+
+#+BEGIN_SRC python :session grok :results output raw :exports both
+weights = [input_to_hidden_weights,
+           hidden_layer_to_output_weights]
+outputs = one_hidden_layer(first_input, weights)
+expected_actual = zip(expected_outputs, outputs)
+tolerance = 0.1**3
+labels = "Hurt Won Sad".split()
+print("|Node | Expected | Actual")
+print("|-+-+-|")
+for index, (expected, actual) in enumerate(expected_actual):
+    print("|{} | {}| {:.3f}".format(labels[index], expected, actual))
+    assert abs(expected - actual) < tolerance
+#+END_SRC
+
+#+RESULTS:
+| Node | Expected | Actual |
+|------+----------+--------|
+| Hurt |    0.214 |  0.214 |
+| Won  |    0.145 |  0.145 |
+| Sad  |    0.507 |  0.506 |
+
+* Okay, so what was this about again?
+  This showed that you can stack networks up and have the outputs of one layer feed into the next until you reach the output layer. This is called /Forward Propagation/. Although I mentioned deep-learning in the title this really isn't an example yet, it's more like a multilayer perceptron, but it's deeper than two-layers, anyway.
