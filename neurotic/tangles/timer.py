@@ -45,6 +45,8 @@ class Timer:
     def start(self) -> None:
         """Sets the started time"""
         self.started = datetime.now()
+        if self.emit:
+            print("Started: {}".format(self.started))
         return
 
     def end(self) -> None:
@@ -53,7 +55,7 @@ class Timer:
         if self.emit:
             print("Ended: {}".format(self.ended))
             print("Elapsed: {}".format(self.ended - self.started))
-        if self.beep:
+        if SPEAKABLE and self.beep:
             self.speaker.say(self.message)
             self.speaker.runAndWait()
         return

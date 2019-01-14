@@ -249,6 +249,15 @@ class DataPathTwo:
             self._from_folder = self.folder.joinpath(self.filename)
         return self._from_folder
 
+    def check_folder(self) -> None:
+        """Checks that the folder exists
+        
+        Raises:
+         AssertionError: folder doesn't exist
+        """
+        assert self.folder.is_dir(), "Folder {} doesn't exist.".format(self.folder)
+        return
+
     def re_load(self):
         """call load_dotenv
 
