@@ -1,0 +1,268 @@
+#+BEGIN_COMMENT
+.. title: Part 6 - Saving and Loading Models
+.. slug: part-6-saving-and-loading-models
+.. date: 2018-11-21 17:38:28 UTC-08:00
+.. tags: pytorch,lecture,exercise
+.. category: PyTorch
+.. link: 
+.. description: Saving and loading pytorch models.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+#+BEGIN_SRC python :session pytorch :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Introduction
+  This is from [[https://github.com/udacity/deep-learning-v2-pytorch.git][Udacity's Deep Learning Repository]] which supports their Deep Learning Nanodegree.
+
+In this notebook we're going to look at how to save and load models with PyTorch.
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC python :session pytorch :results none
+from pathlib import Path
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC python :session pytorch :results none
+from dotenv import load_dotenv
+import matplotlib.pyplot as pyplot
+import seaborn
+import torch
+from torch import nn
+from torch import optim
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+#+END_SRC
+
+*** Nano Program
+#+BEGIN_SRC python :session pytorch :results none
+from nano.pytorch import helper
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session pytorch :results none
+from neurotic.tangles.data_paths import DataPathTwo
+from fashion import (
+    label_decoder,
+    train,
+    DropoutModel,
+    HyperParameters)
+#+END_SRC
+
+** Plotting
+#+BEGIN_SRC python :session pytorch :results none
+get_python().run_line_magic('matplotlib', 'inline')
+get_python().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=1)
+#+END_SRC
+* The Data
+  Once again we're going to use the =fashion-MNIST= data.
+** The Path
+#+BEGIN_SRC python :session pytorch :results output :exports both
+path = DataPathTwo(folder_key="FASHION_MNIST")
+print(path.folder)
+#+END_SRC
+
+#+RESULTS:
+: ~/datasets/F_MNIST
+
+** Define a transform to normalize the data
+#+BEGIN_SRC python :session pytorch :results none
+transform = transforms.Compose([transforms.ToTensor(),
+                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+#+END_SRC
+** Download and Load the Training Data
+
+#+BEGIN_SRC python :session pytorch :results none
+trainset = datasets.FashionMNIST(path.folder, download=True, train=True,
+                                 transform=transform)
+training = torch.utils.data.DataLoader(trainset, batch_size=64,
+                                          shuffle=True)
+#+END_SRC
+
+** Download and Load the Test Data
+
+#+BEGIN_SRC python :session pytorch :results none
+testset = datasets.FashionMNIST(path.folder, download=True, train=False,
+                                transform=transform)
+testing = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=True)
+#+END_SRC
+
+Here's one of the images.
+
+#+BEGIN_SRC python :session pytorch :results raw drawer :ipyfile ../../../files/posts/nano/pytorch/part-6-saving-and-loading-models/image_one.png
+image, label = next(iter(trainloader))
+helper.imshow(image[0,:]);
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[28]:
+[[file:../../../files/posts/nano/pytorch/part-6-saving-and-loading-models/image_one.png]]
+:END:
+
+[[file:image_one.png]]
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+print(label_decoder[label[0].item()])
+#+END_SRC
+
+#+RESULTS:
+: Sneaker
+
+* Training the Network
+  I'm re-using the =DropoutModel= from the previous lesson about avoiding over-fitting using dropout. I'm also re-using the (somewhat updated) =train= function.
+
+#+BEGIN_SRC python :session pytorch :results none
+model = DropoutModel()
+criterion = nn.NLLLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+train(model=model, optimizer=optimizer, criterion=criterion,
+      train_batches=training, test_batches=testing, epochs=2)
+#+END_SRC
+
+#+RESULTS:
+: Epoch: 1/30 Training loss: 2.41 Test Loss: 2.40 Test Accuracy: 0.09
+: Epoch: 2/30 Training loss: 2.41 Test Loss: 2.40 Test Accuracy: 0.09
+
+* Saving and loading networks
+
+Rather than re-training your model every time you want to use it you can instead save it an re-load the pre-trained model when you need it.
+
+ The parameters for PyTorch networks are stored in a model's ~state_dict~. 
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+print("Our model: \n\n", model, '\n')
+print("The state dict keys: \n\n", model.state_dict().keys())
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Our model: 
+
+ DropoutModel(
+  (input_to_hidden): Linear(in_features=784, out_features=256, bias=True)
+  (hidden_1_to_hidden_2): Linear(in_features=256, out_features=128, bias=True)
+  (hidden_2_to_hidden_3): Linear(in_features=128, out_features=64, bias=True)
+  (hidden_3_to_output): Linear(in_features=64, out_features=10, bias=True)
+  (dropout): Dropout(p=0.2)
+) 
+
+The state dict keys: 
+
+ odict_keys(['input_to_hidden.weight', 'input_to_hidden.bias', 'hidden_1_to_hidden_2.weight', 'hidden_1_to_hidden_2.bias', 'hidden_2_to_hidden_3.weight', 'hidden_2_to_hidden_3.bias', 'hidden_3_to_output.weight', 'hidden_3_to_output.bias'])
+#+end_example
+
+The simplest thing to do is simply save the state dict with [[https://pytorch.org/docs/stable/torch.html?highlight=save#torch.save][~torch.save~]], which uses python's [[https://docs.python.org/3.6/library/pickle.html][pickle]] to serialze the settings. PyTorch has [[https://pytorch.org/docs/stable/notes/serialization.html#recommend-saving-models][an explanation]] for why you would prefer saving the settings instead of the entire model. 
+
+As an example, we can save our trained model's settings to a file ~checkpoint.pth~.
+
+#+BEGIN_SRC python :session pytorch :results none
+file_name = "checkpoint.pth"
+torch.save(model.state_dict(), file_name)
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+check_path = Path(file_name)
+print("File Size: {} K".format(check_path.stat().st_size/10**3))
+#+END_SRC
+
+#+RESULTS:
+: File Size: 972.392 K
+
+So it's almost a megabyte, better remember to clean it up later.
+
+I couldn't find an explanation for the file-extension, but the pytorch documentation mentions that it's a convention to use =.pt= and =.pth= as extensions. I'm assuming /pt/ is for PyTorch and the /h/ is for hyper-parameters, but I'm not really sure that it's the case.
+
+To load the model you can use [[https://pytorch.org/docs/stable/torch.html?highlight=torch%20load#torch.load][~torch.load~]].
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+state_dict = torch.load('checkpoint.pth')
+print(state_dict.keys())
+#+END_SRC
+
+#+RESULTS:
+: odict_keys(['input_to_hidden.weight', 'input_to_hidden.bias', 'hidden_1_to_hidden_2.weight', 'hidden_1_to_hidden_2.bias', 'hidden_2_to_hidden_3.weight', 'hidden_2_to_hidden_3.bias', 'hidden_3_to_output.weight', 'hidden_3_to_output.bias'])
+
+To load the state-dict you take your instantiated but untrained model and call its [[https://pytorch.org/docs/stable/nn.html?highlight=load_state_dict#torch.nn.Module.load_state_dict][~load_state_dict~]] method.
+
+#+BEGIN_SRC python :session pytorch :results none
+model.load_state_dict(state_dict)
+#+END_SRC
+
+Seems pretty straightforward, but as usual it's a bit more complicated. Loading the state dict works only if the model architecture is exactly the same as the checkpoint architecture. Using a model with a different architecture, this fails.
+
+#+BEGIN_SRC python :session pytorch :results none
+parameters = HyperParameters()
+parameters.hidden_layer_1 = 400
+#+END_SRC
+
+#+BEGIN_SRC python :session pytorch :results none
+bad_model = DropoutModel(parameters)
+# This will throw an error because the tensor sizes are wrong!
+bad_model.load_state_dict(state_dict)
+#+END_SRC
+
+#+BEGIN_SRC python
+RuntimeError: Error(s) in loading state_dict for DropoutModel:
+	size mismatch for input_to_hidden.weight: copying a param of torch.Size([400, 784]) from checkpoint, where the shape is torch.Size([256, 784]) in current model.
+	size mismatch for input_to_hidden.bias: copying a param of torch.Size([400]) from checkpoint, where the shape is torch.Size([256]) in current model.
+	size mismatch for hidden_1_to_hidden_2.weight: copying a param of torch.Size([128, 400]) from checkpoint, where the shape is torch.Size([128, 256]) in current model.
+#+END_SRC
+
+This means we need to rebuild the model exactly as it was when trained. Information about the model architecture needs to be saved in the checkpoint, along with the state dict. To do this, you build a dictionary with all the information you need to compeletely rebuild the model.
+
+Originally the bad-model was just called 'model' and that seems to have messed up the state-dict so I'm going to re-use the one we made before.
+
+#+BEGIN_SRC python :session pytorch :results none
+checkpoint = {'hyperparameters': HyperParameters,
+              'state_dict': state_dict}
+
+torch.save(checkpoint, file_name)
+#+END_SRC
+
+Remember that this is using pickle under the hood so whatever you save has to be pickleable. It probably would be safer to use parameters instead of a settings object like I did, but I didn't know we were going to be doing this.
+
+
+Here's a function to load checkpoint-files.
+
+#+BEGIN_SRC python :session pytorch :results none
+def load_checkpoint(filepath: str) -> nn.Module:
+    """Load the model checkpoint from disk
+
+    Args:
+     filepath: path to the saved checkpoint
+    """
+    checkpoint = torch.load(filepath)
+    model = DropoutModel(checkpoint["hyperparameters"])
+    model.load_state_dict(checkpoint['state_dict'])
+    return model
+#+END_SRC
+
+You can see from the function that the checkpoint is really just pickling a dictionary, and we can add any arbitrary things we want to it. I'm not really sure what it gives that using pickle directly doesn't have.
+
+#+BEGIN_SRC python :session pytorch :results output :exports both
+model = load_checkpoint(file_name)
+print(model)
+#+END_SRC
+
+#+RESULTS:
+: DropoutModel(
+:   (input_to_hidden): Linear(in_features=784, out_features=256, bias=True)
+:   (hidden_1_to_hidden_2): Linear(in_features=256, out_features=128, bias=True)
+:   (hidden_2_to_hidden_3): Linear(in_features=128, out_features=64, bias=True)
+:   (hidden_3_to_output): Linear(in_features=64, out_features=10, bias=True)
+:   (dropout): Dropout(p=0.2)
+: )
+
+PyTorch has more about saving and loading models in [[https://pytorch.org/tutorials/beginner/saving_loading_models.html][their documentation]], including saving your model to continue training later (you need to save more than the model's settings).

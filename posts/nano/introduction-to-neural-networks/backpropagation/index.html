@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="How backpropagation works." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Backpropagation | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/introduction-to-neural-networks/backpropagation/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../multi-layer-perceptrons/" rel="prev" title="Multi-Layer Perceptrons" type="text/html">
+<link href="../backpropagation-implementation-again/" rel="next" title="Backpropagation Implementation (Again)" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Backpropagation" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/introduction-to-neural-networks/backpropagation/" property="og:url">
+<meta content="How backpropagation works." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-17T20:24:16-08:00" property="article:published_time">
+<meta content="backpropagation" property="article:tag">
+<meta content="lecture" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Backpropagation</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-17T20:24:16-08:00" itemprop="datePublished" title="2018-11-17 20:24">2018-11-17 20:24</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgbc2013d">Background</a></li>
+<li><a href="#org49f749b">Imports</a></li>
+<li><a href="#orgdce1af7">The Sigmoid</a></li>
+<li><a href="#org0e37d94">Initial Values</a></li>
+<li><a href="#org43f58f8">Forward pass</a></li>
+<li><a href="#orga3076e7">Backwards pass</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgbc2013d">
+<h2 id="orgbc2013d">Background</h2>
+<div class="outline-text-2" id="text-orgbc2013d">
+<p>We're going to extend the backpropagation from a single layer to multiple hidden layers. The amount of change at each layer (the delta) that you make uses the same equation no matter how many layers you have.</p>
+<p>\[ \Delta w_{pq} = \eta \delta_{output} X_{in} \]</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org49f749b">
+<h2 id="org49f749b">Imports</h2>
+<div class="outline-text-2" id="text-org49f749b">
+<p>We'll be sticking with our numpy-based implementation of a neural network.</p>
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgdce1af7">
+<h2 id="orgdce1af7">The Sigmoid</h2>
+<div class="outline-text-2" id="text-orgdce1af7">
+<p>This is our familiar activation function.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""</span>
+<span class="sd">    Calculate sigmoid</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">numpy</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org0e37d94">
+<h2 id="org0e37d94">Initial Values</h2>
+<div class="outline-text-2" id="text-org0e37d94">
+<p>We're going to do a single forward pass followed by backpropagation, so I'll make the values random since we're not really going to validate them..</p>
+<div class="highlight">
+<pre><span></span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">18</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span>
+<span class="n">learning_rate</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span>
+
+<span class="n">weights_input_to_hidden</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">weights_hidden_to_output</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-left"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Variable</th>
+<th class="org-left" scope="col">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">x</td>
+<td class="org-left">[ 0.08 2.19 -0.13]</td>
+</tr>
+<tr>
+<td class="org-left">y</td>
+<td class="org-left">0.85</td>
+</tr>
+<tr>
+<td class="org-left">eta</td>
+<td class="org-left">0.75</td>
+</tr>
+<tr>
+<td class="org-left">Input Weights</td>
+<td class="org-left">[0.67 0.99]</td>
+</tr>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-left">[0.26 0.03]</td>
+</tr>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-left">[0.64 0.85]</td>
+</tr>
+<tr>
+<td class="org-left">Hidden To Output Weights</td>
+<td class="org-left">[0.74]</td>
+</tr>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-left">[0.02]</td>
+</tr>
+</tbody>
+</table>
+<p>The input has 3 nodes and the hidden layer has 2, so our weights from the input layer to the hidden layer has shape 3 rows and 2 columns. The output has one node so the weights from the hidden to output layer has 2 rows (to match the hidden layer) and 1 column to match the output layer. In the lecture they use a vector with 2 entries instead. As far as I can tell it works the same either way.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org43f58f8">
+<h2 id="org43f58f8">Forward pass</h2>
+<div class="outline-text-2" id="text-org43f58f8">
+<div class="highlight">
+<pre><span></span><span class="n">hidden_layer_input</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weights_input_to_hidden</span><span class="p">)</span>
+<span class="n">hidden_layer_output</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">hidden_layer_input</span><span class="p">)</span>
+
+<span class="n">output_layer_in</span> <span class="o">=</span> <span class="n">hidden_layer_output</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weights_hidden_to_output</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">output_layer_in</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga3076e7">
+<h2 id="orga3076e7">Backwards pass</h2>
+<div class="outline-text-2" id="text-orga3076e7"></div>
+<div class="outline-3" id="outline-container-org825356b">
+<h3 id="org825356b">The Output Error</h3>
+<div class="outline-text-3" id="text-org825356b">
+<p>Our error is \(y - \hat{y}\).</p>
+<div class="highlight">
+<pre><span></span><span class="n">error</span> <span class="o">=</span> <span class="n">target</span> <span class="o">-</span> <span class="n">output</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org3795e0a">
+<h3 id="org3795e0a">Output Error Term</h3>
+<div class="outline-text-3" id="text-org3795e0a">
+<p>Our output error term:</p>
+\begin{align} \textit{output error term} &amp;= (y - \hat{y}) \times (\hat{y} \times \sigma'(x))\\ &amp;= error \times \hat{y} \times (1 - \hat{y}) \end{align}
+<div class="highlight">
+<pre><span></span><span class="n">output_error_term</span> <span class="o">=</span> <span class="n">error</span> <span class="o">*</span> <span class="n">output</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">output</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org51c7fa7">
+<h3 id="org51c7fa7">The Hidden Layer Error Term</h3>
+<div class="outline-text-3" id="text-org51c7fa7">
+<p>The hidden layer error term is the output error term scaled by the weight between them times the derivative of the activation function.</p>
+<p>\[ \delta^h = W\delta^o f'(h)\\ \]</p>
+<div class="highlight">
+<pre><span></span><span class="n">hidden_error_term</span> <span class="o">=</span> <span class="p">(</span><span class="n">weights_hidden_to_output</span><span class="o">.</span><span class="n">T</span>
+                     <span class="o">*</span> <span class="n">output_error_term</span>
+                     <span class="o">*</span> <span class="n">hidden_layer_output</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">hidden_layer_output</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org8ddcbd5">
+<h3 id="org8ddcbd5">The Hidden To Output Weight Update</h3>
+<div class="outline-text-3" id="text-org8ddcbd5">
+<p>\[ \Delta W = \eta \delta^o a \]</p>
+<p>Where <i>a</i> is the output of the hidden layer.</p>
+<div class="highlight">
+<pre><span></span><span class="n">delta_w_h_o</span> <span class="o">=</span> <span class="n">learning_rate</span> <span class="o">*</span> <span class="n">output_error_term</span> <span class="o">*</span> <span class="n">hidden_layer_output</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org482a077">
+<h3 id="org482a077">The Input To Hidden Weight Update</h3>
+<div class="outline-text-3" id="text-org482a077">
+<p>\[ \Delta w_i = \eta \delta^h x_i \]</p>
+<p>The update is the learning rate times the hidden unit error times the input values.</p>
+<div class="highlight">
+<pre><span></span><span class="n">delta_w_i_h</span> <span class="o">=</span> <span class="n">learning_rate</span> <span class="o">*</span> <span class="n">hidden_error_term</span> <span class="o">*</span> <span class="n">x</span><span class="p">[:,</span> <span class="bp">None</span><span class="p">]</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="s1">'Change in weights for hidden layer to output layer:'</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">delta_w_h_o</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s1">'Change in weights for input layer to hidden layer:'</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">delta_w_i_h</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Change in weights for hidden layer to output layer:
+[0.02634231 0.02119776]
+Change in weights for input layer to hidden layer:
+[[ 5.70726224e-04  1.72873580e-05]
+ [ 1.57375099e-02  4.76690849e-04]
+ [-9.69255871e-04 -2.93588634e-05]]
+
+</pre></div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/backpropagation/" rel="tag">backpropagation</a></li>
+<li><a class="tag p-category" href="../../../../categories/lecture/" rel="tag">lecture</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../multi-layer-perceptrons/" rel="prev" title="Multi-Layer Perceptrons">Previous post</a></li>
+<li class="next"><a href="../backpropagation-implementation-again/" rel="next" title="Backpropagation Implementation (Again)">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

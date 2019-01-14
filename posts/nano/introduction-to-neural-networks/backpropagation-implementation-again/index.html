@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="A more complete implementation of backpropagation." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Backpropagation Implementation (Again) | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/introduction-to-neural-networks/backpropagation-implementation-again/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../backpropagation/" rel="prev" title="Backpropagation" type="text/html">
+<link href="../../pytorch/training-neural-networks/" rel="next" title="Training Neural Networks" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Backpropagation Implementation (Again)" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/introduction-to-neural-networks/backpropagation-implementation-again/" property="og:url">
+<meta content="A more complete implementation of backpropagation." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-18T13:41:28-08:00" property="article:published_time">
+<meta content="backpropagation" property="article:tag">
+<meta content="lecture" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Backpropagation Implementation (Again)</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-18T13:41:28-08:00" itemprop="datePublished" title="2018-11-18 13:41">2018-11-18 13:41</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgf71a950">Set Up</a></li>
+<li><a href="#orge29bb86">The Data</a></li>
+<li><a href="#org7abd81b">Pre-Processing the Data</a></li>
+<li><a href="#org1a70c13">The Algorithm</a></li>
+<li><a href="#org8db3483">Hyperparameters</a></li>
+<li><a href="#orgd397ee3">Train It</a></li>
+<li><a href="#org67e771e">More Backpropagation Reading</a></li>
+</ul>
+</div>
+</div>
+<p>This is an example of implementing back-propagation using the UCLA Student Admissions data that we used earlier for training with gradient descent.</p>
+<div class="outline-2" id="outline-container-orgf71a950">
+<h2 id="orgf71a950">Set Up</h2>
+<div class="outline-text-2" id="text-orgf71a950"></div>
+<div class="outline-3" id="outline-container-org3e0406b">
+<h3 id="org3e0406b">Imports</h3>
+<div class="outline-text-3" id="text-org3e0406b"></div>
+<div class="outline-4" id="outline-container-org313f3a0">
+<h4 id="org313f3a0">Python</h4>
+<div class="outline-text-4" id="text-org313f3a0">
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">itertools</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgeb3116e">
+<h4 id="orgeb3116e">PyPi</h4>
+<div class="outline-text-4" id="text-orgeb3116e">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">graphviz</span> <span class="kn">import</span> <span class="n">Graph</span>
+<span class="kn">from</span> <span class="nn">sklearn.model_selection</span> <span class="kn">import</span> <span class="n">train_test_split</span>
+<span class="kn">from</span> <span class="nn">sklearn.preprocessing</span> <span class="kn">import</span> <span class="n">scale</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org94ca3bf">
+<h4 id="org94ca3bf">This Project</h4>
+<div class="outline-text-4" id="text-org94ca3bf">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.tangles.data_paths</span> <span class="kn">import</span> <span class="n">DataPath</span>
+<span class="kn">from</span> <span class="nn">neurotic.tangles.helpers</span> <span class="kn">import</span> <span class="n">org_table</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgc4028bb">
+<h3 id="orgc4028bb">Set the Random Seed</h3>
+<div class="outline-text-3" id="text-orgc4028bb">
+<div class="highlight">
+<pre><span></span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">21</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orge4f1dac">
+<h3 id="orge4f1dac">Helper Functions</h3>
+<div class="outline-text-3" id="text-orge4f1dac">
+<p>Once again, the sigmoid.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">"""</span>
+<span class="sd">    Calculate sigmoid</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">numpy</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge29bb86">
+<h2 id="orge29bb86">The Data</h2>
+<div class="outline-text-2" id="text-orge29bb86">
+<p>We are using data originally take from the <a href="https://stats.idre.ucla.edu/">UCLA Institute for Digital Research and Education</a> representing a group of students who applied for grad school at UCLA.</p>
+<div class="highlight">
+<pre><span></span><span class="n">path</span> <span class="o">=</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"student_data.csv"</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">from_folder</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">org_table</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">head</span><span class="p">()))</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-right" scope="col">admit</th>
+<th class="org-right" scope="col">gre</th>
+<th class="org-right" scope="col">gpa</th>
+<th class="org-right" scope="col">rank</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-right">0</td>
+<td class="org-right">380</td>
+<td class="org-right">3.61</td>
+<td class="org-right">3</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">660</td>
+<td class="org-right">3.67</td>
+<td class="org-right">3</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">800</td>
+<td class="org-right">4</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">640</td>
+<td class="org-right">3.19</td>
+<td class="org-right">4</td>
+</tr>
+<tr>
+<td class="org-right">0</td>
+<td class="org-right">520</td>
+<td class="org-right">2.93</td>
+<td class="org-right">4</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org7abd81b">
+<h2 id="org7abd81b">Pre-Processing the Data</h2>
+<div class="outline-text-2" id="text-org7abd81b"></div>
+<div class="outline-3" id="outline-container-org1eb6b31">
+<h3 id="org1eb6b31">Dummy Variables</h3>
+<div class="outline-text-3" id="text-org1eb6b31">
+<p>Since the <code>rank</code> values are ordinal, not numeric, we need to create some one-hot-encoded columns for it using <a href="https://pandas.pydata.org/pandas-docs/stable/generated/pandas.get_dummies.html">get_dummies</a>.</p>
+<div class="highlight">
+<pre><span></span><span class="n">rank_counts</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"rank"</span><span class="p">]</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">get_dummies</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">"rank"</span><span class="p">],</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">"rank"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">rank</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">rank_counts</span><span class="p">[</span><span class="n">rank</span><span class="p">]</span> <span class="o">==</span> <span class="n">data</span><span class="p">[</span><span class="s2">"rank_{}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">rank</span><span class="p">)]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">org_table</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">head</span><span class="p">()))</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-right" scope="col">admit</th>
+<th class="org-right" scope="col">gre</th>
+<th class="org-right" scope="col">gpa</th>
+<th class="org-right" scope="col">rank_1</th>
+<th class="org-right" scope="col">rank_2</th>
+<th class="org-right" scope="col">rank_3</th>
+<th class="org-right" scope="col">rank_4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-right">0</td>
+<td class="org-right">380</td>
+<td class="org-right">3.61</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">660</td>
+<td class="org-right">3.67</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">800</td>
+<td class="org-right">4</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">640</td>
+<td class="org-right">3.19</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-right">0</td>
+<td class="org-right">520</td>
+<td class="org-right">2.93</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgd84a6af">
+<h3 id="orgd84a6af">Standardization</h3>
+<div class="outline-text-3" id="text-orgd84a6af">
+<p>Now I'll convert the <code>gre</code> and <code>gpa</code> to have a mean of 0 and a variance of 1 using sklearn's <a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.scale.html#sklearn.preprocessing.scale">scale</a> function.</p>
+<div class="highlight">
+<pre><span></span><span class="n">data</span><span class="p">[</span><span class="s2">"gre"</span><span class="p">]</span> <span class="o">=</span> <span class="n">scale</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">gre</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float64"</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">data</span><span class="p">[</span><span class="s2">"gpa"</span><span class="p">]</span> <span class="o">=</span> <span class="n">scale</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">gpa</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">org_table</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span> <span class="n">showindex</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-right" scope="col">&nbsp;</th>
+<th class="org-right" scope="col">admit</th>
+<th class="org-right" scope="col">gre</th>
+<th class="org-right" scope="col">gpa</th>
+<th class="org-right" scope="col">rank_1</th>
+<th class="org-right" scope="col">rank_2</th>
+<th class="org-right" scope="col">rank_3</th>
+<th class="org-right" scope="col">rank_4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-right">72</td>
+<td class="org-right">0</td>
+<td class="org-right">-0.933502</td>
+<td class="org-right">0.000263095</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-right">358</td>
+<td class="org-right">1</td>
+<td class="org-right">-0.240093</td>
+<td class="org-right">0.789548</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">187</td>
+<td class="org-right">0</td>
+<td class="org-right">-0.0667406</td>
+<td class="org-right">-1.34152</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">93</td>
+<td class="org-right">0</td>
+<td class="org-right">-0.0667406</td>
+<td class="org-right">-1.20997</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+<tr>
+<td class="org-right">380</td>
+<td class="org-right">0</td>
+<td class="org-right">0.973373</td>
+<td class="org-right">0.68431</td>
+<td class="org-right">0</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="n">data</span><span class="o">.</span><span class="n">gre</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span>
+<span class="k">assert</span> <span class="n">data</span><span class="o">.</span><span class="n">gre</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span>
+<span class="k">assert</span> <span class="n">data</span><span class="o">.</span><span class="n">gpa</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span>
+<span class="k">assert</span> <span class="n">data</span><span class="o">.</span><span class="n">gpa</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org14e615b">
+<h3 id="org14e615b">Setting up the training and testing data</h3>
+<div class="outline-text-3" id="text-org14e615b">
+<p><code>features_all</code> is the input (<i>x</i>) data and <code>targets_all</code> is the target (<i>y</i>) data.</p>
+<div class="highlight">
+<pre><span></span><span class="n">features_all</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="s2">"admit"</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="s2">"columns"</span><span class="p">)</span>
+<span class="n">targets_all</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">admit</span>
+</pre></div>
+<p>Now we'll split it into training and testing sets.</p>
+<div class="highlight">
+<pre><span></span><span class="n">features</span><span class="p">,</span> <span class="n">features_test</span><span class="p">,</span> <span class="n">targets</span><span class="p">,</span> <span class="n">targets_test</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span>
+    <span class="n">features_all</span><span class="p">,</span> <span class="n">targets_all</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org1a70c13">
+<h2 id="org1a70c13">The Algorithm</h2>
+<div class="outline-text-2" id="text-org1a70c13">
+<p>These are the basic steps to train the network with backpropagation.</p>
+<ul class="org-ul">
+<li>Set the weights for each layer to 0
+<ul class="org-ul">
+<li>Input to hidden weights: \(\Delta w_{ij} = 0\)</li>
+<li>Hidden to output weights: \(\Delta W_j=0\)</li>
+</ul>
+</li>
+<li>For each entry in the training data:
+<ul class="org-ul">
+<li>make a forward pass to get the output: \(\hat{y}\)</li>
+<li>Calculate the error gradient for the output: \(\delta^o=(y - \hat{y})f'(\sum_j W_j a_j)\)</li>
+<li>Propagate the errors to the hidden layer: \(\delta_j^h = \delta^o W_j f'(h_j)\)</li>
+<li>Update the weight steps:
+<ul class="org-ul">
+<li>\(\Delta W_j = \Delta W_j + \delta^o a_j\)</li>
+<li>\(\Delta w_{ij} = \Delta w_{ij} + \delta_j^h a_i\)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Update the weights (\(\eta\) is the learning rate and <i>m</i> is the number of records)
+<ul class="org-ul">
+<li>\(W_j = W_j + \eta \Delta W_j/m\)</li>
+<li>\(w_{ij} = w_{ij} + \eta \Delta w_{ij}/m\)</li>
+</ul>
+</li>
+<li>Repeat for \(\epsilon\) epochs</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org8db3483">
+<h2 id="org8db3483">Hyperparameters</h2>
+<div class="outline-text-2" id="text-org8db3483">
+<p>These are the <i>hyperparameters</i> that we set to define the training. We're going to use 2 hidden units.</p>
+<div class="highlight">
+<pre><span></span><span class="n">graph</span> <span class="o">=</span> <span class="n">Graph</span><span class="p">(</span><span class="n">format</span><span class="o">=</span><span class="s2">"png"</span><span class="p">)</span>
+
+<span class="c1"># the input layer</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"a"</span><span class="p">,</span> <span class="s2">"GRE"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"b"</span><span class="p">,</span> <span class="s2">"GPA"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"c"</span><span class="p">,</span> <span class="s2">"Rank 1"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"d"</span><span class="p">,</span> <span class="s2">"Rank 2"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"e"</span><span class="p">,</span> <span class="s2">"Rank 3"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"f"</span><span class="p">,</span> <span class="s2">"Rank 4"</span><span class="p">)</span>
+
+<span class="c1"># the hidden layer</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"g"</span><span class="p">,</span> <span class="s2">"h1"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"h"</span><span class="p">,</span> <span class="s2">"h2"</span><span class="p">)</span>
+
+<span class="c1"># the output layer</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">(</span><span class="s2">"i"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+
+<span class="n">inputs</span> <span class="o">=</span> <span class="s2">"abcdef"</span>
+<span class="n">hidden</span> <span class="o">=</span> <span class="s2">"gh"</span>
+
+<span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">([</span><span class="n">x</span> <span class="o">+</span> <span class="n">h</span> <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span> <span class="n">hidden</span><span class="p">)])</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">edges</span><span class="p">([</span><span class="n">h</span> <span class="o">+</span> <span class="s2">"i"</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">hidden</span><span class="p">])</span>
+
+<span class="n">graph</span><span class="o">.</span><span class="n">render</span><span class="p">(</span><span class="s2">"graphs/network.dot"</span><span class="p">)</span>
+<span class="n">graph</span>
+</pre></div>
+<div class="figure">
+<p><img alt="network.dot.png" src="network.dot.png"></p>
+</div>
+<p>Well train it for 2,000 epochs with a learning rate of 0.005.</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_hidden</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="n">epochs</span> <span class="o">=</span> <span class="mi">2000</span>
+<span class="n">learning_rate</span> <span class="o">=</span> <span class="mf">0.005</span>
+</pre></div>
+<p>We'll be using the <code>n_records</code>, and <code>n_features</code> to set up the weights matrices. <code>n_records</code> is also used to average out the amount of change we make to the weights (otherwise each weight would get the sum of all the corrections). <code>last_loss</code> is used for reporting epochs that do worse than the previous epoch.</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_records</span><span class="p">,</span> <span class="n">n_features</span> <span class="o">=</span> <span class="n">features</span><span class="o">.</span><span class="n">shape</span>
+<span class="n">last_loss</span> <span class="o">=</span> <span class="bp">None</span>
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org63bd018">
+<h3 id="org63bd018">Initialize the Weights</h3>
+<div class="outline-text-3" id="text-org63bd018">
+<p>We're going to use a normally distributed set of random weights to start with. The <code>scale</code> is the spread of the distribution we're sampling from. A rule-of-thumb for the spread is to use \(\frac{1}{\sqrt{n}}\) where <i>n</i> is the numeber of input units. This keeps the input to the sigmoid low, even as the number of inputs goes up.</p>
+<div class="highlight">
+<pre><span></span><span class="n">weights_input_to_hidden</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">scale</span><span class="o">=</span><span class="mi">1</span> <span class="o">/</span> <span class="n">n_features</span> <span class="o">**</span> <span class="o">.</span><span class="mi">5</span><span class="p">,</span>
+                                           <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">n_features</span><span class="p">,</span> <span class="n">n_hidden</span><span class="p">))</span>
+<span class="n">weights_hidden_to_output</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">scale</span><span class="o">=</span><span class="mi">1</span> <span class="o">/</span> <span class="n">n_features</span> <span class="o">**</span> <span class="o">.</span><span class="mi">5</span><span class="p">,</span>
+                                            <span class="n">size</span><span class="o">=</span><span class="n">n_hidden</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgd397ee3">
+<h2 id="orgd397ee3">Train It</h2>
+<div class="outline-text-2" id="text-orgd397ee3">
+<p>Now, we'll train the network using backpropagation.</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">epochs</span><span class="p">):</span>
+    <span class="n">delta_weights_input_to_hidden</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">weights_input_to_hidden</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">delta_weights_hidden_to_output</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">weights_hidden_to_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">features</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">targets</span><span class="p">):</span>
+        <span class="n">hidden_input</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weights_input_to_hidden</span><span class="p">)</span>
+        <span class="n">hidden_output</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">hidden_input</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">hidden_output</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weights_hidden_to_output</span><span class="p">))</span>
+
+        <span class="c1">## Backward pass ##</span>
+        <span class="n">error</span> <span class="o">=</span> <span class="n">y</span> <span class="o">-</span> <span class="n">output</span>
+        <span class="n">output_error_term</span> <span class="o">=</span> <span class="n">error</span> <span class="o">*</span> <span class="n">output</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">output</span><span class="p">)</span>
+
+        <span class="n">hidden_error</span> <span class="o">=</span> <span class="p">(</span><span class="n">weights_hidden_to_output</span><span class="o">.</span><span class="n">T</span>
+                        <span class="o">*</span> <span class="n">output_error_term</span><span class="p">)</span>
+        <span class="n">hidden_error_term</span> <span class="o">=</span> <span class="p">(</span><span class="n">hidden_error</span>
+                             <span class="o">*</span>  <span class="n">hidden_output</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">hidden_output</span><span class="p">))</span>
+
+        <span class="n">delta_weights_hidden_to_output</span> <span class="o">+=</span> <span class="n">output_error_term</span> <span class="o">*</span> <span class="n">hidden_output</span>
+        <span class="n">delta_weights_input_to_hidden</span> <span class="o">+=</span> <span class="n">hidden_error_term</span> <span class="o">*</span> <span class="n">x</span><span class="p">[:,</span> <span class="bp">None</span><span class="p">]</span>
+
+    <span class="n">weights_input_to_hidden</span> <span class="o">+=</span> <span class="p">(</span><span class="n">learning_rate</span> <span class="o">*</span> <span class="n">delta_weights_input_to_hidden</span><span class="p">)</span><span class="o">/</span><span class="n">n_records</span>
+    <span class="n">weights_hidden_to_output</span> <span class="o">+=</span> <span class="p">(</span><span class="n">learning_rate</span> <span class="o">*</span> <span class="n">delta_weights_hidden_to_output</span><span class="p">)</span><span class="o">/</span><span class="n">n_records</span>
+
+    <span class="c1"># Printing out the mean square error on the training set</span>
+    <span class="k">if</span> <span class="n">epoch</span> <span class="o">%</span> <span class="p">(</span><span class="n">epochs</span> <span class="o">/</span> <span class="mi">10</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">hidden_output</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">weights_input_to_hidden</span><span class="p">))</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">hidden_output</span><span class="p">,</span>
+                             <span class="n">weights_hidden_to_output</span><span class="p">))</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">((</span><span class="n">out</span> <span class="o">-</span> <span class="n">targets</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">last_loss</span> <span class="ow">and</span> <span class="n">last_loss</span> <span class="o">&lt;</span> <span class="n">loss</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s2">"Train loss: "</span><span class="p">,</span> <span class="n">loss</span><span class="p">,</span> <span class="s2">"  WARNING - Loss Increasing"</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s2">"Train loss: "</span><span class="p">,</span> <span class="n">loss</span><span class="p">)</span>
+        <span class="n">last_loss</span> <span class="o">=</span> <span class="n">loss</span>
+</pre></div>
+<pre class="example">
+Train loss:  0.2508914323518061
+Train loss:  0.24921862835632544
+Train loss:  0.24764092608110996
+Train loss:  0.24615251717689884
+Train loss:  0.24474791403688867
+Train loss:  0.24342194353528698
+Train loss:  0.24216973842045766
+Train loss:  0.24098672692610631
+Train loss:  0.23986862108158177
+Train loss:  0.2388114041271259
+</pre>
+<p>Now we'll calculate the accuracy of the model.</p>
+<div class="highlight">
+<pre><span></span><span class="n">hidden</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">features_test</span><span class="p">,</span> <span class="n">weights_input_to_hidden</span><span class="p">))</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">hidden</span><span class="p">,</span> <span class="n">weights_hidden_to_output</span><span class="p">))</span>
+<span class="n">predictions</span> <span class="o">=</span> <span class="n">out</span> <span class="o">&gt;</span> <span class="mf">0.5</span>
+<span class="n">accuracy</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">predictions</span> <span class="o">==</span> <span class="n">targets_test</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">"Prediction accuracy: {:.3f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">accuracy</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+Prediction accuracy: 0.750
+
+</pre></div>
+</div>
+<div class="outline-2" id="outline-container-org67e771e">
+<h2 id="org67e771e">More Backpropagation Reading</h2>
+<div class="outline-text-2" id="text-org67e771e">
+<ul class="org-ul">
+<li><a href="https://medium.com/@karpathy/yes-you-should-understand-backprop-e2f06eab496b">Yes you should understand backprop</a>: Backpropagation has failure points that you have to know or you might get bitten by it.</li>
+</ul>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/backpropagation/" rel="tag">backpropagation</a></li>
+<li><a class="tag p-category" href="../../../../categories/lecture/" rel="tag">lecture</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../backpropagation/" rel="prev" title="Backpropagation">Previous post</a></li>
+<li class="next"><a href="../../pytorch/training-neural-networks/" rel="next" title="Training Neural Networks">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

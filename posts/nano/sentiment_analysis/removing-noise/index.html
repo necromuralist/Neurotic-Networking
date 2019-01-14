@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Improving the Network by handling noise." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Removing Noise | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/sentiment_analysis/removing-noise/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../../pytorch/tensors-in-pytorch/" rel="prev" title="Tensors In PyTorch" type="text/html">
+<link href="../making-the-network-more-efficient/" rel="next" title="Making the Network More Efficient" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Removing Noise" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/sentiment_analysis/removing-noise/" property="og:url">
+<meta content="Improving the Network by handling noise." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-11T16:30:38-08:00" property="article:published_time">
+<meta content="lecture" property="article:tag">
+<meta content="sentiment analysis" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Removing Noise</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-11T16:30:38-08:00" itemprop="datePublished" title="2018-11-11 16:30">2018-11-11 16:30</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org8ee1355">Set Up</a></li>
+<li><a href="#orga4d1ea4">Understanding Neural Noise</a></li>
+<li><a href="#org77a303a">Reducing Noise in Our Input Data</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org8ee1355">
+<h2 id="org8ee1355">Set Up</h2>
+<div class="outline-text-2" id="text-org8ee1355"></div>
+<div class="outline-3" id="outline-container-orge1d8eb7">
+<h3 id="orge1d8eb7">Imports</h3>
+<div class="outline-text-3" id="text-orge1d8eb7"></div>
+<div class="outline-4" id="outline-container-org79e042a">
+<h4 id="org79e042a">Python</h4>
+<div class="outline-text-4" id="text-org79e042a">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org1c86257">
+<h4 id="org1c86257">PyPy</h4>
+<div class="outline-text-4" id="text-org1c86257">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">tabulate</span> <span class="kn">import</span> <span class="n">tabulate</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgbd0eff6">
+<h4 id="orgbd0eff6">This Project</h4>
+<div class="outline-text-4" id="text-orgbd0eff6">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">network_helpers</span> <span class="kn">import</span> <span class="n">update_input_layer</span>
+<span class="kn">from</span> <span class="nn">neurotic.tangles.data_paths</span> <span class="kn">import</span> <span class="n">DataPath</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org18a334a">
+<h3 id="org18a334a">Constants</h3>
+<div class="outline-text-3" id="text-org18a334a">
+<div class="highlight">
+<pre><span></span><span class="n">SPLIT_ON_THIS</span> <span class="o">=</span> <span class="s2">" "</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga4d1ea4">
+<h2 id="orga4d1ea4">Understanding Neural Noise</h2>
+<div class="outline-text-2" id="text-orga4d1ea4">
+<p>We're going to try and figure out why the Neural Network isn't improving as much as we want it to. First, let's checkout the first review.</p>
+</div>
+<div class="outline-3" id="outline-container-orgd3b75a9">
+<h3 id="orgd3b75a9">The Pickles</h3>
+<div class="outline-text-3" id="text-orgd3b75a9">
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"total_counts.pkl"</span><span class="p">)</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">total_counts</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+<span class="n">vocab_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">total_counts</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">path</span> <span class="o">=</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"reviews.pkl"</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">reviews</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">vocab</span> <span class="o">=</span> <span class="n">total_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="n">word2index</span> <span class="o">=</span> <span class="p">{</span><span class="n">word</span><span class="p">:</span> <span class="n">index</span> <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">vocab</span><span class="p">)}</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">layer_0</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">))</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">counter</span> <span class="o">=</span> <span class="n">update_input_layer</span><span class="p">(</span><span class="n">reviews</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">layer_0</span><span class="p">,</span> <span class="n">word2index</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">layer_0</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">)[:</span><span class="mi">10</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+[27.0, 15.0, 9.0, 6.0, 5.0, 5.0, 4.0, 4.0, 4.0, 4.0]
+
+</pre>
+<p>So it looks like two of the words in the first review have a disproportionate representation. Lets see what they are.</p>
+<div class="highlight">
+<pre><span></span><span class="n">table</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">tabulate</span><span class="p">,</span> <span class="n">tablefmt</span><span class="o">=</span><span class="s2">"orgtbl"</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="s2">"keys"</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">print_most_common</span><span class="p">(</span><span class="n">counter</span><span class="p">:</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">count</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">bottom</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Prints most common tokens as an org-tabel"""</span>
+    <span class="n">tokens</span><span class="p">,</span> <span class="n">counts</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">token</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">counter</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">reverse</span><span class="o">=</span><span class="n">bottom</span><span class="p">)[:</span><span class="n">count</span><span class="p">]:</span>
+        <span class="n">tokens</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+        <span class="n">counts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">count</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">table</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">Token</span><span class="o">=</span><span class="n">tokens</span><span class="p">,</span> <span class="n">Count</span><span class="o">=</span><span class="n">counts</span><span class="p">)))</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">print_most_common</span><span class="p">(</span><span class="n">counter</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Token</th>
+<th class="org-right" scope="col">Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-right">15</td>
+</tr>
+<tr>
+<td class="org-left">.</td>
+<td class="org-right">27</td>
+</tr>
+<tr>
+<td class="org-left">a</td>
+<td class="org-right">4</td>
+</tr>
+<tr>
+<td class="org-left">about</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">adults</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">age</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">all</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">and</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">as</td>
+<td class="org-right">2</td>
+</tr>
+<tr>
+<td class="org-left">at</td>
+<td class="org-right">2</td>
+</tr>
+</tbody>
+</table>
+<p>So, as I noted before, the dominant tokens aren't revealing as far as sentiment goes. A smarter tokenizer would probably have helped.</p>
+<div class="highlight">
+<pre><span></span><span class="n">print_most_common</span><span class="p">(</span><span class="n">total_counts</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Token</th>
+<th class="org-right" scope="col">Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-right">1049343</td>
+</tr>
+<tr>
+<td class="org-left">.</td>
+<td class="org-right">327192</td>
+</tr>
+<tr>
+<td class="org-left">a</td>
+<td class="org-right">163009</td>
+</tr>
+<tr>
+<td class="org-left">aa</td>
+<td class="org-right">5</td>
+</tr>
+<tr>
+<td class="org-left">aaa</td>
+<td class="org-right">9</td>
+</tr>
+<tr>
+<td class="org-left">aaaaaaah</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">aaaaah</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">aaaaatch</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">aaaahhhhhhh</td>
+<td class="org-right">1</td>
+</tr>
+<tr>
+<td class="org-left">aaaand</td>
+<td class="org-right">1</td>
+</tr>
+</tbody>
+</table>
+<p>You can see that it gets even worse when you look at the overall corpus. All these unuseful tokens are adding too much noise to the dataset.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org77a303a">
+<h2 id="org77a303a">Reducing Noise in Our Input Data</h2>
+<div class="outline-text-2" id="text-org77a303a">
+<p>Rather than using a tokenizer that knows stop-words, punctuation, etc. we're going to just stop using counts and rely on the neural network to figure out which weights between the input layer and the hidden layer to zero-out. To do this we just have to convert the inputs from word counts to just binary inputs (is the token in the review or not)?</p>
+<p>I'm going to keep extending this class so I'll tangle it out so I can import it elsewhere so the next two blocks are actually in a module named <code>sentiment_renetwork</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">sentiment_network</span> <span class="kn">import</span> <span class="n">SentimentNetwork</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">SentimentRenetwork</span><span class="p">(</span><span class="n">SentimentNetwork</span><span class="p">):</span>
+    <span class="sd">"""Re-do of the Sentiment Network</span>
+
+<span class="sd">    .. uml::</span>
+
+<span class="sd">       SentimentRenetwork --|&gt; SentimentNetwork</span>
+
+<span class="sd">    This is a re-implementation that doesn't use counts as inputs</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="nf">update_input_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">review</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="sd">"""Update the counts in the input layer</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        review: A movie review</span>
+<span class="sd">       """</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span> <span class="o">*=</span> <span class="mi">0</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">review</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tokenizer</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">token</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_to_index</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_to_index</span><span class="p">[</span><span class="n">token</span><span class="p">]]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">sentiment_renetwork</span> <span class="kn">import</span> <span class="n">SentimentRenetwork</span>
+<span class="n">sentimental</span> <span class="o">=</span> <span class="n">SentimentRenetwork</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"x_train.pkl"</span><span class="p">)</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">x_train</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"y_train.pkl"</span><span class="p">)</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">y_train</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">sentimental</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.12803969] #Correct: 745 #Trained: 1001 Training Accuracy: 74.43 %
+Progress: 8.33 % Speed(reviews/sec): 285.71 Error: [-0.05466563] #Correct: 1542 #Trained: 2001 Training Accuracy: 77.06 %
+Progress: 12.50 % Speed(reviews/sec): 300.00 Error: [-0.76659525] #Correct: 2378 #Trained: 3001 Training Accuracy: 79.24 %
+Progress: 16.67 % Speed(reviews/sec): 285.71 Error: [-0.13244093] #Correct: 3185 #Trained: 4001 Training Accuracy: 79.61 %
+Progress: 20.83 % Speed(reviews/sec): 294.12 Error: [-0.03716464] #Correct: 3997 #Trained: 5001 Training Accuracy: 79.92 %
+Progress: 25.00 % Speed(reviews/sec): 300.00 Error: [-0.00921009] #Correct: 4835 #Trained: 6001 Training Accuracy: 80.57 %
+Progress: 29.17 % Speed(reviews/sec): 304.35 Error: [-0.00274399] #Correct: 5703 #Trained: 7001 Training Accuracy: 81.46 %
+Progress: 33.33 % Speed(reviews/sec): 307.69 Error: [-0.0040905] #Correct: 6555 #Trained: 8001 Training Accuracy: 81.93 %
+Progress: 37.50 % Speed(reviews/sec): 300.00 Error: [-0.02414385] #Correct: 7412 #Trained: 9001 Training Accuracy: 82.35 %
+Progress: 41.67 % Speed(reviews/sec): 303.03 Error: [-0.11133286] #Correct: 8282 #Trained: 10001 Training Accuracy: 82.81 %
+Progress: 45.83 % Speed(reviews/sec): 305.56 Error: [-0.05147756] #Correct: 9143 #Trained: 11001 Training Accuracy: 83.11 %
+Progress: 50.00 % Speed(reviews/sec): 300.00 Error: [-0.00178148] #Correct: 10006 #Trained: 12001 Training Accuracy: 83.38 %
+Progress: 54.17 % Speed(reviews/sec): 302.33 Error: [-0.3016099] #Correct: 10874 #Trained: 13001 Training Accuracy: 83.64 %
+Progress: 58.33 % Speed(reviews/sec): 304.35 Error: [-0.00105685] #Correct: 11741 #Trained: 14001 Training Accuracy: 83.86 %
+Progress: 62.50 % Speed(reviews/sec): 306.12 Error: [-0.49072786] #Correct: 12584 #Trained: 15001 Training Accuracy: 83.89 %
+Progress: 66.67 % Speed(reviews/sec): 307.69 Error: [-0.18036635] #Correct: 13414 #Trained: 16001 Training Accuracy: 83.83 %
+Progress: 70.83 % Speed(reviews/sec): 309.09 Error: [-0.17892538] #Correct: 14265 #Trained: 17001 Training Accuracy: 83.91 %
+Progress: 75.00 % Speed(reviews/sec): 305.08 Error: [-0.00702446] #Correct: 15127 #Trained: 18001 Training Accuracy: 84.03 %
+Progress: 79.17 % Speed(reviews/sec): 306.45 Error: [-0.99885025] #Correct: 16000 #Trained: 19001 Training Accuracy: 84.21 %
+Progress: 83.33 % Speed(reviews/sec): 307.69 Error: [-0.02833534] #Correct: 16873 #Trained: 20001 Training Accuracy: 84.36 %
+Progress: 87.50 % Speed(reviews/sec): 308.82 Error: [-0.22776195] #Correct: 17746 #Trained: 21001 Training Accuracy: 84.50 %
+Progress: 91.67 % Speed(reviews/sec): 305.56 Error: [-0.22165232] #Correct: 18630 #Trained: 22001 Training Accuracy: 84.68 %
+Progress: 95.83 % Speed(reviews/sec): 306.67 Error: [-0.13901935] #Correct: 19489 #Trained: 23001 Training Accuracy: 84.73 %
+Training Time: 0:01:18.649050
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"sentimental_renetwork.pkl"</span><span class="p">,</span> <span class="n">check_exists</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+    <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">sentimental</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+</pre></div>
+<p>Here's how well it does on the test-set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">sentimental</span><span class="o">.</span><span class="n">test</span><span class="p">(</span><span class="n">x_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Progress: 0.00% Speed(reviews/sec): 0.00 #Correct: 1 #Tested: 1 Testing Accuracy: 100.00 %
+Progress: 10.00% Speed(reviews/sec): 0.00 #Correct: 92 #Tested: 101 Testing Accuracy: 91.09 %
+Progress: 20.00% Speed(reviews/sec): 0.00 #Correct: 178 #Tested: 201 Testing Accuracy: 88.56 %
+Progress: 30.00% Speed(reviews/sec): 0.00 #Correct: 268 #Tested: 301 Testing Accuracy: 89.04 %
+Progress: 40.00% Speed(reviews/sec): 0.00 #Correct: 351 #Tested: 401 Testing Accuracy: 87.53 %
+Progress: 50.00% Speed(reviews/sec): 0.00 #Correct: 442 #Tested: 501 Testing Accuracy: 88.22 %
+Progress: 60.00% Speed(reviews/sec): 0.00 #Correct: 533 #Tested: 601 Testing Accuracy: 88.69 %
+Progress: 70.00% Speed(reviews/sec): 0.00 #Correct: 610 #Tested: 701 Testing Accuracy: 87.02 %
+Progress: 80.00% Speed(reviews/sec): 0.00 #Correct: 689 #Tested: 801 Testing Accuracy: 86.02 %
+Progress: 90.00% Speed(reviews/sec): 0.00 #Correct: 777 #Tested: 901 Testing Accuracy: 86.24 %
+</pre>
+<p>Oddly, it does better on the test set than the training set?</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/lecture/" rel="tag">lecture</a></li>
+<li><a class="tag p-category" href="../../../../categories/sentiment-analysis/" rel="tag">sentiment analysis</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../../pytorch/tensors-in-pytorch/" rel="prev" title="Tensors In PyTorch">Previous post</a></li>
+<li class="next"><a href="../making-the-network-more-efficient/" rel="next" title="Making the Network More Efficient">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="The first implementation of a Neural Network for Sentiment Analysis." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>The Sentiment Analyzer | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/sentiment_analysis/the-sentiment-analyzer/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../the-network-parts/" rel="prev" title="The Network Parts" type="text/html">
+<link href="../../pytorch/tensors-in-pytorch/" rel="next" title="Tensors In PyTorch" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="The Sentiment Analyzer" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/sentiment_analysis/the-sentiment-analyzer/" property="og:url">
+<meta content="The first implementation of a Neural Network for Sentiment Analysis." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-11T15:10:27-08:00" property="article:published_time">
+<meta content="lectures" property="article:tag">
+<meta content="sentiment analysis" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">The Sentiment Analyzer</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-11T15:10:27-08:00" itemprop="datePublished" title="2018-11-11 15:10">2018-11-11 15:10</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org48535ff">Set Up</a></li>
+<li><a href="#org76bff0c">Encapsulate our neural network in a class</a></li>
+<li><a href="#org04a9d37">Test The Network</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org48535ff">
+<h2 id="org48535ff">Set Up</h2>
+<div class="outline-text-2" id="text-org48535ff"></div>
+<div class="outline-3" id="outline-container-orga097afc">
+<h3 id="orga097afc">Imports</h3>
+<div class="outline-text-3" id="text-orga097afc"></div>
+<div class="outline-4" id="outline-container-org439cc03">
+<h4 id="org439cc03">Python</h4>
+<div class="outline-text-4" id="text-org439cc03">
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">pickle</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org66c0568">
+<h4 id="org66c0568">This Project</h4>
+<div class="outline-text-4" id="text-org66c0568">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.tangles.data_paths</span> <span class="kn">import</span> <span class="n">DataPath</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgb15bede">
+<h3 id="orgb15bede">The Data</h3>
+<div class="outline-text-3" id="text-orgb15bede">
+<div class="highlight">
+<pre><span></span><span class="n">path</span> <span class="o">=</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"reviews.pkl"</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">'rb'</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">reviews</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org7a4caa9">
+<h3 id="org7a4caa9">The Labels</h3>
+<div class="outline-text-3" id="text-org7a4caa9">
+<p>A similar deal except casting the labels to upper case.</p>
+<div class="highlight">
+<pre><span></span><span class="n">path</span> <span class="o">=</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"labels.pkl"</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">'rb'</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+<p><b>Note:</b> The data in <code>reviews.txt</code> we're using has already been preprocessed a bit and contains only lower case characters. If we were working from raw data, where we didn't know it was all lower case, we would want to add a step here to convert it. That's so we treat different variations of the same word, like `The`, `the`, and `THE`, all the same way.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org76bff0c">
+<h2 id="org76bff0c">Encapsulate our neural network in a class</h2>
+<div class="outline-text-2" id="text-org76bff0c">
+<p>I'm going to try and break up the class so that I can make notes. You can't really do that in a notebook, though, so I'm going to tangle it out. The following Class is going to end up in a module named <code>sentiment_network</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="o">&lt;&lt;</span><span class="n">imports</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">constants</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">review</span><span class="o">-</span><span class="n">vocabulary</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">review</span><span class="o">-</span><span class="n">vocabulary</span><span class="o">-</span><span class="n">size</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">label</span><span class="o">-</span><span class="n">vocabulary</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">label</span><span class="o">-</span><span class="n">vocabulary</span><span class="o">-</span><span class="n">size</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">word</span><span class="o">-</span><span class="n">to</span><span class="o">-</span><span class="n">index</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">label</span><span class="o">-</span><span class="n">to</span><span class="o">-</span><span class="n">index</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="nb">input</span><span class="o">-</span><span class="n">nodes</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">weights</span><span class="o">-</span><span class="nb">input</span><span class="o">-</span><span class="n">to</span><span class="o">-</span><span class="n">hidden</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">weights</span><span class="o">-</span><span class="n">hidden</span><span class="o">-</span><span class="n">to</span><span class="o">-</span><span class="n">output</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="nb">input</span><span class="o">-</span><span class="n">layer</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">update</span><span class="o">-</span><span class="nb">input</span><span class="o">-</span><span class="n">layer</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">get</span><span class="o">-</span><span class="n">target</span><span class="o">-</span><span class="k">for</span><span class="o">-</span><span class="n">label</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">sigmoid</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">sigmoid</span><span class="o">-</span><span class="n">output</span><span class="o">-</span><span class="mi">2</span><span class="o">-</span><span class="n">derivative</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">train</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">test</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">sentiment</span><span class="o">-</span><span class="n">network</span><span class="o">-</span><span class="n">run</span><span class="o">&gt;&gt;</span>
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgaf01d4a">
+<h3 id="orgaf01d4a">Imports</h3>
+<div class="outline-text-3" id="text-orgaf01d4a">
+<div class="highlight">
+<pre><span></span><span class="c1"># From python</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">List</span><span class="p">,</span>
+    <span class="n">Union</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="c1"># from pypi</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgb22be18">
+<h3 id="orgb22be18">Constants</h3>
+<div class="outline-text-3" id="text-orgb22be18">
+<div class="highlight">
+<pre><span></span><span class="n">SPLIT_ON_THIS</span> <span class="o">=</span> <span class="s2">" "</span>
+<span class="n">Review</span> <span class="o">=</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="n">Label</span> <span class="o">=</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="n">Classification</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org79daa42">
+<h3 id="org79daa42">Sentiment Network Constructor</h3>
+<div class="outline-text-3" id="text-org79daa42">
+<p>To make this more like a SKlearn implementation I'm not going to add the training and testing data at this point. This will break one of the examples given. Oh well.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">SentimentNetwork</span><span class="p">:</span>
+    <span class="sd">"""A network to predict if a review is positive or negative</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     hidden_nodes: Number of nodes to create in the hidden layer</span>
+<span class="sd">     learning_rate: Learning rate to use while training        </span>
+<span class="sd">     output_nodes: Number of output nodes (should always be 1)</span>
+<span class="sd">     tokenizer: what to split on</span>
+<span class="sd">     verbose: whether to output update information</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                 <span class="n">hidden_nodes</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> 
+                 <span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+                 <span class="n">output_nodes</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                 <span class="n">tokenizer</span><span class="p">:</span><span class="nb">str</span><span class="o">=</span><span class="s2">" "</span><span class="p">,</span>
+                 <span class="n">verbose</span><span class="p">:</span><span class="nb">bool</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c1"># Assign a seed to our random number generator to ensure we get</span>
+        <span class="c1"># reproducable results during development </span>
+        <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_nodes</span> <span class="o">=</span> <span class="n">hidden_nodes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span> <span class="o">=</span> <span class="n">learning_rate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes</span> <span class="o">=</span> <span class="n">output_nodes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">tokenizer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary_size</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary_size</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_word_to_index</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_to_index</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_input_nodes</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weights_input_to_hidden</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weights_hidden_to_output</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_input_layer</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org5d9c9dd">
+<h3 id="org5d9c9dd">The Review Vocabulary</h3>
+<div class="outline-text-3" id="text-org5d9c9dd">
+<p>This takes the training reviews and tokenizes them so we have a set of unique tokens to work with. This requires that <code>self.reviews</code> and <code>self.tokenizer</code> are set.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">review_vocabulary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">:</span>
+    <span class="sd">"""list of tokens in the reviews"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">vocabulary</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">review</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">reviews</span><span class="p">:</span>
+            <span class="n">vocabulary</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">review</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tokenizer</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgee2ced3">
+<h3 id="orgee2ced3">The Review Vocabulary Size</h3>
+<div class="outline-text-3" id="text-orgee2ced3">
+<p>This is the number of tokens we ended up with after tokenizing the training reviews.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">review_vocabulary_size</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""The amount of tokens in our reviews"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary_size</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">review_vocabulary</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_review_vocabulary_size</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgfaf6d77">
+<h3 id="orgfaf6d77">The Label Vocabulary</h3>
+<div class="outline-text-3" id="text-orgfaf6d77">
+<p>These are the labels - there should only be two in this case. This requires that <code>self.labels</code> has been set.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">label_vocabulary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">:</span>
+    <span class="sd">"""List of sentiment labels"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">labels</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org0f5bf49">
+<h3 id="org0f5bf49">The Label Vocabulary Size</h3>
+<div class="outline-text-3" id="text-org0f5bf49">
+<p>The number of labels we ended up with.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">label_vocabulary_size</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""The amount of tokens in our labels"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary_size</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_vocabulary</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_vocabulary_size</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orga55f8c6">
+<h3 id="orga55f8c6">The Word To Index Map</h3>
+<div class="outline-text-3" id="text-orga55f8c6">
+<p>This is a map to find the index in our review vocabulary where a word is. This requires that <code>self.review_vocabulary</code> has been set.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">word_to_index</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="sd">"""maps a word to the index in our review vocabulary"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_word_to_index</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_word_to_index</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">word</span><span class="p">:</span> <span class="n">index</span>
+            <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">review_vocabulary</span><span class="p">)}</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_word_to_index</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgf24a6b8">
+<h3 id="orgf24a6b8">The Label To Index Map</h3>
+<div class="outline-text-3" id="text-orgf24a6b8">
+<p>This finds the index where a label is in our vocabulary of labels. This requires that <code>self.label_vocabulary</code> has been set.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">label_to_index</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="sd">"""maps a label to the index in our label vocabulary"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_to_index</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_label_to_index</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">label</span><span class="p">:</span> <span class="n">index</span>
+            <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_vocabulary</span><span class="p">)}</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_label_to_index</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org87b8ca2">
+<h3 id="org87b8ca2">Input Nodes</h3>
+<div class="outline-text-3" id="text-org87b8ca2">
+<p>The number of input nodes is the size of our vocabulary built from the reviews. This requires <code>self.review_vocabulary</code> to have been set.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">input_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""Number of input nodes"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_nodes</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_input_nodes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">review_vocabulary</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_nodes</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgbfff964">
+<h3 id="orgbfff964">Weight From the Input Layer To the Hidden Layer</h3>
+<div class="outline-text-3" id="text-orgbfff964">
+<p>This is a matrix with as many rows as the number of input nodes and as many columns as the number of hidden nodes. This relies on <code>self.input_nodes</code> and <code>self.hidden_nodes</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">weights_input_to_hidden</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Weights for edges from input to hidden layer"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weights_input_to_hidden</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weights_input_to_hidden</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_nodes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hidden_nodes</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weights_input_to_hidden</span>
+
+<span class="nd">@weights_input_to_hidden.setter</span>
+<span class="k">def</span> <span class="nf">weights_input_to_hidden</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weights</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Set the weights"""</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_weights_input_to_hidden</span> <span class="o">=</span> <span class="n">weights</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org02ecb27">
+<h3 id="org02ecb27">Weight From the Hidden Layer To the Output Layer</h3>
+<div class="outline-text-3" id="text-org02ecb27">
+<p>This is a matrix with as many rows as the number of hidden nodes and as many columns as the number of output nodes (which should be 1). This depends of <code>self.hidden_nodes</code> and <code>self.output_nodes</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">weights_hidden_to_output</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Weights for edges from hidden to output layer"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weights_hidden_to_output</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weights_hidden_to_output</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_nodes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weights_hidden_to_output</span>
+
+<span class="nd">@weights_hidden_to_output.setter</span>
+<span class="k">def</span> <span class="nf">weights_hidden_to_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weights</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""updates the weights"""</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_weights_hidden_to_output</span> <span class="o">=</span> <span class="n">weights</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org7129037">
+<h3 id="org7129037">The Input Layer</h3>
+<div class="outline-text-3" id="text-org7129037">
+<p>This is the layer where we will set the tokens for a particular review that we are going to categorize. This depends on <code>self.input_nodes</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">input_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""The Input Layer for the review tokens"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_layer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_input_layer</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_nodes</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_layer</span>
+
+<span class="nd">@input_layer.setter</span>
+<span class="k">def</span> <span class="nf">input_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Set the input layer"""</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_input_layer</span> <span class="o">=</span> <span class="n">layer</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgf2eb4c5">
+<h3 id="orgf2eb4c5">Update the Input Layer</h3>
+<div class="outline-text-3" id="text-orgf2eb4c5">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">update_input_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">review</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Update the counts in the input layer</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     review: A movie review</span>
+<span class="sd">    """</span>
+    <span class="c1"># reset any previous inputs</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span> <span class="o">*=</span> <span class="mi">0</span>
+    <span class="n">tokens</span> <span class="o">=</span> <span class="n">review</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tokenizer</span><span class="p">)</span>
+    <span class="n">counter</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">()</span>
+    <span class="n">counter</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">counter</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_to_index</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_to_index</span><span class="p">[</span><span class="n">key</span><span class="p">]]</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org4122d69">
+<h3 id="org4122d69">Get the Target for the Label</h3>
+<div class="outline-text-3" id="text-org4122d69">
+<p>This converts a string label to an integer.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">get_target_for_label</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""Convert a label to `0` or `1`.</span>
+<span class="sd">    Args:</span>
+<span class="sd">     label(string) - Either "POSITIVE" or "NEGATIVE".</span>
+<span class="sd">    Returns:</span>
+<span class="sd">     `0` or `1`.</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">label</span><span class="o">==</span><span class="s2">"POSITIVE"</span> <span class="k">else</span> <span class="mi">0</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orga4ac091">
+<h3 id="orga4ac091">The Sigmoid</h3>
+<div class="outline-text-3" id="text-orga4ac091">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""calculates the sigmoid for the input</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     x: vector to calculate the sigmoid</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     sigmoid of x</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="mi">1</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">numpy</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org554c42f">
+<h3 id="org554c42f">Sigmoid Derivative</h3>
+<div class="outline-text-3" id="text-org554c42f">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">sigmoid_output_to_derivative</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Calculates the derivative if the sigmoid</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     output: the sigmoid output</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">output</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">output</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org1077e08">
+<h3 id="org1077e08">Train the Network</h3>
+<div class="outline-text-3" id="text-org1077e08">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">train</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">training_reviews</span><span class="p">:</span> <span class="n">Review</span><span class="p">,</span> <span class="n">training_labels</span><span class="p">:</span> <span class="n">Label</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""Trains the model</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     training_reviews: list of reviews</span>
+<span class="sd">     training_labels: listo of labels for the reviews</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     count of correct</span>
+<span class="sd">    """</span>
+    <span class="c1"># there are side-effects that require self.reviews and self.labels</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">reviews</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels</span> <span class="o">=</span> <span class="n">training_reviews</span><span class="p">,</span> <span class="n">training_labels</span>
+
+    <span class="k">assert</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">training_reviews</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">training_labels</span><span class="p">))</span>
+    <span class="n">correct_so_far</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>        
+        <span class="c1"># Remember when we started for printing time statistics</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+
+    <span class="c1"># loop through all the given reviews and run a forward and backward pass,</span>
+    <span class="c1"># updating weights for every item</span>
+    <span class="n">reviews_labels</span> <span class="o">=</span> <span class="nb">zip</span><span class="p">(</span><span class="n">training_reviews</span><span class="p">,</span> <span class="n">training_labels</span><span class="p">)</span>
+    <span class="n">n_records</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">training_reviews</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">review</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">reviews_labels</span><span class="p">):</span>
+        <span class="c1"># feed-forward</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_input_layer</span><span class="p">(</span><span class="n">review</span><span class="p">)</span>
+        <span class="n">hidden_inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_input_to_hidden</span><span class="p">)</span>
+        <span class="n">hidden_outputs</span> <span class="o">=</span> <span class="n">hidden_inputs</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_hidden_to_output</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">hidden_outputs</span><span class="p">)</span>
+
+        <span class="c1"># Backpropagation</span>
+        <span class="c1"># we need to calculate the output_error separately</span>
+        <span class="c1"># to update our correct count</span>
+        <span class="n">output_error</span> <span class="o">=</span> <span class="n">output</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_target_for_label</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+
+        <span class="c1"># we applied a sigmoid to the output</span>
+        <span class="c1"># so we need to apply the derivative</span>
+        <span class="n">hidden_to_output_delta</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">output_error</span>
+            <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmoid_output_to_derivative</span><span class="p">(</span><span class="n">output</span><span class="p">))</span>
+
+        <span class="n">input_to_hidden_error</span> <span class="o">=</span> <span class="n">hidden_to_output_delta</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weights_hidden_to_output</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+        <span class="c1"># we didn't apply a function to the inputs to the hidden layer</span>
+        <span class="c1"># so we don't need a derivative</span>
+        <span class="n">input_to_hidden_delta</span> <span class="o">=</span> <span class="n">input_to_hidden_error</span>
+
+        <span class="c1"># our delta is based on the derivative which is heading</span>
+        <span class="c1"># in the opposite direction of what we want so we need to negate it</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weights_hidden_to_output</span> <span class="o">-=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span>
+            <span class="o">*</span> <span class="n">hidden_inputs</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">hidden_to_output_delta</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weights_input_to_hidden</span> <span class="o">-=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span>
+            <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">input_to_hidden_delta</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="p">((</span><span class="n">output</span> <span class="o">&lt;</span> <span class="mf">0.5</span> <span class="ow">and</span> <span class="n">label</span><span class="o">==</span><span class="s2">"NEGATIVE"</span><span class="p">)</span>
+            <span class="ow">or</span> <span class="p">(</span><span class="n">output</span> <span class="o">&gt;=</span> <span class="mf">0.5</span> <span class="ow">and</span> <span class="n">label</span><span class="o">==</span><span class="s2">"POSITIVE"</span><span class="p">)):</span>
+            <span class="n">correct_so_far</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">index</span> <span class="o">%</span> <span class="mi">1000</span><span class="p">:</span>
+            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+            <span class="n">reviews_per_second</span> <span class="o">=</span> <span class="p">(</span><span class="n">index</span><span class="o">/</span><span class="n">elapsed_time</span><span class="o">.</span><span class="n">seconds</span>
+                                  <span class="k">if</span> <span class="n">elapsed_time</span><span class="o">.</span><span class="n">seconds</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span>
+                <span class="s2">"Progress: {:.2f} %"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="mi">100</span> <span class="o">*</span> <span class="n">index</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">training_reviews</span><span class="p">))</span>
+                <span class="o">+</span> <span class="s2">" Speed(reviews/sec): {:.2f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">reviews_per_second</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" Error: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">output_error</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="o">+</span> <span class="s2">" #Correct: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">correct_so_far</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" #Trained: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">index</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" Training Accuracy: {:.2f} %"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                    <span class="n">correct_so_far</span> <span class="o">*</span> <span class="mi">100</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">index</span><span class="o">+</span><span class="mi">1</span><span class="p">))</span>
+                <span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s2">"Training Time: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">correct_so_far</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org5aa266c">
+<h3 id="org5aa266c">Test The Model</h3>
+<div class="outline-text-3" id="text-org5aa266c">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">testing_reviews</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">testing_labels</span><span class="p">:</span><span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""</span>
+<span class="sd">    Attempts to predict the labels for the given testing_reviews,</span>
+<span class="sd">    and uses the test_labels to calculate the accuracy of those predictions.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     correct: number of correct predictions</span>
+<span class="sd">    """</span>
+
+    <span class="c1"># keep track of how many correct predictions we make</span>
+    <span class="n">correct</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c1"># we'll time how many predictions per second we make</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+
+    <span class="c1"># Loop through each of the given reviews and call run to predict</span>
+    <span class="c1"># its label.</span>
+    <span class="n">reviews_and_labels</span> <span class="o">=</span> <span class="nb">zip</span><span class="p">(</span><span class="n">testing_reviews</span><span class="p">,</span> <span class="n">testing_labels</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">review</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">reviews_and_labels</span><span class="p">):</span>
+        <span class="n">prediction</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">review</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">prediction</span> <span class="o">==</span> <span class="n">label</span><span class="p">:</span>
+            <span class="n">correct</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">index</span> <span class="o">%</span> <span class="mi">100</span><span class="p">:</span>
+            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+            <span class="n">reviews_per_second</span> <span class="o">=</span> <span class="p">(</span><span class="n">index</span><span class="o">/</span><span class="n">elapsed_time</span><span class="o">.</span><span class="n">seconds</span>
+                                  <span class="k">if</span> <span class="n">elapsed_time</span><span class="o">.</span><span class="n">seconds</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+
+            <span class="k">print</span><span class="p">(</span>
+                <span class="s2">"Progress: {:.2f}%"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                    <span class="mi">100</span> <span class="o">*</span> <span class="n">index</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">testing_reviews</span><span class="p">))</span>
+                <span class="o">+</span> <span class="s2">" Speed(reviews/sec): {:.2f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">reviews_per_second</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" #Correct: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" #Tested: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s2">" Testing Accuracy: {:.2f} %"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                    <span class="n">correct</span> <span class="o">*</span> <span class="mi">100</span><span class="o">/</span><span class="p">(</span><span class="n">index</span><span class="o">+</span><span class="mi">1</span><span class="p">))</span>
+            <span class="p">)</span>
+    <span class="k">return</span> <span class="n">correct</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgce73f78">
+<h3 id="orgce73f78">Run a Prediction</h3>
+<div class="outline-text-3" id="text-orgce73f78">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">review</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="sd">"""</span>
+<span class="sd">    Returns a POSITIVE or NEGATIVE prediction for the given review.</span>
+<span class="sd">    """</span>
+    <span class="n">review</span> <span class="o">=</span> <span class="n">review</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">update_input_layer</span><span class="p">(</span><span class="n">review</span><span class="p">)</span>
+    <span class="n">hidden_inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_layer</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_input_to_hidden</span><span class="p">)</span>
+    <span class="n">hidden_outputs</span> <span class="o">=</span> <span class="n">hidden_inputs</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_hidden_to_output</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">hidden_outputs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">"POSITIVE"</span> <span class="k">if</span> <span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="mf">0.5</span> <span class="k">else</span> <span class="s2">"NEGATIVE"</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org04a9d37">
+<h2 id="org04a9d37">Test The Network</h2>
+<div class="outline-text-2" id="text-org04a9d37">
+<p>So now we'll actually try and run the network to see how it does.</p>
+<div class="highlight">
+<pre><span></span><span class="o">%</span><span class="n">reload_ext</span> <span class="n">autoreload</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">sentiment_network</span> <span class="kn">import</span> <span class="n">SentimentNetwork</span>
+</pre></div>
+<p>We'll be using the last 1,000 labels to test the network and all but the last to train it.</p>
+<div class="highlight">
+<pre><span></span><span class="n">BOUNDARY</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1000</span>
+<span class="n">x_test</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">reviews</span><span class="p">[</span><span class="n">BOUNDARY</span><span class="p">:],</span><span class="n">labels</span><span class="p">[</span><span class="n">BOUNDARY</span><span class="p">:]</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_test</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+1000
+
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span> <span class="o">=</span> <span class="n">reviews</span><span class="p">[:</span><span class="n">BOUNDARY</span><span class="p">],</span><span class="n">labels</span><span class="p">[:</span><span class="n">BOUNDARY</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_train</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+24000
+
+</pre>
+<p>Since I split this up into multiple posts I'm going to pickle up the data-sets to make sure that they're only being created once.</p>
+<div class="highlight">
+<pre><span></span><span class="n">pickles</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">x_test</span><span class="o">=</span><span class="n">x_test</span><span class="p">,</span> <span class="n">y_test</span><span class="o">=</span><span class="n">y_test</span><span class="p">,</span>
+               <span class="n">x_train</span><span class="o">=</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="o">=</span><span class="n">y_train</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">potential_pickle</span><span class="p">,</span> <span class="n">collection</span> <span class="ow">in</span> <span class="n">pickles</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">potential_path</span> <span class="o">=</span> <span class="n">DataPath</span><span class="p">(</span><span class="s2">"{}.pkl"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">potential_pickle</span><span class="p">),</span> <span class="n">check_exists</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">potential_path</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+        <span class="k">with</span> <span class="n">potential_path</span><span class="o">.</span><span class="n">from_folder</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+            <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">collection</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">untrained</span> <span class="o">=</span> <span class="n">SentimentNetwork</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+<p>Run the following cell to actually train the network. During training, it will display the model's accuracy repeatedly as it trains so you can see how well it's doing.</p>
+<div class="highlight">
+<pre><span></span><span class="n">untrained</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 125.00 Error: [-0.50133709] #Correct: 492 #Trained: 1001 Training Accuracy: 49.15 %
+Progress: 8.33 % Speed(reviews/sec): 153.85 Error: [-0.46896641] #Correct: 940 #Trained: 2001 Training Accuracy: 46.98 %
+Progress: 12.50 % Speed(reviews/sec): 150.00 Error: [-0.76053545] #Correct: 1401 #Trained: 3001 Training Accuracy: 46.68 %
+Progress: 16.67 % Speed(reviews/sec): 142.86 Error: [-0.5175674] #Correct: 1860 #Trained: 4001 Training Accuracy: 46.49 %
+Progress: 20.83 % Speed(reviews/sec): 142.86 Error: [-0.7057053] #Correct: 2329 #Trained: 5001 Training Accuracy: 46.57 %
+Progress: 25.00 % Speed(reviews/sec): 146.34 Error: [-0.87768714] #Correct: 2859 #Trained: 6001 Training Accuracy: 47.64 %
+Progress: 29.17 % Speed(reviews/sec): 142.86 Error: [-0.42471556] #Correct: 3376 #Trained: 7001 Training Accuracy: 48.22 %
+Progress: 33.33 % Speed(reviews/sec): 140.35 Error: [-0.25287871] #Correct: 3931 #Trained: 8001 Training Accuracy: 49.13 %
+Progress: 37.50 % Speed(reviews/sec): 138.46 Error: [-0.13143902] #Correct: 4508 #Trained: 9001 Training Accuracy: 50.08 %
+Progress: 41.67 % Speed(reviews/sec): 136.99 Error: [-0.30215181] #Correct: 5141 #Trained: 10001 Training Accuracy: 51.40 %
+Progress: 45.83 % Speed(reviews/sec): 137.50 Error: [-0.83628373] #Correct: 5690 #Trained: 11001 Training Accuracy: 51.72 %
+Progress: 50.00 % Speed(reviews/sec): 136.36 Error: [-0.2236724] #Correct: 6318 #Trained: 12001 Training Accuracy: 52.65 %
+Progress: 54.17 % Speed(reviews/sec): 136.84 Error: [-0.00040756] #Correct: 6873 #Trained: 13001 Training Accuracy: 52.87 %
+Progress: 58.33 % Speed(reviews/sec): 137.25 Error: [-0.24857157] #Correct: 7463 #Trained: 14001 Training Accuracy: 53.30 %
+Progress: 62.50 % Speed(reviews/sec): 136.36 Error: [-0.56169307] #Correct: 8091 #Trained: 15001 Training Accuracy: 53.94 %
+Progress: 66.67 % Speed(reviews/sec): 136.75 Error: [-0.30580514] #Correct: 8710 #Trained: 16001 Training Accuracy: 54.43 %
+Progress: 70.83 % Speed(reviews/sec): 136.00 Error: [-0.85096669] #Correct: 9343 #Trained: 17001 Training Accuracy: 54.96 %
+Progress: 75.00 % Speed(reviews/sec): 136.36 Error: [-0.0031485] #Correct: 9973 #Trained: 18001 Training Accuracy: 55.40 %
+Progress: 79.17 % Speed(reviews/sec): 135.71 Error: [-0.73531052] #Correct: 10671 #Trained: 19001 Training Accuracy: 56.16 %
+Progress: 83.33 % Speed(reviews/sec): 136.05 Error: [-0.14522187] #Correct: 11341 #Trained: 20001 Training Accuracy: 56.70 %
+Progress: 87.50 % Speed(reviews/sec): 135.48 Error: [-0.38478658] #Correct: 11973 #Trained: 21001 Training Accuracy: 57.01 %
+Progress: 91.67 % Speed(reviews/sec): 134.97 Error: [-0.39655627] #Correct: 12678 #Trained: 22001 Training Accuracy: 57.62 %
+Progress: 95.83 % Speed(reviews/sec): 134.50 Error: [-0.55767025] #Correct: 13345 #Trained: 23001 Training Accuracy: 58.02 %
+</pre>
+<p>That most likely didn't train very well. Part of the reason may be because the learning rate is too high. Run the following cell to recreate the network with a smaller learning rate, `0.01`, and then train the new network.</p>
+<div class="highlight">
+<pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">SentimentNetwork</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.73627527] #Correct: 482 #Trained: 1001 Training Accuracy: 48.15 %
+Progress: 8.33 % Speed(reviews/sec): 333.33 Error: [-0.27663369] #Correct: 1065 #Trained: 2001 Training Accuracy: 53.22 %
+Progress: 12.50 % Speed(reviews/sec): 333.33 Error: [-0.41620613] #Correct: 1743 #Trained: 3001 Training Accuracy: 58.08 %
+Progress: 16.67 % Speed(reviews/sec): 333.33 Error: [-0.41925862] #Correct: 2378 #Trained: 4001 Training Accuracy: 59.44 %
+Progress: 20.83 % Speed(reviews/sec): 333.33 Error: [-0.3792133] #Correct: 3022 #Trained: 5001 Training Accuracy: 60.43 %
+Progress: 25.00 % Speed(reviews/sec): 333.33 Error: [-0.31493906] #Correct: 3670 #Trained: 6001 Training Accuracy: 61.16 %
+Progress: 29.17 % Speed(reviews/sec): 333.33 Error: [-0.19472257] #Correct: 4380 #Trained: 7001 Training Accuracy: 62.56 %
+Progress: 33.33 % Speed(reviews/sec): 333.33 Error: [-0.20326775] #Correct: 5068 #Trained: 8001 Training Accuracy: 63.34 %
+Progress: 37.50 % Speed(reviews/sec): 333.33 Error: [-0.17244992] #Correct: 5751 #Trained: 9001 Training Accuracy: 63.89 %
+Progress: 41.67 % Speed(reviews/sec): 333.33 Error: [-0.74943668] #Correct: 6475 #Trained: 10001 Training Accuracy: 64.74 %
+Progress: 45.83 % Speed(reviews/sec): 333.33 Error: [-0.34768212] #Correct: 7171 #Trained: 11001 Training Accuracy: 65.18 %
+Progress: 50.00 % Speed(reviews/sec): 333.33 Error: [-0.23588717] #Correct: 7895 #Trained: 12001 Training Accuracy: 65.79 %
+Progress: 54.17 % Speed(reviews/sec): 325.00 Error: [-0.67639111] #Correct: 8634 #Trained: 13001 Training Accuracy: 66.41 %
+Progress: 58.33 % Speed(reviews/sec): 325.58 Error: [-0.18425262] #Correct: 9360 #Trained: 14001 Training Accuracy: 66.85 %
+Progress: 62.50 % Speed(reviews/sec): 326.09 Error: [-0.31647149] #Correct: 10083 #Trained: 15001 Training Accuracy: 67.22 %
+Progress: 66.67 % Speed(reviews/sec): 326.53 Error: [-0.31838031] #Correct: 10791 #Trained: 16001 Training Accuracy: 67.44 %
+Progress: 70.83 % Speed(reviews/sec): 326.92 Error: [-0.71363956] #Correct: 11494 #Trained: 17001 Training Accuracy: 67.61 %
+Progress: 75.00 % Speed(reviews/sec): 327.27 Error: [-0.03786987] #Correct: 12237 #Trained: 18001 Training Accuracy: 67.98 %
+Progress: 79.17 % Speed(reviews/sec): 327.59 Error: [-0.89039967] #Correct: 12995 #Trained: 19001 Training Accuracy: 68.39 %
+Progress: 83.33 % Speed(reviews/sec): 327.87 Error: [-0.19787345] #Correct: 13741 #Trained: 20001 Training Accuracy: 68.70 %
+Progress: 87.50 % Speed(reviews/sec): 328.12 Error: [-0.60033441] #Correct: 14484 #Trained: 21001 Training Accuracy: 68.97 %
+Progress: 91.67 % Speed(reviews/sec): 323.53 Error: [-0.47631941] #Correct: 15242 #Trained: 22001 Training Accuracy: 69.28 %
+Progress: 95.83 % Speed(reviews/sec): 323.94 Error: [-0.47388592] #Correct: 15995 #Trained: 23001 Training Accuracy: 69.54 %
+Training Time: 0:01:15.489437
+</pre>
+<p>This actually did better, but let's see what a smaller learning rate will do.</p>
+<div class="highlight">
+<pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">SentimentNetwork</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 250.00 Error: [-0.42248049] #Correct: 472 #Trained: 1001 Training Accuracy: 47.15 %
+Progress: 8.33 % Speed(reviews/sec): 333.33 Error: [-0.27087125] #Correct: 1046 #Trained: 2001 Training Accuracy: 52.27 %
+Progress: 12.50 % Speed(reviews/sec): 333.33 Error: [-0.45852835] #Correct: 1708 #Trained: 3001 Training Accuracy: 56.91 %
+Progress: 16.67 % Speed(reviews/sec): 333.33 Error: [-0.41728936] #Correct: 2334 #Trained: 4001 Training Accuracy: 58.34 %
+Progress: 20.83 % Speed(reviews/sec): 333.33 Error: [-0.37365937] #Correct: 2959 #Trained: 5001 Training Accuracy: 59.17 %
+Progress: 25.00 % Speed(reviews/sec): 315.79 Error: [-0.25350906] #Correct: 3595 #Trained: 6001 Training Accuracy: 59.91 %
+Progress: 29.17 % Speed(reviews/sec): 318.18 Error: [-0.22273178] #Correct: 4292 #Trained: 7001 Training Accuracy: 61.31 %
+Progress: 33.33 % Speed(reviews/sec): 320.00 Error: [-0.22148954] #Correct: 4985 #Trained: 8001 Training Accuracy: 62.30 %
+Progress: 37.50 % Speed(reviews/sec): 321.43 Error: [-0.164888] #Correct: 5670 #Trained: 9001 Training Accuracy: 62.99 %
+Progress: 41.67 % Speed(reviews/sec): 322.58 Error: [-0.70030978] #Correct: 6381 #Trained: 10001 Training Accuracy: 63.80 %
+Progress: 45.83 % Speed(reviews/sec): 305.56 Error: [-0.37677934] #Correct: 7082 #Trained: 11001 Training Accuracy: 64.38 %
+Progress: 50.00 % Speed(reviews/sec): 307.69 Error: [-0.25747753] #Correct: 7812 #Trained: 12001 Training Accuracy: 65.09 %
+Progress: 54.17 % Speed(reviews/sec): 302.33 Error: [-0.66038851] #Correct: 8550 #Trained: 13001 Training Accuracy: 65.76 %
+Progress: 58.33 % Speed(reviews/sec): 304.35 Error: [-0.21017589] #Correct: 9271 #Trained: 14001 Training Accuracy: 66.22 %
+Progress: 62.50 % Speed(reviews/sec): 306.12 Error: [-0.32861519] #Correct: 9993 #Trained: 15001 Training Accuracy: 66.62 %
+Progress: 66.67 % Speed(reviews/sec): 307.69 Error: [-0.31545046] #Correct: 10705 #Trained: 16001 Training Accuracy: 66.90 %
+Progress: 70.83 % Speed(reviews/sec): 309.09 Error: [-0.70497608] #Correct: 11411 #Trained: 17001 Training Accuracy: 67.12 %
+Progress: 75.00 % Speed(reviews/sec): 310.34 Error: [-0.04885612] #Correct: 12162 #Trained: 18001 Training Accuracy: 67.56 %
+Progress: 79.17 % Speed(reviews/sec): 316.67 Error: [-0.79732231] #Correct: 12916 #Trained: 19001 Training Accuracy: 67.98 %
+Progress: 83.33 % Speed(reviews/sec): 312.50 Error: [-0.2568252] #Correct: 13678 #Trained: 20001 Training Accuracy: 68.39 %
+Progress: 87.50 % Speed(reviews/sec): 313.43 Error: [-0.59070143] #Correct: 14418 #Trained: 21001 Training Accuracy: 68.65 %
+Progress: 91.67 % Speed(reviews/sec): 305.56 Error: [-0.42520887] #Correct: 15181 #Trained: 22001 Training Accuracy: 69.00 %
+Progress: 95.83 % Speed(reviews/sec): 302.63 Error: [-0.50276096] #Correct: 15931 #Trained: 23001 Training Accuracy: 69.26 %
+Training Time: 0:01:19.701444
+</pre>
+<p>Surprisingly it did around the same (maybe a little worse). It looks like tuning the learning rate isn't enough.</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/lectures/" rel="tag">lectures</a></li>
+<li><a class="tag p-category" href="../../../../categories/sentiment-analysis/" rel="tag">sentiment analysis</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../the-network-parts/" rel="prev" title="The Network Parts">Previous post</a></li>
+<li class="next"><a href="../../pytorch/tensors-in-pytorch/" rel="next" title="Tensors In PyTorch">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

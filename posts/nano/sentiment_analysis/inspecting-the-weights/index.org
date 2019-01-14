@@ -1,0 +1,228 @@
+#+BEGIN_COMMENT
+.. title: Inspecting the Weights
+.. slug: inspecting-the-weights
+.. date: 2018-11-13 22:29:20 UTC-08:00
+.. tags: sentiment analysis,lecture
+.. category: Sentiment Analysis
+.. link: 
+.. description: Inspecting the weights on the network
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC python :session sentiment :results none
+import pickle
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC python :session sentiment :results none
+from bokeh.embed import autoload_static
+from bokeh.plotting import (
+    figure,
+    ColumnDataSource,
+    )
+from bokeh.models import LabelSet
+import bokeh.resources
+import matplotlib.colors as colors
+from sklearn.manifold import TSNE
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session sentiment :results none
+from sentiment_noise_reduction import SentimentNoiseReduction
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+* What's Going on in the Weights?
+  Let's start with a model that doesn't have any noise cancellation.
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath("x_train.pkl").from_folder.open("rb") as reader:
+    x_train = pickle.load(reader)
+
+with DataPath("y_train.pkl").from_folder.open("rb") as reader:
+    y_train = pickle.load(reader)
+#+END_SRC  
+
+#+BEGIN_SRC python :session sentiment :results none
+mlp_full = SentimentNoiseReduction(lower_bound=0,
+                                   polarity_cutoff=0,
+                                   learning_rate=0.01,
+                                   verbose=True)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output :exports both
+mlp_full.train(x_train, y_train)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Progress: 0.00 % Speed(reviews/sec): 0.00 Error: [-0.5] #Correct: 1 #Trained: 1 Training Accuracy: 100.00 %
+Progress: 4.17 % Speed(reviews/sec): 125.00 Error: [-0.38320156] #Correct: 740 #Trained: 1001 Training Accuracy: 73.93 %
+Progress: 8.33 % Speed(reviews/sec): 222.22 Error: [-0.26004622] #Correct: 1529 #Trained: 2001 Training Accuracy: 76.41 %
+Progress: 12.50 % Speed(reviews/sec): 300.00 Error: [-0.40350302] #Correct: 2376 #Trained: 3001 Training Accuracy: 79.17 %
+Progress: 16.67 % Speed(reviews/sec): 363.64 Error: [-0.23990249] #Correct: 3187 #Trained: 4001 Training Accuracy: 79.66 %
+Progress: 20.83 % Speed(reviews/sec): 416.67 Error: [-0.14119144] #Correct: 4002 #Trained: 5001 Training Accuracy: 80.02 %
+Progress: 25.00 % Speed(reviews/sec): 461.54 Error: [-0.06442389] #Correct: 4829 #Trained: 6001 Training Accuracy: 80.47 %
+Progress: 29.17 % Speed(reviews/sec): 500.00 Error: [-0.03508728] #Correct: 5690 #Trained: 7001 Training Accuracy: 81.27 %
+Progress: 33.33 % Speed(reviews/sec): 533.33 Error: [-0.05110633] #Correct: 6548 #Trained: 8001 Training Accuracy: 81.84 %
+Progress: 37.50 % Speed(reviews/sec): 562.50 Error: [-0.07432703] #Correct: 7404 #Trained: 9001 Training Accuracy: 82.26 %
+Progress: 41.67 % Speed(reviews/sec): 588.24 Error: [-0.26512013] #Correct: 8272 #Trained: 10001 Training Accuracy: 82.71 %
+Progress: 45.83 % Speed(reviews/sec): 578.95 Error: [-0.14067275] #Correct: 9129 #Trained: 11001 Training Accuracy: 82.98 %
+Progress: 50.00 % Speed(reviews/sec): 600.00 Error: [-0.01215903] #Correct: 9994 #Trained: 12001 Training Accuracy: 83.28 %
+Progress: 54.17 % Speed(reviews/sec): 619.05 Error: [-0.33825111] #Correct: 10864 #Trained: 13001 Training Accuracy: 83.56 %
+Progress: 58.33 % Speed(reviews/sec): 636.36 Error: [-0.00522004] #Correct: 11721 #Trained: 14001 Training Accuracy: 83.72 %
+Progress: 62.50 % Speed(reviews/sec): 652.17 Error: [-0.49523538] #Correct: 12553 #Trained: 15001 Training Accuracy: 83.68 %
+Progress: 66.67 % Speed(reviews/sec): 666.67 Error: [-0.20026672] #Correct: 13390 #Trained: 16001 Training Accuracy: 83.68 %
+Progress: 70.83 % Speed(reviews/sec): 680.00 Error: [-0.20786817] #Correct: 14243 #Trained: 17001 Training Accuracy: 83.78 %
+Progress: 75.00 % Speed(reviews/sec): 692.31 Error: [-0.03469862] #Correct: 15108 #Trained: 18001 Training Accuracy: 83.93 %
+Progress: 79.17 % Speed(reviews/sec): 703.70 Error: [-0.99460657] #Correct: 15982 #Trained: 19001 Training Accuracy: 84.11 %
+Progress: 83.33 % Speed(reviews/sec): 689.66 Error: [-0.0523489] #Correct: 16867 #Trained: 20001 Training Accuracy: 84.33 %
+Progress: 87.50 % Speed(reviews/sec): 700.00 Error: [-0.28370015] #Correct: 17734 #Trained: 21001 Training Accuracy: 84.44 %
+Progress: 91.67 % Speed(reviews/sec): 709.68 Error: [-0.33222958] #Correct: 18616 #Trained: 22001 Training Accuracy: 84.61 %
+Progress: 95.83 % Speed(reviews/sec): 718.75 Error: [-0.17177784] #Correct: 19475 #Trained: 23001 Training Accuracy: 84.67 %
+Training Time: 0:00:33.579950
+#+end_example
+
+Now here's a function to find the similarity of words in the vocabulary to a word, based on the dot product of the weights from the input layer to the hidden layer.
+
+#+BEGIN_SRC python :session sentiment :results none
+def get_most_similar_words(focus: str="horrible", count:int=10) -> list:
+    """Returns a list of similar words based on weights"""
+    most_similar = Counter()
+    for word in mlp_full.word_to_index:
+        most_similar[word] = numpy.dot(
+            mlp_full.weights_input_to_hidden[mlp_full.word_to_index[word]],
+            mlp_full.weights_input_to_hidden[mlp_full.word_to_index[focus]])    
+    return most_similar.most_common(count)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports both
+similar = get_most_similar_words("excellent")
+print("|Token| Similarity|")
+print("|-+-|")
+for token, similarity in similar:
+    print("|{}|{:.2f}|".format(token, similarity))
+#+END_SRC
+
+#+RESULTS:
+| Token      | Similarity |
+|------------+------------|
+| excellent  |       0.15 |
+| perfect    |       0.13 |
+| great      |       0.11 |
+| amazing    |       0.10 |
+| wonderful  |       0.10 |
+| best       |       0.10 |
+| today      |       0.09 |
+| fun        |       0.09 |
+| loved      |       0.08 |
+| definitely |       0.08 |
+
+/excellent/ was, ouf course, most similar to itself, but we can see that the network's weights are most similar to each other when the words are most similar to each other - the network has 'learned' what words are similar to /excellent/ using the training set.
+
+Now a negative example.
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports both
+similar = get_most_similar_words("terrible")
+print("|Token|Similarity|")
+print("|-+-|")
+for token, similarity in similar:
+    print("|{}|{:.2f}|".format(token, similarity))
+#+END_SRC
+
+#+RESULTS:
+| Token    | Similarity |
+|----------+------------|
+| worst    |       0.18 |
+| awful    |       0.13 |
+| waste    |       0.12 |
+| poor     |       0.10 |
+| boring   |       0.10 |
+| terrible |       0.10 |
+| bad      |       0.08 |
+| dull     |       0.08 |
+| worse    |       0.08 |
+| poorly   |       0.07 |
+
+Once again, the more similar words were in sentiment, the closer the weights leading from their inputs became.
+
+#+BEGIN_SRC python :session sentiment :results none
+with DataPath("pos_neg_log_ratios.pkl").from_folder.open("rb") as reader:
+    pos_neg_ratios = pickle.load(reader)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+words_to_visualize = list()
+for word, ratio in pos_neg_ratios.most_common(500):
+    if(word in mlp_full.word_to_index):
+        words_to_visualize.append(word)
+    
+for word, ratio in list(reversed(pos_neg_ratios.most_common()))[0:500]:
+    if(word in mlp_full.word_to_index):
+        words_to_visualize.append(word)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+pos = 0
+neg = 0
+
+colors_list = list()
+vectors_list = list()
+for word in words_to_visualize:
+    if word in pos_neg_ratios.keys():
+        vectors_list.append(mlp_full.weights_input_to_hidden[mlp_full.word_to_index[word]])
+        if(pos_neg_ratios[word] > 0):
+            pos+=1
+            colors_list.append("#00ff00")
+        else:
+            neg+=1
+            colors_list.append("#000000")
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+tsne = TSNE(n_components=2, random_state=0)
+words_top_ted_tsne = tsne.fit_transform(vectors_list)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+plot = figure(tools="pan,wheel_zoom,reset,save",
+              toolbar_location="above",
+              plot_width=1000,
+              plot_height=1000,
+              title="vector T-SNE for most polarized words")
+
+source = ColumnDataSource(data=dict(x1=words_top_ted_tsne[:,0],
+                                    x2=words_top_ted_tsne[:,1],
+                                    names=words_to_visualize,
+                                    color=colors_list))
+
+plot.scatter(x="x1", y="x2", size=8, source=source, fill_color="color")
+
+word_labels = LabelSet(x="x1", y="x2", text="names", y_offset=6,
+                  text_font_size="8pt", text_color="#555555",
+                  source=source, text_align='center')
+plot.add_layout(word_labels)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results none
+FOLDER_PATH = "../../../files/posts/nano/sentiment_analysis/inspecting-the-weights/"
+FILE_NAME = "tsne.js"
+bokeh_cdn = bokeh.resources.CDN
+javascript, source = autoload_static(plot, bokeh_cdn, FILE_NAME)
+with open(FOLDER_PATH + FILE_NAME, "w") as writer:
+    writer.write(javascript)
+#+END_SRC
+
+#+BEGIN_SRC python :session sentiment :results output raw :exports results
+print("""#+BEGIN_EXPORT html
+{}
+#+END_EXPORT""".format(source.strip()))
+#+END_SRC
+
+#+RESULTS:
+#+BEGIN_EXPORT html
+<script src="tsne.js" id="f6d6808a-e555-43f2-ad3a-a1ace816aa10"></script>
+#+END_EXPORT
+
+Green indicates positive words, black indicates negative words, but it looks like none of the 500 most common words are negative.
+

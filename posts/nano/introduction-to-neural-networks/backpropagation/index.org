@@ -1,0 +1,144 @@
+#+BEGIN_COMMENT
+.. title: Backpropagation
+.. slug: backpropagation
+.. date: 2018-11-17 20:24:16 UTC-08:00
+.. tags: backpropagation,lecture
+.. category: Lecture
+.. link: 
+.. description: How backpropagation works.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Background
+  We're going to extend the backpropagation from a single layer to multiple hidden layers. The amount of change at each layer (the delta) that you make uses the same equation no matter how many layers you have.
+
+$$
+\Delta w_{pq} = \eta \delta_{output} X_{in}
+$$
+
+* Imports
+    We'll be sticking with our numpy-based implementation of a neural network.
+#+BEGIN_SRC python :session perceptron :results none
+import numpy
+#+END_SRC
+* The Sigmoid
+   This is our familiar activation function.
+#+BEGIN_SRC python :session perceptron :results none
+def sigmoid(x: numpy.ndarray) -> numpy.ndarray:
+    """
+    Calculate sigmoid
+    """
+    return 1 / (1 + numpy.exp(-x))
+#+END_SRC
+
+* Initial Values
+  We're going to do a single forward pass followed by backpropagation, so I'll make the values random since we're not really going to validate them..
+
+#+BEGIN_SRC python :session perceptron :results none
+numpy.random.seed(18)
+x = numpy.random.randn(3)
+target = numpy.random.random()
+learning_rate = numpy.random.random()
+
+weights_input_to_hidden = numpy.random.random((3, 2))
+weights_hidden_to_output = numpy.random.random((2, 1))
+#+END_SRC
+
+#+BEGIN_SRC python :session perceptron :results output raw :exports results
+print("|Variable| Value|")
+print("|-+-|")
+print("|x| {}|".format(x.round(2)))
+print("|y| {:.2f}|".format(target))
+print("|eta| {:.2f}|".format(learning_rate))
+print("|Input Weights| {}|".format(weights_input_to_hidden[0].round(2)))
+print("||{}|".format(weights_input_to_hidden[1].round(2)))
+print("||{}|".format(weights_input_to_hidden[2].round(2)))
+print("|Hidden To Output Weights| {}|".format(weights_hidden_to_output[0].round(2)))
+print("||{}|".format(weights_hidden_to_output[1].round(2)))
+#+END_SRC
+
+#+RESULTS:
+| Variable                 | Value               |
+|--------------------------+---------------------|
+| x                        | [ 0.08  2.19 -0.13] |
+| y                        | 0.85                |
+| eta                      | 0.75                |
+| Input Weights            | [0.67 0.99]         |
+|                          | [0.26 0.03]         |
+|                          | [0.64 0.85]         |
+| Hidden To Output Weights | [0.74]              |
+|                          | [0.02]              |
+
+The input has 3 nodes and the hidden layer has 2, so our weights from the input layer to the hidden layer has shape 3 rows and 2 columns. The output has one node so the weights from the hidden to output layer has 2 rows (to match the hidden layer) and 1 column to match the output layer. In the lecture they use a vector with 2 entries instead. As far as I can tell it works the same either way.
+
+* Forward pass
+#+BEGIN_SRC python :session perceptron :results none
+hidden_layer_input = x.dot(weights_input_to_hidden)
+hidden_layer_output = sigmoid(hidden_layer_input)
+
+output_layer_in = hidden_layer_output.dot(weights_hidden_to_output)
+output = sigmoid(output_layer_in)
+#+END_SRC
+
+* Backwards pass
+** The Output Error
+   Our error is \(y - \hat{y}\).
+#+BEGIN_SRC python :session perceptron :results none
+error = target - output
+#+END_SRC
+** Output Error Term
+   Our output error term:
+
+\begin{align}
+\textit{output error term} &= (y - \hat{y}) \times (\hat{y} \times \sigma'(x))\\
+               &= error \times \hat{y} \times (1 - \hat{y})
+\end{align}
+#+BEGIN_SRC python :session perceptron :results none
+output_error_term = error * output * (1 - output)
+#+END_SRC
+** The Hidden Layer Error Term
+   The hidden layer error term is the output error term scaled by the weight between them times the derivative of the activation function.
+
+$$
+\delta^h = W\delta^o f'(h)\\
+$$
+#+BEGIN_SRC python :session perceptron :results none
+hidden_error_term = (weights_hidden_to_output.T
+                     ,* output_error_term
+                     ,* hidden_layer_output * (1 - hidden_layer_output))
+#+END_SRC
+** The Hidden To Output Weight Update
+$$
+\Delta W = \eta \delta^o a
+$$
+
+Where /a/ is the output of the hidden layer.
+#+BEGIN_SRC python :session perceptron :results none
+delta_w_h_o = learning_rate * output_error_term * hidden_layer_output
+#+END_SRC
+** The Input To Hidden Weight Update
+$$
+\Delta w_i = \eta \delta^h x_i
+$$
+
+The update is the learning rate times the hidden unit error times the input values.
+#+BEGIN_SRC python :session perceptron :results none
+delta_w_i_h = learning_rate * hidden_error_term * x[:, None]
+#+END_SRC
+
+#+BEGIN_SRC python :session perceptron :results output :exports both
+print('Change in weights for hidden layer to output layer:')
+print(delta_w_h_o)
+print('Change in weights for input layer to hidden layer:')
+print(delta_w_i_h)
+#+END_SRC
+
+#+RESULTS:
+: Change in weights for hidden layer to output layer:
+: [0.02634231 0.02119776]
+: Change in weights for input layer to hidden layer:
+: [[ 5.70726224e-04  1.72873580e-05]
+:  [ 1.57375099e-02  4.76690849e-04]
+:  [-9.69255871e-04 -2.93588634e-05]]

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="This is a re-do of the image classification post (Part 8 of the pytorch exercises)." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Transfer Learning One More Time | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/pytorch/transfer-learning-one-more-time/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../tips-tricks-and-other-notes/" rel="prev" title="Tips, Tricks and Other Notes" type="text/html">
+<link href="../../dog-breed-classifier/dog-classification-project-overview/" rel="next" title="Dog Classification Project Overview" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Transfer Learning One More Time" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/pytorch/transfer-learning-one-more-time/" property="og:url">
+<meta content="This is a re-do of the image classification post (Part 8 of the pytorch exercises)." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-25T14:55:58-08:00" property="article:published_time">
+<meta content="classification" property="article:tag">
+<meta content="exercise" property="article:tag">
+<meta content="pytorch" property="article:tag">
+<meta content="transfer learning" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Transfer Learning One More Time</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-25T14:55:58-08:00" itemprop="datePublished" title="2018-11-25 14:55">2018-11-25 14:55</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org3b1f845">Introduction</a></li>
+<li><a href="#org4339404">Set Up</a></li>
+<li><a href="#org81cbe64">The Data</a></li>
+<li><a href="#org32a4be3">The DenseNet Model</a></li>
+<li><a href="#orgc95a1a3">Add Some CUDA</a></li>
+<li><a href="#org45831e3">Train It</a></li>
+</ul>
+</div>
+</div>
+<p>I spent so much time debugging the original post that I though I'd re-do it without all the flailing around.</p>
+<div class="outline-2" id="outline-container-org3b1f845">
+<h2 id="org3b1f845">Introduction</h2>
+<div class="outline-text-2" id="text-org3b1f845">
+<p>This is from <a href="https://github.com/udacity/deep-learning-v2-pytorch.git">Udacity's Deep Learning Repository</a> which supports their Deep Learning Nanodegree.</p>
+<p>This uses a model trained on <a href="http://www.image-net.org/">ImageNet</a> (<a href="http://pytorch.org/docs/0.3.0/torchvision/models.html">available from torchvision</a>) to classify the <a href="https://www.kaggle.com/c/dogs-vs-cats">dataset of cat and dog photos</a> that we used earlier. We're going to use a method called <a href="https://en.wikipedia.org/wiki/Transfer_learning">transfer learning</a> where we will use the layers of the pretrained model all the way up until the final classifier which we will define ourselves and train on our new data-set. This way we can take advantage of what the model has already learned for image detection and only train a few layers.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org4339404">
+<h2 id="org4339404">Set Up</h2>
+<div class="outline-text-2" id="text-org4339404"></div>
+<div class="outline-3" id="outline-container-orgfa57da7">
+<h3 id="orgfa57da7">Imports</h3>
+<div class="outline-text-3" id="text-orgfa57da7"></div>
+<div class="outline-4" id="outline-container-org2b00468">
+<h4 id="org2b00468">Python</h4>
+<div class="outline-text-4" id="text-org2b00468">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">OrderedDict</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgd7b56de">
+<h4 id="orgd7b56de">PyPi</h4>
+<div class="outline-text-4" id="text-orgd7b56de">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">optim</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">datasets</span><span class="p">,</span> <span class="n">transforms</span><span class="p">,</span> <span class="n">models</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="kn">as</span> <span class="nn">F</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org01df1bb">
+<h4 id="org01df1bb">This Project</h4>
+<div class="outline-text-4" id="text-org01df1bb">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.tangles.data_paths</span> <span class="kn">import</span> <span class="n">DataPathTwo</span>
+<span class="kn">from</span> <span class="nn">neurotic.models.fashion</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">train_only</span><span class="p">,</span>
+    <span class="n">test_only</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgcea48f4">
+<h3 id="orgcea48f4">Dotenv</h3>
+<div class="outline-text-3" id="text-orgcea48f4">
+<p>For some reason dotenv has stopped working unless it's called in the notebook. Maybe this will fix it</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org81cbe64">
+<h2 id="org81cbe64">The Data</h2>
+<div class="outline-text-2" id="text-org81cbe64">
+<p>We're going to have to resize the images to be 224x224 to work with the pre-trained models and match the means (<code>[0.485, 0.456, 0.406]</code>) and the standard deviations (<code>[0.229, 0.224, 0.225]</code>) that were used to normalize the original data set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">means</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.485</span><span class="p">,</span> <span class="mf">0.456</span><span class="p">,</span> <span class="mf">0.406</span><span class="p">]</span>
+<span class="n">deviations</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.229</span><span class="p">,</span> <span class="mf">0.224</span><span class="p">,</span> <span class="mf">0.225</span><span class="p">]</span>
+<span class="n">PIXELS</span> <span class="o">=</span> <span class="mi">224</span>
+
+<span class="n">train_transforms</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span><span class="n">transforms</span><span class="o">.</span><span class="n">RandomRotation</span><span class="p">(</span><span class="mi">30</span><span class="p">),</span>
+                                       <span class="n">transforms</span><span class="o">.</span><span class="n">RandomResizedCrop</span><span class="p">(</span><span class="n">PIXELS</span><span class="p">),</span>
+                                       <span class="n">transforms</span><span class="o">.</span><span class="n">RandomHorizontalFlip</span><span class="p">(),</span>
+                                       <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+                                       <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="n">means</span><span class="p">,</span>
+                                                            <span class="n">deviations</span><span class="p">)])</span>
+
+<span class="n">test_transforms</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span><span class="n">transforms</span><span class="o">.</span><span class="n">Resize</span><span class="p">(</span><span class="mi">255</span><span class="p">),</span>
+                                      <span class="n">transforms</span><span class="o">.</span><span class="n">CenterCrop</span><span class="p">(</span><span class="n">PIXELS</span><span class="p">),</span>
+                                      <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+                                      <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="n">means</span><span class="p">,</span>
+                                                           <span class="n">deviations</span><span class="p">)])</span>
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgce86459">
+<h3 id="orgce86459">Load the Data</h3>
+<div class="outline-text-3" id="text-orgce86459">
+<p>As I mentioned we're using the same Cat and Dog images as before. So first I make my path-setter (which maybe isn't as useful as it was when I had dotenv working better).</p>
+<div class="highlight">
+<pre><span></span><span class="n">train_path</span> <span class="o">=</span> <span class="n">DataPathTwo</span><span class="p">(</span><span class="n">folder_key</span><span class="o">=</span><span class="s2">"CAT_DOG_TRAIN"</span><span class="p">)</span>
+<span class="n">test_path</span> <span class="o">=</span> <span class="n">DataPathTwo</span><span class="p">(</span><span class="n">folder_key</span><span class="o">=</span><span class="s2">"CAT_DOG_TEST"</span><span class="p">)</span>
+</pre></div>
+<p>So now we set up the testing and training data sets.</p>
+<div class="highlight">
+<pre><span></span><span class="n">train_data</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">ImageFolder</span><span class="p">(</span><span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="p">,</span>
+                                  <span class="n">transform</span><span class="o">=</span><span class="n">train_transforms</span><span class="p">)</span>
+<span class="n">test_data</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">ImageFolder</span><span class="p">(</span><span class="n">test_path</span><span class="o">.</span><span class="n">folder</span><span class="p">,</span>
+                                 <span class="n">transform</span><span class="o">=</span><span class="n">test_transforms</span><span class="p">)</span>
+</pre></div>
+<p>And create the batch-iterators with a batch-size of 64.</p>
+<div class="highlight">
+<pre><span></span><span class="n">BATCH_SIZE</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">train_batches</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">train_data</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="n">BATCH_SIZE</span><span class="p">,</span>
+                                            <span class="n">shuffle</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">test_batches</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">test_data</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="n">BATCH_SIZE</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org32a4be3">
+<h2 id="org32a4be3">The DenseNet Model</h2>
+<div class="outline-text-2" id="text-org32a4be3">
+<p>I'm going to load the <a href="http://pytorch.org/docs/0.3.0/torchvision/models.html#id5">DenseNet</a> model.</p>
+<div class="highlight">
+<pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">densenet121</span><span class="p">(</span><span class="n">pretrained</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+<p>It actually emits a warning that the code is using an incorrect method call somewhere, but I'll ignore that.</p>
+<pre class="example">
+UserWarning: nn.init.kaiming_normal is now deprecated in favor of nn.init.kaiming_normal_.
+ nn.init.kaiming_normal(m.weight.data)
+</pre></div>
+<div class="outline-3" id="outline-container-orgb1c7818">
+<h3 id="orgb1c7818">Freeze The Model Parameters</h3>
+<div class="outline-text-3" id="text-orgb1c7818">
+<p>We need to freeze the parameters before training so we don't end up trying to re-train our pre-trained network.</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+    <span class="n">param</span><span class="o">.</span><span class="n">requires_grad</span> <span class="o">=</span> <span class="bp">False</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgd8f1478">
+<h3 id="orgd8f1478">The Classifier</h3>
+<div class="outline-text-3" id="text-orgd8f1478">
+<p>So this is the part where we add our own classifier at the end so that we can train it on cats and dogs. I'll use the original 500 fully connected nodes instead of the 256 I ended up with in my previous attempt.</p>
+<p>To figure out the inputs to the layer we can just look at the original <code>classifier</code> layer in the model.</p>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">classifier</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Linear(in_features=1024, out_features=1000, bias=True)
+
+</pre>
+<p>So we need to make sure we have 1,024 inputs to our classification layer and change the number of outputs to 2 (since we have only dogs and cats). We're also going to use two layers, the first one will have a ReLU activation and the second (the output) will have a <a href="https://pytorch.org/docs/stable/nn.html?highlight=logsoftmax#torch.nn.LogSoftmax">Log-Softmax</a> activation.</p>
+<div class="highlight">
+<pre><span></span><span class="n">HIDDEN_NODES</span> <span class="o">=</span> <span class="mi">500</span>
+<span class="n">INPUT_NODES</span> <span class="o">=</span> <span class="mi">1024</span>
+<span class="n">OUTPUT_NODES</span> <span class="o">=</span> <span class="mi">2</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">classifier</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">OrderedDict</span><span class="p">([</span>
+                          <span class="p">(</span><span class="s1">'fully_connected_layer'</span><span class="p">,</span>
+                           <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">INPUT_NODES</span><span class="p">,</span> <span class="n">HIDDEN_NODES</span><span class="p">)),</span>
+                          <span class="p">(</span><span class="s1">'relu'</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()),</span>
+                          <span class="p">(</span><span class="s2">"dropout"</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">p</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)),</span>
+                          <span class="p">(</span><span class="s1">'fully_connected_layer_2'</span><span class="p">,</span>
+                           <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">HIDDEN_NODES</span><span class="p">,</span> <span class="n">OUTPUT_NODES</span><span class="p">)),</span>
+                          <span class="p">(</span><span class="s1">'output'</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">LogSoftmax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+                          <span class="p">]))</span>
+<span class="n">model</span><span class="o">.</span><span class="n">classifier</span> <span class="o">=</span> <span class="n">classifier</span>
+</pre></div>
+<p>So we now have a (mostly) pre-trained deep neural network with an untrained classifier.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgc95a1a3">
+<h2 id="orgc95a1a3">Add Some CUDA</h2>
+<div class="outline-text-2" id="text-orgc95a1a3">
+<p>To speed this up somewhat I'll add (if it's available) a little cuda.</p>
+<div class="highlight">
+<pre><span></span><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgd552106">
+<h3 id="orgd552106">Add some more CUDA</h3>
+<div class="outline-text-3" id="text-orgd552106">
+<p>This next bit doesn't work on any of my machines, but maybe someday.</p>
+<div class="highlight">
+<pre><span></span><span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">device_count</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"Using {} GPUs"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">device_count</span><span class="p">()))</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">DataParallel</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"Only 1 GPU available"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Only 1 GPU available
+
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org45831e3">
+<h2 id="org45831e3">Train It</h2>
+<div class="outline-text-2" id="text-org45831e3">
+<p>First we'll set up our criterion - Negative Log Likelihood Loss (<a href="https://pytorch.org/docs/stable/nn.html?highlight=nllloss#torch.nn.NLLLoss">NLLLoss</a>) and optimizer - <a href="https://pytorch.org/docs/stable/optim.html?highlight=adam#torch.optim.Adam">Adam</a> Optimization. Amazingly this only needs one pass through the data set. There's 352 batches in the training data-set so I won't print out each of the outcomes for the epochs.</p>
+<div class="highlight">
+<pre><span></span><span class="n">LEARNING_RATE</span> <span class="o">=</span> <span class="mf">0.003</span>
+<span class="n">EPOCHS</span> <span class="o">=</span> <span class="mi">1</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">NLLLoss</span><span class="p">()</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">classifier</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">LEARNING_RATE</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+<span class="n">outcome</span> <span class="o">=</span> <span class="n">train_only</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">criterion</span><span class="p">,</span>
+                     <span class="n">train_batches</span><span class="p">,</span>
+                     <span class="n">epochs</span><span class="o">=</span><span class="n">EPOCHS</span><span class="p">,</span> <span class="n">emit</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">"Training Time: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+Training Time: 0:10:35.847469
+
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+<span class="n">test_outcome</span> <span class="o">=</span> <span class="n">test_only</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">test_batches</span><span class="p">,</span> <span class="n">device</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">"Test Time: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+Test Time: 0:00:46.695136
+
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">test_outcome</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+0.9788
+
+</pre>
+<p>The key bit here was that I was earlier forgetting to add dropout, dropping the accuracy to between .5 and .6.</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/classification/" rel="tag">classification</a></li>
+<li><a class="tag p-category" href="../../../../categories/exercise/" rel="tag">exercise</a></li>
+<li><a class="tag p-category" href="../../../../categories/pytorch/" rel="tag">pytorch</a></li>
+<li><a class="tag p-category" href="../../../../categories/transfer-learning/" rel="tag">transfer learning</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../tips-tricks-and-other-notes/" rel="prev" title="Tips, Tricks and Other Notes">Previous post</a></li>
+<li class="next"><a href="../../dog-breed-classifier/dog-classification-project-overview/" rel="next" title="Dog Classification Project Overview">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Exploring weight initialization for neural networks." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Weight Initialization | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/cnn/weight-initialization/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../transfer-learning-exercise/" rel="prev" title="Transfer Learning Exercise" type="text/html">
+<link href="../../autoencoders/simple-autoencoder/" rel="next" title="Simple Autoencoder" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Weight Initialization" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/cnn/weight-initialization/" property="og:url">
+<meta content="Exploring weight initialization for neural networks." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-12-17T13:03:41-08:00" property="article:published_time">
+<meta content="cnn" property="article:tag">
+<meta content="exercise" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Weight Initialization</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-12-17T13:03:41-08:00" itemprop="datePublished" title="2018-12-17 13:03">2018-12-17 13:03</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org89aa9dd">Introduction</a></li>
+<li><a href="#org62ab1fd">Initial Weights and Observing Training Loss</a></li>
+<li><a href="#orgec82b88">Dataset and Model</a></li>
+<li><a href="#org24a1b15">Import Libraries and Load the Data</a></li>
+<li><a href="#orga6bc68b">Visualize Some Training Data</a></li>
+<li><a href="#org5406b6b">Define the Model Architecture</a></li>
+<li><a href="#orgcd0d2c9">Initialize Weights</a></li>
+<li><a href="#orge4bc7f4">Compare Model Behavior</a></li>
+<li><a href="#org6d4c026">General rule for setting weights</a></li>
+<li><a href="#org3df8537">Normal Distribution</a></li>
+<li><a href="#org20f733d">Automatic Initialization</a></li>
+<li><a href="#orgd3fff40">evaluate the behavior using helpers</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org89aa9dd">
+<h2 id="org89aa9dd">Introduction</h2>
+<div class="outline-text-2" id="text-org89aa9dd">
+<p>In this lesson, you'll learn how to find good initial weights for a neural network. Weight initialization happens once, when a model is created and before it trains. Having good initial weights can place the neural network close to the optimal solution. This allows the neural network to come to the best solution quicker.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org62ab1fd">
+<h2 id="org62ab1fd">Initial Weights and Observing Training Loss</h2>
+<div class="outline-text-2" id="text-org62ab1fd">
+<p>To see how different weights perform, we'll test on the same dataset and neural network. That way, we know that any changes in model behavior are due to the weights and not any changing data or model structure. We'll instantiate at least two of the same models, with <i>different</i> initial weights and see how the training loss decreases over time.</p>
+<p>Sometimes the differences in training loss, over time, will be large and other times, certain weights offer only small improvements.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgec82b88">
+<h2 id="orgec82b88">Dataset and Model</h2>
+<div class="outline-text-2" id="text-orgec82b88">
+<p>We'll train an MLP to classify images from the <a href="https://github.com/zalandoresearch/fashion-mnist">Fashion-MNIST database</a> to demonstrate the effect of different initial weights. As a reminder, the FashionMNIST dataset contains images of clothing types; <code>classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']</code>. The images are normalized so that their pixel values are in a range [0.0 - 1.0). Run the cell below to download and load the dataset.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org24a1b15">
+<h2 id="org24a1b15">Import Libraries and Load the <a href="http://pytorch.org/docs/stable/torchvision/datasets.html">Data</a></h2>
+<div class="outline-text-2" id="text-org24a1b15"></div>
+<div class="outline-3" id="outline-container-orgc3be850">
+<h3 id="orgc3be850">Imports</h3>
+<div class="outline-text-3" id="text-orgc3be850">
+<div class="highlight">
+<pre><span></span># python
+from functools import partial
+from typing import Collection, Tuple
+# from pypi
+from dotenv import load_dotenv
+from sklearn.model_selection import train_test_split
+from torch.utils.data.sampler import SubsetRandomSampler
+from torchvision import datasets
+import matplotlib.pyplot as pyplot
+import numpy
+import seaborn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.transforms as transforms
+
+# udacity
+import nano.helpers as helpers
+
+# this project
+from neurotic.tangles.data_paths import DataPathTwo
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgc61fdc9">
+<h3 id="orgc61fdc9">Load the Data</h3>
+<div class="outline-text-3" id="text-orgc61fdc9">
+<div class="highlight">
+<pre><span></span># number of subprocesses to use for data loading
+subprocesses = 0
+# how many samples per batch to load
+batch_size = 100
+# percentage of training set to use as validation
+VALIDATION_FRACTION = 0.2
+</pre></div>
+<p>Convert the data to a torch.FloatTensor.</p>
+<div class="highlight">
+<pre><span></span>transform = transforms.ToTensor()
+</pre></div>
+<div class="highlight">
+<pre><span></span>load_dotenv()
+path = DataPathTwo(folder_key="FASHION")
+print(path.folder)
+</pre></div>
+<pre class="example">
+/home/brunhilde/datasets/FASHION
+
+</pre>
+<p>Choose the training and test datasets.</p>
+<div class="highlight">
+<pre><span></span>train_data = datasets.FashionMNIST(root=path.folder, train=True,
+                                   download=True, transform=transform)
+test_data = datasets.FashionMNIST(root=path.folder, train=False,
+                                  download=True, transform=transform)
+</pre></div>
+<pre class="example">
+Downloading http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-images-idx3-ubyte.gz
+Downloading http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-labels-idx1-ubyte.gz
+Downloading http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-images-idx3-ubyte.gz
+Downloading http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-labels-idx1-ubyte.gz
+Processing...
+Done!
+</pre>
+<p>Obtain training indices that will be used for validation.</p>
+<div class="highlight">
+<pre><span></span>indices = list(range(len(train_data)))
+train_idx, valid_idx = train_test_split(
+    indices,
+    test_size=VALIDATION_FRACTION)
+</pre></div>
+<p>Define samplers for obtaining training and validation batches.</p>
+<div class="highlight">
+<pre><span></span>train_sampler = SubsetRandomSampler(train_idx)
+valid_sampler = SubsetRandomSampler(valid_idx)
+</pre></div>
+<p>Prepare data loaders (combine dataset and sampler).</p>
+<div class="highlight">
+<pre><span></span>train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size,
+                                           sampler=train_sampler, num_workers=subprocesses)
+valid_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, 
+                                           sampler=valid_sampler, num_workers=subprocesses)
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, 
+                                          num_workers=subprocesses)
+</pre></div>
+<div class="highlight">
+<pre><span></span>classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
+    'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga6bc68b">
+<h2 id="orga6bc68b">Visualize Some Training Data</h2>
+<div class="outline-text-2" id="text-orga6bc68b">
+<div class="highlight">
+<pre><span></span>get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (10, 8)},
+            font_scale=1)
+</pre></div>
+<p>Obtain one batch of training images.</p>
+<div class="highlight">
+<pre><span></span>dataiter = iter(train_loader)
+images, labels = dataiter.next()
+images = images.numpy()
+</pre></div>
+<p>Plot the images in the batch, along with the corresponding labels.</p>
+<div class="highlight">
+<pre><span></span>fig = pyplot.figure(figsize=(12, 10))
+fig.suptitle("Sample FASHION Images", weight="bold")
+for idx in np.arange(20):
+    ax = fig.add_subplot(2, 20/2, idx+1, xticks=[], yticks=[])
+    ax.imshow(np.squeeze(images[idx]), cmap='gray')
+    ax.set_title(classes[labels[idx]])
+</pre></div>
+<div class="figure">
+<p><img alt="image_one.png" src="image_one.png"></p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5406b6b">
+<h2 id="org5406b6b">Define the Model Architecture</h2>
+<div class="outline-text-2" id="text-org5406b6b">
+<p>We've defined the MLP that we'll use for classifying the dataset.</p>
+</div>
+<div class="outline-3" id="outline-container-org08f7e70">
+<h3 id="org08f7e70">Neural Network</h3>
+<div class="outline-text-3" id="text-org08f7e70">
+<ul class="org-ul">
+<li>A 3 layer MLP with hidden dimensions of 256 and 128.</li>
+<li>This MLP accepts a flattened image (784-value long vector) as input and produces 10 class scores as output.</li>
+</ul>
+<p>We'll test the effect of different initial weights on this 3 layer neural network with ReLU activations and an Adam optimizer. The lessons you learn apply to other neural networks, including different activations and optimizers.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgcd0d2c9">
+<h2 id="orgcd0d2c9">Initialize Weights</h2>
+<div class="outline-text-2" id="text-orgcd0d2c9">
+<p>Let's start looking at some initial weights.</p>
+</div>
+<div class="outline-3" id="outline-container-orgffce475">
+<h3 id="orgffce475">All Zeros or Ones</h3>
+<div class="outline-text-3" id="text-orgffce475">
+<p>If you follow the principle of <a href="https://en.wikipedia.org/wiki/Occam's_razor">Occam's razor</a>, you might think setting all the weights to 0 or 1 would be the best solution. This is not the case.</p>
+<p>With every weight the same, all the neurons at each layer are producing the same output. This makes it hard to decide which weights to adjust.</p>
+<p>Let's compare the loss with all ones and all zero weights by defining two models with those constant weights.</p>
+<p>Below, we are using PyTorch's <a href="https://pytorch.org/docs/stable/nn.html#torch-nn-init">nn.init</a> to initialize each Linear layer with a constant weight. The init library provides a number of weight initialization functions that give you the ability to initialize the weights of each layer according to layer type.</p>
+<p>In the case below, we look at every layer/module in our model. If it is a Linear layer (as all three layers are for this MLP), then we initialize those layer weights to be a <code>constant_weight</code> with <code>bias=0</code> using the following code:</p>
+<div class="highlight">
+<pre><span></span><span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">constant_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">constant_weight</span><span class="p">)</span>
+    <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">constant_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</pre></div>
+<p>The <code>constant_weight</code> is a value that you can pass in when you instantiate the model.</p>
+</div>
+<div class="outline-4" id="outline-container-org27408c4">
+<h4 id="org27408c4">Define the NN architecture</h4>
+<div class="outline-text-4" id="text-org27408c4">
+<div class="highlight">
+<pre><span></span>class Net(nn.Module):
+    def __init__(self, hidden_1=256, hidden_2=128, constant_weight=None):
+        super(Net, self).__init__()
+        # linear layer (784 -&gt; hidden_1)
+        self.fc1 = nn.Linear(28 * 28, hidden_1)
+        # linear layer (hidden_1 -&gt; hidden_2)
+        self.fc2 = nn.Linear(hidden_1, hidden_2)
+        # linear layer (hidden_2 -&gt; 10)
+        self.fc3 = nn.Linear(hidden_2, 10)
+        # dropout layer (p=0.2)
+        self.dropout = nn.Dropout(0.2)
+
+        # initialize the weights to a specified, constant value
+        if(constant_weight is not None):
+            for m in self.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.constant_(m.weight, constant_weight)
+                    nn.init.constant_(m.bias, 0)
+
+
+    def forward(self, x):
+        # flatten image input
+        x = x.view(-1, 28 * 28)
+        # add hidden layer, with relu activation function
+        x = F.relu(self.fc1(x))
+        # add dropout layer
+        x = self.dropout(x)
+        # add hidden layer, with relu activation function
+        x = F.relu(self.fc2(x))
+        # add dropout layer
+        x = self.dropout(x)
+        # add output layer
+        x = self.fc3(x)
+        return x
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge4bc7f4">
+<h2 id="orge4bc7f4">Compare Model Behavior</h2>
+<div class="outline-text-2" id="text-orge4bc7f4">
+<p>Below, we are using <code>helpers.compare_init_weights</code> to compare the training and validation loss for the two models we defined above, <code>model_0</code> and <code>model_1</code>. This function takes in a list of models (each with different initial weights), the name of the plot to produce, and the training and validation dataset loaders. For each given model, it will plot the training loss for the first 100 batches and print out the validation accuracy after 2 training epochs. <b>Note: if you've used a small batch_size, you may want to increase the number of epochs here to better compare how models behave after seeing a few hundred images.</b></p>
+<p>We plot the loss over the first 100 batches to better judge which model weights performed better at the start of training. <b>I recommend that you take a look at the code in <code>helpers.py</code> to look at the details behind how the models are trained, validated, and compared.</b></p>
+<p>Run the cell below to see the difference between weights of all zeros against all ones.</p>
+<p>Initialize two NN's with 0 and 1 constant weights.</p>
+<div class="highlight">
+<pre><span></span>model_0 = Net(constant_weight=0)
+model_1 = Net(constant_weight=1)
+</pre></div>
+<p>Put them in list form to compare.</p>
+<div class="highlight">
+<pre><span></span>model_list = [(model_0, 'All Zeros'),
+              (model_1, 'All Ones')]
+</pre></div>
+<div class="highlight">
+<pre><span></span>ModelLabel = Tuple[nn.Module, str]
+ModelLabels = Collection[ModelLabel]
+</pre></div>
+<div class="highlight">
+<pre><span></span>def plot_models(title:str, models_labels:ModelLabels):
+    """Plots the models
+
+    Args:
+     title: the title for the plots
+     models_labels: collections of model, plot-label tuples
+    """
+    figure, axe = pyplot.subplots()
+    figure.suptitle(title, weight="bold")    
+    axe.set_xlabel("Batches")
+    axe.set_ylabel("Loss")
+
+    for model, label in models_labels:
+        loss, validation_accuracy = helpers._get_loss_acc(model, train_loader, valid_loader)
+        axe.plot(loss[:100], label=label)
+    legend = axe.legend()
+    return
+</pre></div>
+<p>Plot the loss over the first 100 batches.</p>
+<div class="highlight">
+<pre><span></span>plot_models("All Zeros vs All Ones",
+            ((model_0, "All Zeros"),
+             (model_1, "All ones")))
+</pre></div>
+<div class="figure">
+<p><img alt="zeros_ones.png" src="zeros_ones.png"></p>
+</div>
+<pre class="example">
+After 2 Epochs:
+Validation Accuracy
+    9.475% -- All Zeros
+   10.175% -- All Ones
+Training Loss
+    2.304  -- All Zeros
+  1914.703  -- All Ones
+</pre>
+<p>As you can see the accuracy is close to guessing for both zeros and ones, around 10%.</p>
+<p>The neural network is having a hard time determining which weights need to be changed, since the neurons have the same output for each layer. To avoid neurons with the same output, let's use unique weights. We can also randomly select these weights to avoid being stuck in a local minimum for each run.</p>
+<p>A good solution for getting these random weights is to sample from a uniform distribution.</p>
+</div>
+<div class="outline-3" id="outline-container-orgcfd7139">
+<h3 id="orgcfd7139">Uniform Distribution</h3>
+<div class="outline-text-3" id="text-orgcfd7139">
+<p>A <a href="https://en.wikipedia.org/wiki/Uniform_distribution">uniform distribution</a> has the equal probability of picking any number from a set of numbers. We'll be picking from a continuous distribution, so the chance of picking the same number is low. We'll use NumPy's <code>np.random.uniform</code> function to pick random numbers from a uniform distribution.</p>
+<p><a href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.random.uniform.html"><code>np.random_uniform(low=0.0, high=1.0, size=None)</code></a></p>
+<p>Outputs random values from a uniform distribution.</p>
+<p>The generated values follow a uniform distribution in the range [low, high). The lower bound minval is included in the range, while the upper bound maxval is excluded.</p>
+<ul class="org-ul">
+<li><b>low:</b> The lower bound on the range of random values to generate. Defaults to 0.</li>
+<li><b>high:</b> The upper bound on the range of random values to generate. Defaults to 1.</li>
+<li><b>size:</b> An int or tuple of ints that specify the shape of the output array.</li>
+</ul>
+<p>We can visualize the uniform distribution by using a histogram. Let's map the values from <code>np.random_uniform(-3, 3, [1000])</code> to a histogram using the <code>helper.hist_dist</code> function. This will be <code>1000</code> random float values from <code>-3</code> to <code>3</code>, excluding the value <code>3</code>.</p>
+<div class="highlight">
+<pre><span></span>figure, axe = pyplot.subplots()
+figure.suptitle("Random Uniform", weight="bold")
+data = numpy.random.uniform(-3, 3, [1000])
+grid = seaborn.distplot(data)
+#helpers.hist_dist('Random Uniform (low=-3, high=3)', )
+</pre></div>
+<div class="figure">
+<p><img alt="uniform_distribution.png" src="uniform_distribution.png"></p>
+</div>
+<p>Now that you understand the uniform function, let's use PyTorch's <code>nn.init</code> to apply it to a model's initial weights.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org4f0807b">
+<h3 id="org4f0807b">Uniform Initialization, Baseline</h3>
+<div class="outline-text-3" id="text-org4f0807b">
+<p>Let's see how well the neural network trains using a uniform weight initialization, where <code>low=0.0</code> and <code>high=1.0</code>. Below, I'll show you another way (besides in the Net class code) to initialize the weights of a network. To define weights outside of the model definition, you can:</p>
+<ol class="org-ol">
+<li>Define a function that assigns weights by the type of network layer, <b>then</b></li>
+<li>Apply those weights to an initialized model using <code>model.apply(fn)</code>, which applies a function to each model layer.</li>
+</ol>
+<p>This time, we'll use <code>weight.data.uniform_</code> to initialize the weights of our model, directly.</p>
+<div class="highlight">
+<pre><span></span>def weights_init_uniform(m: nn.Module, start=0.0, stop=1.0) -&gt; None:
+    """takes in a module and applies the specified weight initialization
+
+    Args:
+     m: A model instance
+    """
+    classname = m.__class__.__name__
+    # for every Linear layer in a model..
+    if classname.startswith('Linear'):
+        # apply a uniform distribution to the weights and a bias=0
+        m.weight.data.uniform_(start, stop)
+        m.bias.data.fill_(0)
+    return
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org618609d">
+<h4 id="org618609d">Create A New Model With These Weights</h4>
+</div>
+<div class="outline-4" id="outline-container-orgc493449">
+<h4 id="orgc493449">Evaluate Behavior</h4>
+<div class="outline-text-4" id="text-orgc493449">
+<div class="highlight">
+<pre><span></span>model_uniform = Net()
+model_uniform.apply(weights_init_uniform)
+plot_models("Uniform Baseline", ((model_uniform, "UNIFORM WEIGHTS"),))
+</pre></div>
+<div class="figure">
+<p><img alt="uniform_weights.png" src="uniform_weights.png"></p>
+</div>
+<p>The loss graph is showing the neural network is learning, which it didn't with all zeros or all ones. We're headed in the right direction!</p>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org6d4c026">
+<h2 id="org6d4c026">General rule for setting weights</h2>
+<div class="outline-text-2" id="text-org6d4c026">
+<p>The general rule for setting the weights in a neural network is to set them to be close to zero without being too small. A good practice is to start your weights in the range of \([-y, y]\) where \(y=1/\sqrt{n}\) (\(n\) is the number of inputs to a given neuron).</p>
+<p>Let's see if this holds true; let's create a baseline to compare with and center our uniform range over zero by shifting it over by 0.5. This will give us the range [-0.5, 0.5).</p>
+<div class="highlight">
+<pre><span></span>weights_init_uniform_center = partial(weights_init_uniform, -0.5, 0.5)
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org4c643ef">
+<h3 id="org4c643ef">create a new model with these weights</h3>
+<div class="outline-text-3" id="text-org4c643ef">
+<div class="highlight">
+<pre><span></span>model_centered = Net()
+model_centered.apply(weights_init_uniform_center)
+</pre></div>
+<p>Now let's create a distribution and model that uses the <b>general rule</b> for weight initialization; using the range \([-y, y]\), where \(y=1/\sqrt{n}\) .</p>
+<p>And finally, we'll compare the two models.</p>
+<div class="highlight">
+<pre><span></span>def weights_init_uniform_rule(m: nn.Module) -&gt; None:
+    """takes in a module and applies the specified weight initialization
+
+    Args:
+     m: Model instance
+    """
+    classname = m.__class__.__name__
+    # for every Linear layer in a model..
+    if classname.find('Linear') != -1:
+        # get the number of the inputs
+        n = m.in_features
+        y = 1.0/numpy.sqrt(n)
+        m.weight.data.uniform_(-y, y)
+        m.bias.data.fill_(0)
+    return
+</pre></div>
+<div class="highlight">
+<pre><span></span>model_rule = Net()
+model_rule.apply(weights_init_uniform_rule)
+</pre></div>
+<div class="highlight">
+<pre><span></span>plot_models("Uniform Centered vs General Rule", (
+    (model_centered, 'Centered Weights [-0.5, 0.5)'), 
+    (model_rule, 'General Rule [-y, y)'),
+))
+</pre></div>
+<p><img alt="general_rule.png" src="general_rule.png"> This behavior is really promising! Not only is the loss decreasing, but it seems to do so very quickly for our uniform weights that follow the general rule; after only two epochs we get a fairly high validation accuracy and this should give you some intuition for why starting out with the right initial weights can really help your training process!</p>
+<p>Since the uniform distribution has the same chance to pick <b>any value</b> in a range, what if we used a distribution that had a higher chance of picking numbers closer to 0? Let's look at the normal distribution.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org3df8537">
+<h2 id="org3df8537">Normal Distribution</h2>
+<div class="outline-text-2" id="text-org3df8537">
+<p>Unlike the uniform distribution, the <a href="https://en.wikipedia.org/wiki/Normal_distribution">normal distribution</a> has a higher likelihood of picking number close to it's mean. To visualize it, let's plot values from NumPy's <code>np.random.normal</code> function to a histogram.</p>
+<p><a href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.random.normal.html">np.random.normal(loc=0.0, scale=1.0, size=None)</a></p>
+<p>Outputs random values from a normal distribution.</p>
+<ul class="org-ul">
+<li><b>loc:</b> The mean of the normal distribution.</li>
+<li><b>scale:</b> The standard deviation of the normal distribution.</li>
+<li><b>shape:</b> The shape of the output array.</li>
+</ul>
+<div class="highlight">
+<pre><span></span>figure, axe = pyplot.subplots()
+figure.suptitle("Standard Normal Distribution", weight="bold")
+grid = seaborn.distplot(numpy.random.normal(size=[1000]))
+</pre></div>
+<div class="figure">
+<p><img alt="normal_distribution.png" src="normal_distribution.png"></p>
+</div>
+<p>Let's compare the normal distribution against the previous, rule-based, uniform distribution.</p>
+<p>The normal distribution should have a mean of 0 and a standard deviation of \(y=1/\sqrt{n}\)</p>
+<div class="highlight">
+<pre><span></span>def weights_init_normal(m: nn.Module) -&gt; None:
+    '''Takes in a module and initializes all linear layers with weight
+       values taken from a normal distribution.'''
+
+    classname = m.__class__.__name__
+    if classname.startswith("Linear"):    
+        m.weight.data.normal_(mean=0, std=1/numpy.sqrt(m.in_features))
+        m.bias.data.fill_(0)
+    return
+</pre></div>
+<p>create a new model with the rule-based, uniform weights</p>
+<div class="highlight">
+<pre><span></span>model_uniform_rule = Net()
+model_uniform_rule.apply(weights_init_uniform_rule)
+</pre></div>
+<p>create a new model with the rule-based, NORMAL weights</p>
+<div class="highlight">
+<pre><span></span>model_normal_rule = Net()
+model_normal_rule.apply(weights_init_normal)
+</pre></div>
+<p>compare the two models</p>
+<div class="highlight">
+<pre><span></span>plot_models('Uniform vs Normal',
+            ((model_uniform_rule, 'Uniform Rule [-y, y)'), 
+             (model_normal_rule, 'Normal Distribution')))
+</pre></div>
+<div class="figure">
+<p><img alt="normal_vs_uniform.png" src="normal_vs_uniform.png"></p>
+</div>
+<p>The normal distribution gives us pretty similar behavior compared to the uniform distribution, in this case. This is likely because our network is so small; a larger neural network will pick more weight values from each of these distributions, magnifying the effect of both initialization styles. In general, a normal distribution will result in better performance for a model.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org20f733d">
+<h2 id="org20f733d">Automatic Initialization</h2>
+<div class="outline-text-2" id="text-org20f733d">
+<p>Let's quickly take a look at what happens <b>without any explicit weight initialization</b>.</p>
+</div>
+<div class="outline-3" id="outline-container-org887fe82">
+<h3 id="org887fe82">Instantiate a model with <span class="underline">no</span> explicit weight initialization</h3>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgd3fff40">
+<h2 id="orgd3fff40">evaluate the behavior using helpers</h2>
+<div class="outline-text-2" id="text-orgd3fff40">
+<div class="highlight">
+<pre><span></span>model_normal_rule = Net()
+model_normal_rule.apply(weights_init_normal)
+model_default = Net()
+model_rule = Net()
+model_rule.apply(weights_init_uniform_rule)
+
+plot_models("Default vs Normal vs General Rule", (
+    (model_default, "Default"),
+    (model_normal_rule, "Normal"),
+    (model_rule, "General Rule")))
+</pre></div>
+<div class="figure">
+<p><img alt="default.png" src="default.png"></p>
+</div>
+<p>They all sort of look the same at this point.</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/cnn/" rel="tag">cnn</a></li>
+<li><a class="tag p-category" href="../../../../categories/exercise/" rel="tag">exercise</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../transfer-learning-exercise/" rel="prev" title="Transfer Learning Exercise">Previous post</a></li>
+<li class="next"><a href="../../autoencoders/simple-autoencoder/" rel="next" title="Simple Autoencoder">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

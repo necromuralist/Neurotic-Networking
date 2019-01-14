@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Character Level RNN Exercise | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/rnn/character-level-rnn-exercise/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../../dog-breed-classifier/dog-detector/" rel="prev" title="Dog Detector" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Character Level RNN Exercise" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/rnn/character-level-rnn-exercise/" property="og:url">
+<meta content="Table of Contents Character-Level LSTM in PyTorch Set Up Character-Level LSTM in PyTorch In this notebook, I'll construct a character-level LSTM with PyTorch. The network will train character" property="og:description">
+<meta content="article" property="og:type">
+<meta content="2019-01-10T12:50:51-08:00" property="article:published_time">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Character Level RNN Exercise</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2019-01-10T12:50:51-08:00" itemprop="datePublished" title="2019-01-10 12:50">2019-01-10 12:50</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgee9ddbb">Character-Level LSTM in PyTorch</a></li>
+<li><a href="#org5f9b70f">Set Up</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgee9ddbb">
+<h2 id="orgee9ddbb">Character-Level LSTM in PyTorch</h2>
+<div class="outline-text-2" id="text-orgee9ddbb">
+<p>In this notebook, I'll construct a character-level LSTM with PyTorch. The network will train character by character on some text, then generate new text character by character. As an example, I will train on Anna Karenina. <b>This model will be able to generate new text based on the text from the book!</b></p>
+<p>This network is based off of Andrej Karpathy's <a href="http://karpathy.github.io/2015/05/21/rnn-effectiveness/">post on RNNs</a> and <a href="https://github.com/karpathy/char-rnn">implementation in Torch</a>. Below is the general architecture of the character-wise RNN.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5f9b70f">
+<h2 id="org5f9b70f">Set Up</h2>
+<div class="outline-text-2" id="text-org5f9b70f">
+<p>First let's load in our required resources for data loading and model creation.</p>
+<p>import numpy as np import torch from torch import nn import torch.nn.functional as F</p>
+<p>with open('data/anna.txt', 'r') as f: text = f.read()</p>
+<p>text[:100]</p>
+<p>chars = tuple(set(text)) int2char = dict(enumerate(chars)) char2int = {ch: ii for ii, ch in int2char.items()}</p>
+<p>encoded = np.array([char2int[ch] for ch in text])</p>
+<p>encoded[:100]</p>
+<p>def one_hot_encode(arr, n_labels):</p>
+<p>one_hot = np.zeros((np.multiply(*arr.shape), n_labels), dtype=np.float32)</p>
+<p>one_hot[np.arange(one_hot.shape[0]), arr.flatten()] = 1.</p>
+<p>one_hot = one_hot.reshape((*arr.shape, n_labels))</p>
+<p>return one_hot</p>
+<div class="highlight">
+<pre><span></span>test_seq = np.array([[3, 5, 1]])
+one_hot = one_hot_encode(test_seq, 8)
+</pre></div>
+<p>print(one_hot)</p>
+<p>def get_batches(arr, batch_size, seq_length): '''Create a generator that returns batches of size batch_size x seq_length from arr.</p>
+<p>Arguments</p>
+<hr>
+<p>arr: Array you want to make batches from batch_size: Batch size, the number of sequences per batch seq_length: Number of encoded chars in a sequence '''</p>
+<p>## TODO: Get the number of batches we can make n_batches =</p>
+<p>## TODO: Keep only enough characters to make full batches arr =</p>
+<p>## TODO: Reshape into batch_size rows arr =</p>
+<p>## TODO: Iterate over the batches using a window of size seq_length for n in range(0, arr.shape[1], seq_length):</p>
+<p>x =</p>
+<p>y = yield x, y</p>
+<p>batches = get_batches(encoded, 8, 50) x, y = next(batches)</p>
+<p>print('x\n', x[:10, :10]) print('\ny\n', y[:10, :10])</p>
+<p>train_on_gpu = torch.cuda.is_available() if(train_on_gpu): print('Training on GPU!') else: print('No GPU available, training on CPU; consider making n_epochs very small.')</p>
+<p>class CharRNN(nn.Module):</p>
+<p>def __init__(self, tokens, n_hidden=256, n_layers=2, drop_prob=0.5, lr=0.001): super().__init__() self.drop_prob = drop_prob self.n_layers = n_layers self.n_hidden = n_hidden self.lr = lr</p>
+<p>self.chars = tokens self.int2char = dict(enumerate(self.chars)) self.char2int = {ch: ii for ii, ch in self.int2char.items()}</p>
+<p>## TODO: define the layers of the model</p>
+<p>def forward(self, x, hidden): ''' Forward pass through the network. These inputs are x, and the hidden/cell state `hidden`. '''</p>
+<p>## TODO: Get the outputs and the new hidden state from the lstm</p>
+<p>return out, hidden</p>
+<p>def init_hidden(self, batch_size): ''' Initializes hidden state '''</p>
+<p>weight = next(self.parameters()).data</p>
+<p>if (train_on_gpu): hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda(), weight.new(self.n_layers, batch_size, self.n_hidden).zero_().cuda()) else: hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(), weight.new(self.n_layers, batch_size, self.n_hidden).zero_())</p>
+<p>return hidden</p>
+<p>def train(net, data, epochs=10, batch_size=10, seq_length=50, lr=0.001, clip=5, val_frac=0.1, print_every=10): ''' Training a network</p>
+<p>Arguments</p>
+<hr>
+<p>net: CharRNN network data: text data to train the network epochs: Number of epochs to train batch_size: Number of mini-sequences per mini-batch, aka batch size seq_length: Number of character steps per mini-batch lr: learning rate clip: gradient clipping val_frac: Fraction of data to hold out for validation print_every: Number of steps for printing training and validation loss</p>
+<p>''' net.train()</p>
+<p>opt = torch.optim.Adam(net.parameters(), lr=lr) criterion = nn.CrossEntropyLoss()</p>
+<p>val_idx = int(len(data)*(1-val_frac)) data, val_data = data[:val_idx], data[val_idx:]</p>
+<p>if(train_on_gpu): net.cuda()</p>
+<p>counter = 0 n_chars = len(net.chars) for e in range(epochs):</p>
+<p>h = net.init_hidden(batch_size)</p>
+<p>for x, y in get_batches(data, batch_size, seq_length): counter += 1</p>
+<p>x = one_hot_encode(x, n_chars) inputs, targets = torch.from_numpy(x), torch.from_numpy(y)</p>
+<p>if(train_on_gpu): inputs, targets = inputs.cuda(), targets.cuda()</p>
+<p>h = tuple([each.data for each in h])</p>
+<p>net.zero_grad()</p>
+<p>output, h = net(inputs, h)</p>
+<p>loss = criterion(output, targets.view(batch_size*seq_length)) loss.backward()</p>
+<p>nn.utils.clip_grad_norm_(net.parameters(), clip) opt.step()</p>
+<p>if counter % print_every == 0:</p>
+<p>val_h = net.init_hidden(batch_size) val_losses = [] net.eval() for x, y in get_batches(val_data, batch_size, seq_length):</p>
+<p>x = one_hot_encode(x, n_chars) x, y = torch.from_numpy(x), torch.from_numpy(y)</p>
+<p>val_h = tuple([each.data for each in val_h])</p>
+<p>inputs, targets = x, y if(train_on_gpu): inputs, targets = inputs.cuda(), targets.cuda()</p>
+<p>output, val_h = net(inputs, val_h) val_loss = criterion(output, targets.view(batch_size*seq_length))</p>
+<p>val_losses.append(val_loss.item())</p>
+<p>net.train() # reset to train mode after iterationg through validation data</p>
+<p>print("Epoch: {}/{}…".format(e+1, epochs), "Step: {}…".format(counter), "Loss: {:.4f}…".format(loss.item()), "Val Loss: {:.4f}".format(np.mean(val_losses)))</p>
+<p>## TODO: set you model hyperparameters</p>
+<p>n_hidden= n_layers=</p>
+<p>net = CharRNN(chars, n_hidden, n_layers) print(net)</p>
+<p>batch_size = seq_length = n_epochs = # start small if you are just testing initial behavior</p>
+<p>train(net, encoded, epochs=n_epochs, batch_size=batch_size, seq_length=seq_length, lr=0.001, print_every=10)</p>
+<p>model_name = 'rnn_x_epoch.net'</p>
+<p>checkpoint = {'n_hidden': net.n_hidden, 'n_layers': net.n_layers, 'state_dict': net.state_dict(), 'tokens': net.chars}</p>
+<p>with open(model_name, 'wb') as f: torch.save(checkpoint, f)</p>
+<p>def predict(net, char, h=None, top_k=None): ''' Given a character, predict the next character. Returns the predicted character and the hidden state. '''</p>
+<p>x = np.array([[net.char2int[char]]]) x = one_hot_encode(x, len(net.chars)) inputs = torch.from_numpy(x)</p>
+<p>if(train_on_gpu): inputs = inputs.cuda()</p>
+<p>h = tuple([each.data for each in h])</p>
+<p>out, h = net(inputs, h)</p>
+<p>p = F.softmax(out, dim=1).data if(train_on_gpu): p = p.cpu() # move to cpu</p>
+<p>if top_k is None: top_ch = np.arange(len(net.chars)) else: p, top_ch = p.topk(top_k) top_ch = top_ch.numpy().squeeze()</p>
+<p>p = p.numpy().squeeze() char = np.random.choice(top_ch, p=p/p.sum())</p>
+<p>return net.int2char[char], h</p>
+<p>def sample(net, size, prime='The', top_k=None):</p>
+<p>if(train_on_gpu): net.cuda() else: net.cpu()</p>
+<p>net.eval() # eval mode</p>
+<p>chars = [ch for ch in prime] h = net.init_hidden(1) for ch in prime: char, h = predict(net, ch, h, top_k=top_k)</p>
+<p>chars.append(char)</p>
+<p>for ii in range(size): char, h = predict(net, chars[-1], h, top_k=top_k) chars.append(char)</p>
+<p>return ''.join(chars)</p>
+<p>print(sample(net, 1000, prime='Anna', top_k=5))</p>
+<p>with open('rnn_x_epoch.net', 'rb') as f: checkpoint = torch.load(f)</p>
+<p>loaded = CharRNN(checkpoint['tokens'], n_hidden=checkpoint['n_hidden'], n_layers=checkpoint['n_layers']) loaded.load_state_dict(checkpoint['state_dict'])</p>
+<p>print(sample(loaded, 2000, top_k=5, prime="And Levin said"))</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../../dog-breed-classifier/dog-detector/" rel="prev" title="Dog Detector">Previous post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

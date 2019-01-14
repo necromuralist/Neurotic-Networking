@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Exploring how to create a custom data-loader." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Custom Data Loader | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/dog-breed-classifier/custom-data-loader/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../../../bibliographies/bibliography-deep-learning-with-pytorch/" rel="prev" title="Bibliography: Deep Learning With PyTorch" type="text/html">
+<link href="../human-face-detection/" rel="next" title="Human Face Detection" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Custom Data Loader" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/dog-breed-classifier/custom-data-loader/" property="og:url">
+<meta content="Exploring how to create a custom data-loader." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-12-25T18:51:06-08:00" property="article:published_time">
+<meta content="data" property="article:tag">
+<meta content="exploration" property="article:tag">
+<meta content="project" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Custom Data Loader</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-12-25T18:51:06-08:00" itemprop="datePublished" title="2018-12-25 18:51">2018-12-25 18:51</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orga2581b2">Set Up</a></li>
+<li><a href="#orgde941e1">The Data Set</a></li>
+<li><a href="#orga21818e">Put It All Together</a></li>
+<li><a href="#orgd92b953">Double-Check the Labels</a></li>
+<li><a href="#org5fcb83a">Once Again With Pytorch</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga2581b2">
+<h2 id="orga2581b2">Set Up</h2>
+<div class="outline-text-2" id="text-orga2581b2"></div>
+<div class="outline-3" id="outline-container-org177f4a0">
+<h3 id="org177f4a0">Imports</h3>
+<div class="outline-text-3" id="text-org177f4a0"></div>
+<div class="outline-4" id="outline-container-org59fcc3d">
+<h4 id="org59fcc3d">Python</h4>
+<div class="outline-text-4" id="text-org59fcc3d">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span> <span class="nn">random</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org29317f7">
+<h4 id="org29317f7">PyPi</h4>
+<div class="outline-text-4" id="text-org29317f7">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">transforms</span><span class="p">,</span> <span class="n">datasets</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">seaborn</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torchvision.transforms</span> <span class="kn">as</span> <span class="nn">transforms</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org005a325">
+<h4 id="org005a325">This Project</h4>
+<div class="outline-text-4" id="text-org005a325">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.tangles.data_paths</span> <span class="kn">import</span> <span class="n">DataPathTwo</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org319c326">
+<h3 id="org319c326">Plotting</h3>
+<div class="outline-text-3" id="text-org319c326">
+<div class="highlight">
+<pre><span></span><span class="n">get_ipython</span><span class="p">()</span><span class="o">.</span><span class="n">run_line_magic</span><span class="p">(</span><span class="s1">'matplotlib'</span><span class="p">,</span> <span class="s1">'inline'</span><span class="p">)</span>
+<span class="n">get_ipython</span><span class="p">()</span><span class="o">.</span><span class="n">run_line_magic</span><span class="p">(</span><span class="s1">'config'</span><span class="p">,</span> <span class="s2">"InlineBackend.figure_format = 'retina'"</span><span class="p">)</span>
+<span class="n">seaborn</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">style</span><span class="o">=</span><span class="s2">"whitegrid"</span><span class="p">,</span>
+            <span class="n">rc</span><span class="o">=</span><span class="p">{</span><span class="s2">"axes.grid"</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+                <span class="s2">"xtick.labelsize"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+                <span class="s2">"ytick.labelsize"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+                <span class="s2">"font.size"</span><span class="p">:</span> <span class="mi">14</span><span class="p">,</span>
+                <span class="s2">"font.family"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"sans-serif"</span><span class="p">],</span>
+                <span class="s2">"font.sans-serif"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"Open Sans"</span><span class="p">,</span> <span class="s2">"Latin Modern Sans"</span><span class="p">,</span> <span class="s2">"Lato"</span><span class="p">],</span>
+                <span class="s2">"figure.figsize"</span><span class="p">:</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">)},</span>
+            <span class="n">font_scale</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgde941e1">
+<h2 id="orgde941e1">The Data Set</h2>
+<div class="outline-text-2" id="text-orgde941e1">
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">()</span>
+<span class="n">train_path</span> <span class="o">=</span> <span class="n">DataPathTwo</span><span class="p">(</span><span class="n">folder_key</span><span class="o">=</span><span class="s2">"DOG_TRAIN"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span>
+</pre></div>
+<pre class="example">
+/home/hades/datasets/dog-breed-classification/dogImages/train
+
+</pre></div>
+<div class="outline-3" id="outline-container-org98cb0bd">
+<h3 id="org98cb0bd">The Breeds</h3>
+<div class="outline-text-3" id="text-org98cb0bd">
+<div class="highlight">
+<pre><span></span><span class="n">folders</span> <span class="o">=</span> <span class="p">[</span><span class="n">directory</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">directory</span> <span class="ow">in</span> <span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">folders</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+['024.Bichon_frise', '022.Belgian_tervuren', '100.Lowchen', '028.Bluetick_coonhound', '128.Smooth_fox_terrier']
+
+</pre>
+<p>The folder-name structure appears to be <code>&lt;index&gt;.&lt;breed&gt;</code>. One thing to note is that it isn't ordered by the leading index.</p>
+<div class="highlight">
+<pre><span></span><span class="n">breeds</span> <span class="o">=</span> <span class="p">[</span><span class="n">folder</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">folder</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">folders</span><span class="p">)]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">breeds</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+['Affenpinscher', 'Afghan_hound', 'Airedale_terrier', 'Akita', 'Alaskan_malamute']
+
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgcffa252">
+<h3 id="orgcffa252">The Files</h3>
+<div class="outline-text-3" id="text-orgcffa252">
+<div class="highlight">
+<pre><span></span><span class="n">bichon_folder</span> <span class="o">=</span> <span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="o">.</span><span class="n">joinpath</span><span class="p">(</span><span class="n">folders</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="n">bichon_files</span> <span class="o">=</span> <span class="p">[</span><span class="n">image</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">image</span> <span class="ow">in</span> <span class="n">bichon_folder</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*"</span><span class="p">)]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">bichon_files</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+['Bichon_frise_01735.jpg', 'Bichon_frise_01701.jpg', 'Bichon_frise_01697.jpg', 'Bichon_frise_01771.jpg', 'Bichon_frise_01716.jpg']
+
+</pre>
+<p>So the file structure appears to be <code>&lt;breed&gt;_&lt;index&gt;.jpg</code>. I checked by hand (<code>ls -R train/ | grep "jpg" | wc -l</code>) and there are 6,680 images in the training set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">training</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*/*"</span><span class="p">)))</span>
+<span class="k">print</span><span class="p">(</span><span class="n">training</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">training</span><span class="p">))</span>
+<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">training</span><span class="p">)</span> <span class="o">==</span> <span class="mi">6680</span>
+</pre></div>
+<pre class="example">
+[PosixPath('/home/hades/datasets/dog-breed-classification/dogImages/train/001.Affenpinscher/Affenpinscher_00001.jpg'), PosixPath('/home/hades/datasets/dog-breed-classification/dogImages/train/001.Affenpinscher/Affenpinscher_00002.jpg'), PosixPath('/home/hades/datasets/dog-breed-classification/dogImages/train/001.Affenpinscher/Affenpinscher_00004.jpg'), PosixPath('/home/hades/datasets/dog-breed-classification/dogImages/train/001.Affenpinscher/Affenpinscher_00005.jpg'), PosixPath('/home/hades/datasets/dog-breed-classification/dogImages/train/001.Affenpinscher/Affenpinscher_00006.jpg')]
+6680
+
+</pre>
+<p>In this case I don't think we need the paths to be sorted, since we're going to look them up by index, but why not?</p>
+<p>So, <code>training</code> holds the paths to all the training images. We need a way to look up the images and labels by index.</p>
+<div class="highlight">
+<pre><span></span><span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"_"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">training</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+['Pharaoh_hound', 'Irish_water_spaniel', 'Xoloitzcuintli', 'Border_collie', 'Lakeland_terrier']
+
+</pre>
+<p>So we have the path to each training file and the breed for each, now we need a list of indices to look it up. Now that I think about it, there really wasn't a reason for making the breeds from the folders… maybe I'll make a pretty-name lookup from them instead.</p>
+<div class="highlight">
+<pre><span></span><span class="n">indices</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)))</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">indices</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+6680
+
+</pre>
+<p>Now the name lookup.</p>
+<div class="highlight">
+<pre><span></span><span class="n">breed_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">breed</span><span class="p">:</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">breed</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"_"</span><span class="p">))</span><span class="o">.</span><span class="n">title</span><span class="p">()</span> <span class="k">for</span> <span class="n">breed</span> <span class="ow">in</span> <span class="n">breeds</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">breed</span> <span class="ow">in</span> <span class="n">random</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">breeds</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"{}: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">breed</span><span class="p">,</span> <span class="n">breed_map</span><span class="p">[</span><span class="n">breed</span><span class="p">]))</span>
+</pre></div>
+<pre class="example">
+American_eskimo_dog: American Eskimo Dog
+Bull_terrier: Bull Terrier
+Boxer: Boxer
+Xoloitzcuintli: Xoloitzcuintli
+Bullmastiff: Bullmastiff
+
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga21818e">
+<h2 id="orga21818e">Put It All Together</h2>
+<div class="outline-text-2" id="text-orga21818e">
+<p>I'll make a class to build it up.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">DogFiles</span><span class="p">:</span>
+    <span class="sd">"""Builds up the lists for the data-files</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     path: path to the top (train, test, validate) folder</span>
+<span class="sd">     glob: glob to grab the files in the path</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">glob</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="s2">"*/*"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">path</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">glob</span> <span class="o">=</span> <span class="n">glob</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_breeds</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_breeds_labels</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_file_breeds</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_file_labels</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paths</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">breeds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="sd">"""Breed names"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_breeds</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">folders</span> <span class="o">=</span> <span class="p">[</span><span class="n">directory</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">directory</span> <span class="ow">in</span> <span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_breeds</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">format_breed</span><span class="p">(</span><span class="n">folder</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+                            <span class="k">for</span> <span class="n">folder</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">folders</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_breeds</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">breeds_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="sd">"""maps the breed name to an index for the breed"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_breeds_labels</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_breeds_labels</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="n">name</span><span class="p">:</span> <span class="n">label</span> <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">breeds</span><span class="p">)}</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_breeds_labels</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">file_breeds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="sd">"""Breed for each file"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_breeds</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file_breeds</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">format_breed</span><span class="p">(</span><span class="s2">"_"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+                                 <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">paths</span><span class="p">]</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_breeds</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">file_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="sd">"""Breed-labels for each file"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_labels</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file_labels</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">breeds_labels</span><span class="p">[</span><span class="n">breed</span><span class="p">]</span>
+                                 <span class="k">for</span> <span class="n">breed</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_breeds</span><span class="p">]</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_labels</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">paths</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="sd">"""Paths to files</span>
+
+<span class="sd">       Assumes there is a list of folders in the path and we want all their files</span>
+<span class="sd">       """</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paths</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_paths</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">glob</span><span class="p">)))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paths</span>
+
+    <span class="k">def</span> <span class="nf">format_breed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">token</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">"""remove underscore and caps-case</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        token: the breed-name portion of the file or folder</span>
+<span class="sd">       """</span>
+        <span class="k">return</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">token</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"_"</span><span class="p">))</span><span class="o">.</span><span class="n">title</span><span class="p">()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">filer</span> <span class="o">=</span> <span class="n">DogFiles</span><span class="p">(</span><span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="p">)</span>
+<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">breeds</span><span class="p">)</span> <span class="o">==</span> <span class="mi">133</span>
+<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">paths</span><span class="p">)</span> <span class="o">==</span> <span class="mi">6680</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">paths</span><span class="p">))</span>
+<span class="k">print</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">paths</span><span class="p">[</span><span class="n">index</span><span class="p">])</span>
+<span class="n">label</span> <span class="o">=</span> <span class="n">filer</span><span class="o">.</span><span class="n">file_labels</span><span class="p">[</span><span class="n">index</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">breeds</span><span class="p">[</span><span class="n">label</span><span class="p">])</span>
+<span class="k">print</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">file_breeds</span><span class="p">[</span><span class="n">index</span><span class="p">])</span>
+<span class="k">assert</span> <span class="n">filer</span><span class="o">.</span><span class="n">file_breeds</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">==</span> <span class="n">filer</span><span class="o">.</span><span class="n">breeds</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</pre></div>
+<pre class="example">
+2704
+/home/hades/datasets/dog-breed-classification/dogImages/train/047.Chesapeake_bay_retriever/Chesapeake_bay_retriever_03378.jpg
+46
+Chesapeake Bay Retriever
+Chesapeake Bay Retriever
+
+</pre></div>
+</div>
+<div class="outline-2" id="outline-container-orgd92b953">
+<h2 id="orgd92b953">Double-Check the Labels</h2>
+<div class="outline-text-2" id="text-orgd92b953">
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">()</span>
+<span class="n">transform</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">()</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">DataPathTwo</span><span class="p">(</span><span class="n">folder_key</span><span class="o">=</span><span class="s2">"MNIST"</span><span class="p">)</span>
+<span class="n">train_data</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">MNIST</span><span class="p">(</span><span class="n">root</span><span class="o">=</span><span class="n">path</span><span class="o">.</span><span class="n">folder</span><span class="p">,</span> <span class="n">train</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                            <span class="n">download</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">)</span>
+<span class="n">train_loader</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">train_data</span><span class="p">,</span>
+                                           <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                                           <span class="n">num_workers</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">dataiter</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">train_loader</span><span class="p">)</span>
+<span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="n">dataiter</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+<span class="k">print</span><span class="p">(</span><span class="n">labels</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+tensor([5])
+
+</pre>
+<p>So, when actually building the data-loader I'd have to return a tensor - or does the dataloader do that?</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5fcb83a">
+<h2 id="org5fcb83a">Once Again With Pytorch</h2>
+<div class="outline-text-2" id="text-org5fcb83a">
+<p>According to <a href="https://pytorch.org/tutorials/beginner/data_loading_tutorial.html">the data loading tutorial</a> I don't actually have to do this - I thought I did because they bury how to actually do it for images at the bottom of the page, but it says that as long as the folders group the images by classification it will automatically create the labels for them and load the images…</p>
+<div class="highlight">
+<pre><span></span><span class="n">transformer</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">()</span>
+
+<span class="n">training</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">ImageFolder</span><span class="p">(</span><span class="n">root</span><span class="o">=</span><span class="n">train_path</span><span class="o">.</span><span class="n">folder</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transformer</span><span class="p">)</span>
+
+<span class="n">batches</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">training</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">shuffle</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">batches</span><span class="p">)</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+<span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">figure</span><span class="p">,</span> <span class="n">axe</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">subplots</span><span class="p">()</span>
+<span class="n">figure</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="s2">"First Image ({})"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">filer</span><span class="o">.</span><span class="n">breeds</span><span class="p">[</span><span class="n">labels</span><span class="o">.</span><span class="n">item</span><span class="p">()]),</span> <span class="n">weight</span><span class="o">=</span><span class="s2">"bold"</span><span class="p">)</span>
+<span class="n">axe_image</span> <span class="o">=</span> <span class="n">axe</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)))</span>
+</pre></div>
+<div class="figure">
+<p><img alt="first_image.png" src="first_image.png"></p>
+</div>
+<p>So it looks like that's all that I really needed…</p>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/data/" rel="tag">data</a></li>
+<li><a class="tag p-category" href="../../../../categories/exploration/" rel="tag">exploration</a></li>
+<li><a class="tag p-category" href="../../../../categories/project/" rel="tag">project</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../../../bibliographies/bibliography-deep-learning-with-pytorch/" rel="prev" title="Bibliography: Deep Learning With PyTorch">Previous post</a></li>
+<li class="next"><a href="../human-face-detection/" rel="next" title="Human Face Detection">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+#+BEGIN_COMMENT
+.. title: How Do Neural Networks Work?
+.. slug: how-do-neural-networks-work
+.. date: 2018-10-17 15:04:33 UTC-07:00
+.. tags: grokking,notes,neural networks
+.. category: Grokking
+.. link: 
+.. description: Notes on Chapter Three of "Grokking Deep Learning".
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Imports
+** From Python
+#+BEGIN_SRC python :session grok :results none
+from typing import List
+#+END_SRC
+** From PyPi
+#+BEGIN_SRC python :session grok :results none
+from graphviz import Digraph
+import numpy
+#+END_SRC
+* Types
+#+BEGIN_SRC python :session grok :results none
+Numbers = List[float]
+#+END_SRC
+* What is this about?
+  These are notes on Chapter Three of "Grokking Deep Learning". It is an explanation of how neural networks perform the first step of training the model - Predict. It will look at a model that predicts whether a team will win a game based on a single feature (the average number of toes on the team).
+
+#+BEGIN_SRC python :session grok :results raw drawer
+graph = Digraph(comment="Toes Model", format="png")
+graph.node("A", "Toes")
+graph.node("B", "Win")
+graph.edge("A", "B")
+graph.render("graphs/toes_model_1.dot")
+graph
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[4]:
+: 'graphs/toes_model_1.dot.png'
+:END:
+
+[[file:toes_model_1.dot.png]]
+
+The /knobs/ that we've been referring to are the weights on the edge of the graph.
+* What is the simplest neural network we can create to make this prediction?
+** Our Network
+#+BEGIN_SRC python :session grok :results none
+def one_neuron(toes: float, weight: float=0.1) -> float:
+    """This is a model to predict whether a team will win
+    
+    Args:
+     toes: Average number of toes on the team
+     weight: how much to weight to give to the toes
+
+    Returns:
+     prediction: our guess as to whether they will win
+    """
+    return toes * weight
+#+END_SRC
+** Some Predictions
+#+BEGIN_SRC python :session grok :results output :exports both
+average_toes = [8.5, 9.5, 10, 9]
+for toes in average_toes:
+    prediction = one_neuron(toes)
+    print(
+        ("I predict the team with {} toes has a {:.0f} % "
+         "probability of winning.").format(toes, 100 * prediction))
+#+END_SRC
+
+#+RESULTS:
+: I predict the team with 8.5 toes has a 85 % probability of winning.
+: I predict the team with 9.5 toes has a 95 % probability of winning.
+: I predict the team with 10 toes has a 100 % probability of winning.
+: I predict the team with 9 toes has a 90 % probability of winning.
+
+* What does /knowledge/ and /information/ mean in our neural network?
+  The neural network stores its /knowledge/ as weights and when given /information/ (input) it converts them to a prediction (output).
+* What kind of memory does a neuron have?
+  A neuron stores what its learned (long-term memory) as the weight on the edge(s). The neuron as we've implemented it doesn't have any short-term memory, it can only consider one input at a time and "forgets" the previous input that it got. To have short-term memory you need to employ a different method that uses multiple inputs at the same time.
+* So weights are memory, but what is it memorizing?
+  Since the neuron represents one feature (average toes) the weight is how important this feature is to the outcome (winning). If you have multiple features, the weights turn up or down the volume for each of the features (thus the knob analogy).
+* So, how do you handle multiple inputs?
+  If you have multiple inputs then your prediction is the sum of the individual outputs.
+
+#+BEGIN_SRC python :session grok :results none
+graph = Digraph(comment="Three Nodes", format="png")
+graph.node("A", "Toes")
+graph.node("B", "Wins")
+graph.node("C", "Fans")
+graph.node("D", "Prediction")
+graph.edges(["AD", "BD", "CD"])
+graph.render("graphs/three_nodes.dot")
+#+END_SRC
+
+[[file:three_nodes.dot.png]]
+
+** Weighted Sum
+   Since we have three nodes we need to return the sum of the weights and inputs. This is actually [[https://en.wikipedia.org/wiki/Dot_product][the dot-product]].
+#+BEGIN_SRC python :session grok :results none
+def weighted_sum(inputs: Numbers, weights: Numbers) -> float:
+    """calculates the sum of the products
+
+    Args:
+     inputs: list of input data
+     weights: list of weights for the inputs
+
+    Returns:
+     sum: the sum of the product of the weights and inputs
+    """
+    assert len(inputs) == len(weights)
+    return sum((inputs[item] * weights[item] for item in range(len(inputs))))
+#+END_SRC
+
+** The Node
+   For each of our features we will have a series of inputs and weights
+
+#+BEGIN_SRC python :session grok :results none
+def network(inputs: Numbers, weights:Numbers) -> float:
+    """Makes a prediction based on the inputs and weights"""
+    return weighted_sum(inputs, weights)
+#+END_SRC
+
+** Some Statistics
+   We have some data collected about our team over four games.
+
+| Variable | Description                                          |
+|----------+------------------------------------------------------|
+| =toes=   | average number of toes the members have at game-time |
+| =record= | fraction of games won                                |
+| =fans=   | Millions of fans that watched                        |
+
+#+BEGIN_SRC python :session grok :results none
+toes = [8.5, 9.5, 9.9, 9.0]
+record = [0.65, 0.8, 0.8, 0.9]
+fans = [1.2, 1.3, 0.5, 1.0]
+#+END_SRC
+
+#+BEGIN_SRC python :session grok :results none
+weights = [0.1, 0.2, 0.0]
+#+END_SRC
+
+The weights correspond to /(toes, record, fans)/ for each game so we weight the win-loss record the most and fans not at all.
+
+#+BEGIN_SRC python :session grok :results output :exports both
+predictions = [
+    neural_network([toes[game], record[game], fans[game]], weights)
+               for game in range(len(toes))]
+assert abs(predictions[0] - 0.98) < 0.1**5
+
+for game, prediction in enumerate(predictions):
+    print("For game {} our prediction is {:.2f}".format(game + 2,
+                                                    prediction))
+#+END_SRC
+
+#+RESULTS:
+: For game 2 our prediction is 0.98
+: For game 3 our prediction is 1.11
+: For game 4 our prediction is 1.15
+: For game 5 our prediction is 1.08
+* How would you do this with numpy?
+  Since we know we're just calculating the dot-product of the weights and inputs, we can use numpy's [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.dot.html][dot]] method.
+#+BEGIN_SRC python :session grok :results output :exports both
+predictions = [
+    numpy.array([toes[game], record[game], fans[game]]).dot(weights)
+               for game in range(len(toes))]
+assert abs(predictions[0] - 0.98) < 0.1**5
+
+for game, prediction in enumerate(predictions):
+    print("For game {} our prediction is {:.2f}".format(game + 2,
+                                                    prediction))
+
+#+END_SRC
+
+#+RESULTS:
+: For game 2 our prediction is 0.98
+: For game 3 our prediction is 1.11
+: For game 4 our prediction is 1.15
+: For game 5 our prediction is 1.08
+
+

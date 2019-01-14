@@ -1,0 +1,301 @@
+#+BEGIN_COMMENT
+.. title: Introduction to Neural Networks
+.. slug: introduction-to-neural-networks
+.. date: 2018-10-20 12:38:59 UTC-07:00
+.. tags: lecture,basics,neural networks
+.. category: Lecture
+.. link: 
+.. description: Notes on the series /Introduction to Neural Networks/.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Imports
+** From ipython
+#+BEGIN_SRC python :session introduction :results none
+from typing import Union
+#+END_SRC
+** From Pypi
+#+BEGIN_SRC python :session introduction :results none
+from graphviz import Digraph
+import matplotlib.pyplot as pyplot
+import numpy
+import pandas
+import seaborn
+#+END_SRC
+** This Project
+#+BEGIN_SRC python :session introduction :results none
+from neurotic.tangles.data_paths import DataPath
+#+END_SRC
+** Setup the Plotting
+#+BEGIN_SRC python :session introduction :results none
+%matplotlib inline
+seaborn.set(style="whitegrid")
+FIGURE_SIZE = (14, 12)
+#+END_SRC
+* Some Types
+#+BEGIN_SRC python :session introduction :results none
+Identifier = Union[str, int]
+#+END_SRC
+* Introduction
+  These are notes on the series /Introduction to Neural Networks/ taught by [[https://medium.com/@luis.serrano][Luis Serrano]] as part of Udacity's Deep Learning Nan Degree.
+* What are Neural Networks
+  Neural Networks are algorithms loosely based on the neurons in the brain. Although biologically inspired, in many ways what they do can be viewed as linear separation. But as the complexity of the network builds, this simple idea can produce outcomes that look much more complicated.
+* Classification Problems
+** Example: College Admissions
+   You have a set of test scores and grades for students who applied to a university, as well as whether they were accepted or rejected. For example:
+
+| Student | Test | Grades | Accepted |
+|---------+------+--------+----------|
+|       1 | 9/10 | 8/10   | Yes      |
+|       2 | 3/10 | 4/10   | No       |
+
+You have a new student 3 and you're wondering if he will likely get accepted.
+
+| Student | Test | Grades |
+|---------+------+--------|
+|       3 | 7/10 | 6/10   |
+
+* Linear Boundaries
+  We're going to make our prediction using a linear classifier that decides if the student is above or below a line that separates the accepted and rejected students. A /boundary line/ is defined by inputs (/x/), weights (/w/), and an intercept (/b/). For the two-dimensional case the equation would be this.
+
+\[
+w_1 x_1 + w_2 x_2 + b = 0
+\]
+
+For our example the boundary line turns out to be:
+
+\[
+2x_1 + x_2 - 18 = 0
+\]
+
+or to use our naming scheme.
+
+\[
+2 \times \textit{Test} + \textit{Grades} - 18 = \textit{Score}
+\]
+
+Once we have the score our prediction will be based on the sign of the score. If it is positive we will predict an acceptance and if it is negative, we will predict a rejection. If a student has a score if 0 that means he or she is on the line, so to make it a binary classification we will say that we will accept the student if the score is zero as well.
+** A More Formal Version
+   Our equation for our line is composed of two vectors that output a number which we will label either 1 (accepted) or 0 (rejected) based on the output.
+
+Our original equation:
+
+\[
+w_x x_1 + w_2 x_2 + b = 0
+\]
+
+Can be re-written using vectors.
+
+\[
+Wx + b = 0\\
+W = (w_1, w_2)\\
+x = (x_1, x_2)\\
+\]
+
+And our labels for the outcomes are in this set.
+\[
+y \in \{0, 1\}\\
+\]
+
+Our prediction is a stepwise function that we hope will match the true label.
+
+\[
+\hat{y} = \begin{cases}
+1 \text{ if } Wx + b \geq 0\\
+0 \text{ if } Wx + b \lt 0
+\end{cases}
+\]
+
+** What would our score be for Student 3?
+#+BEGIN_SRC python :session introduction :results none
+class Student:
+    """Holds the student's info
+
+    Args:
+     name: identifier for the student
+     test: score on the test
+     grades: student's grade value (average?)
+    """
+    def __init__(self, name: Identifier, test: float, grades: float) -> None:
+        self.name = name
+        self.test = test
+        self.grades = grades
+        return
+
+    def __str__(self) -> str:
+        """something to identify the student"""
+        return "Student {}".format(self.name)
+#+END_SRC
+
+#+BEGIN_SRC python :session introduction :results none
+class Score:
+    """Calculate the score for our student
+
+    Args:
+     student: a Student
+     test_weight: the weight for the test score     
+     bias: the bias value
+    """
+    def __init__(self, student: Student,
+                 test_weight: float=2, bias: float=-18) -> None:
+        self.student = student
+        self.test_weight = test_weight
+        self.bias = bias
+        self._score = None
+        self._label = None
+        self._outcome = None
+        return
+
+    @property
+    def score(self) -> float:
+        """The calculated score for the student"""
+        if self._score is None:
+            self._score = (self.test_weight * self.student.test
+                           + self.student.grades
+                           + self.bias)
+        return self._score
+
+    @property
+    def label(self) -> int:
+        """A classification for this score (0|1)"""
+        if self._label is None:
+            self._label = 1 if self.score >= 0 else 0
+        return self._label
+
+    @property
+    def outcome(self) -> str:
+        """whether the student was accepted or rejected"""
+        if self._outcome is None:
+            self._outcome = "Accepted" if self.label == 1 else "Rejected"
+        return self._outcome
+
+    def __str__(self) -> str:
+        """Pretty printed outcomes (an org-table)"""
+        output =  "||Value|\n"
+        output += "|-+-|\n"
+        output += "|Score|{:.2f}|\n".format(self.score)
+        output += "|Label|{}|\n".format(self.label)
+        output += "|Prediction|{}|".format(self.outcome)
+        return output
+#+END_SRC
+
+#+BEGIN_SRC python :session introduction :results none
+student_3 = Student(name=3, test=7, grades=6)
+score = Score(student_3)
+#+END_SRC
+
+#+BEGIN_SRC python :session introduction :results output raw :exports both
+print(str(score))
+#+END_SRC
+
+#+RESULTS:
+|            |    Value |
+|------------+----------|
+| Score      |     2.00 |
+| Label      |        1 |
+| Prediction | Accepted |
+
+He got a positive score so we predict that he will get in.
+
+** Plot the Separation
+   To plot the separation we have to re-write our equation so the /y/ (called /Grades/) is on one side of the equation.
+
+\[
+w_1 x_1 + w_2 x_2 + b = 0\\
+w_2 x_2 = -w_1 x_1 - b\\
+\textit{grade} = -2\textit{test} + 18\\
+\]
+
+#+BEGIN_SRC python :session introduction :results none
+def separation(x: float, slope: float=-2, y_intercept: float=18) -> float:
+    """gives the y-value for the separation line
+
+    Args:
+     x: input value
+     slope: slope value
+     y_intercept: y-intercept value
+
+    Returns:
+     y: value on the linear separation line
+    """
+    return slope * x + y_intercept
+#+END_SRC
+#+BEGIN_SRC python :session introduction :results raw drawer :ipyfile ../../../files/posts/nano/introduction-to-neural-networks/score_1.png
+figure, axe = pyplot.subplots(figsize=FIGURE_SIZE)
+limit = (0, 10)
+axe.set_xlim(limit)
+axe.set_ylim(limit)
+axe.set_title(str(student_3))
+grades = [separation(0), separation(10)]
+axe.plot(student_3.test, student_3.grades, 'o', label=str(student_3))
+axe.set_xlabel("Test")
+axe.set_ylabel("Grades")
+lines = axe.plot(limit, grades)
+legend = axe.legend()
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[63]:
+[[file:../../../files/posts/nano/introduction-to-neural-networks/score_1.png]]
+:END:
+[[file:score_1.png]]
+** If the test was weighted /1.5/ instead of /2/, would our student still have gotten in?
+
+#+BEGIN_SRC python :session introduction :results output raw :exports both
+TEST_WEIGHT = 1.5
+score = Score(student_3, test_weight=TEST_WEIGHT)
+print(str(score))
+#+END_SRC
+
+#+RESULTS:
+|            |    Value |
+|------------+----------|
+| Score      |    -1.50 |
+| Label      |        0 |
+| Prediction | Rejected |
+
+#+BEGIN_SRC python :session introduction :results raw drawer :ipyfile ../../../files/posts/nano/introduction-to-neural-networks/score_2.png
+SLOPE = -TEST_WEIGHT
+figure, axe = pyplot.subplots(figsize=FIGURE_SIZE)
+limit = (0, 10)
+axe.set_xlim(limit)
+axe.set_ylim(limit)
+axe.set_title("{} with Test Weight {}".format(student_3, TEST_WEIGHT))
+grades = [separation(0, slope=SLOPE), separation(10, slope=SLOPE)]
+axe.plot(student_3.test, student_3.grades, 'o', label=str(student_3))
+axe.set_xlabel("Test")
+axe.set_ylabel("Grades")
+lines = axe.plot(limit, grades)
+legend = axe.legend()
+#+END_SRC
+
+[[file:score_2.png]]
+
+The student is to the left of the separation and so won't get in, as we found earlier.
+* What about more variables?
+  For every variable you add you add an extra dimension. So if you add one more variable, instead of a line our separator will be a plane.
+
+\[
+w_1 x_1 + w_2 x_2 + w_3 x_3 + b = 0
+\]
+
+But when you use vector notation it will look the same.
+
+\[
+Wx + b = 0
+\hat{y} = \begin{cases}
+1 \text{ if } Wx + b \geq 0\\
+0 \text{ if } Wx + b \lt 0
+\end{cases}
+\]
+
+This will be true no matter how many variable (dimensions) you add.
+** Question
+   You have a table with n columns representing features to evaluate students and each row is a student. What would be the shapes of the vectors?
+| W     | x     | b     |
+|-------+-------+-------|
+| 1 x n | n x 1 | 1 x 1 |
+
+Our output is a single value, so the rows for weights and columns for inputs should be 1, and b is just a scalar.

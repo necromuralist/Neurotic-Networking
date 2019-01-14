@@ -1,0 +1,134 @@
+#+BEGIN_COMMENT
+.. title: How do you handle multiple inputs and outputs?
+.. slug: how-do-you-handle-multiple-inputs-and-outputs
+.. date: 2018-10-19 17:09:52 UTC-07:00
+.. tags: grokking,notes,neural networks
+.. category: Grokking
+.. link: 
+.. description: Notes from "Grokking Deep Learning" on handling multiple inputs and outputs.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+* Imports
+** From Python
+#+BEGIN_SRC python :session grok :results none
+from typing import List
+#+END_SRC
+** From PyPi
+#+BEGIN_SRC python :session grok :results none
+from graphviz import Digraph
+import numpy
+#+END_SRC
+* Some Types
+#+BEGIN_SRC python :session grok :results none
+Vector = List[float]
+Matrix = List[Vector]
+#+END_SRC
+* What is this?
+  This is a continuation of my notes on Chapter Three of "Grokking Deep Learning". In the previous post we looked at a simple neural network with one input and  three outputs. Here we'll look at handling multiple inputs and outputs.
+* So how do you handle multiple inputs and outputs?
+  You create a network that has a node for each of the inputs and each input node has an output to each of the outputs.
+
+#+BEGIN_SRC python :session grok :results raw drawer :ipyfile ../../files/posts/how-do-you-handle-multiple-inputs-and-outputs/connected.dot.png
+graph = Digraph(comment="Connected", format="png")
+graph.node("A", "Toes")
+graph.node("B", "Wins")
+graph.node("C", "Fans")
+graph.node("D", "Hurt")
+graph.node("E", "Win")
+graph.node("F", "Sad")
+graph.edges(["AD", "AE", "AF",
+             "BD", "BE", "BF",
+             "CD", "CE", "CF",
+])
+graph.render("graphs/connected.dot")
+graph
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[26]:
+[[file:../../files/posts/how-do-you-handle-multiple-inputs-and-outputs/connected.dot.png]]
+:END:
+
+[[file:connected.dot.png]]
+
+And these are our weights for the edges.
+
+|      | Toes | Wins | Fans |
+|------+------+------+------|
+| Hurt |  0.1 |  0.1 | -0.3 |
+| Win  |  0.1 |  0.2 |  0.0 |
+| Sad  |    0 |  1.3 |  0.1 |
+
+* Okay, but how do you do that?
+  For each of your outputs you calculate the weighted sum (dot product) of the inputs.
+** Dot Product
+
+#+BEGIN_SRC python :session grok :results none
+def weighted_sum(inputs, weights):
+    """Calculates the weighted sum of the inputs
+
+    Args:
+     
+    """
+    assert len(inputs) == len(weights)
+    return sum((inputs[index] * weights[index] for index in range(len(inputs))))
+#+END_SRC
+
+** Vector-Matrix Multiplication
+   We'll take the inputs as a vector of length three since we have three features and the weights as a matrix of three rows and three columns and then multiply the inputs by each of the rows of weights using the dot product to get our three outputs.
+    - for each output take the dot product of the weights of its inputs and the input vector
+
+#+BEGIN_SRC python :session grok :results none
+def vector_matrix_multiplication(vector: Vector, matrix: Matrix) -> Vector:
+    """takes the dot product of each row in the matrix and the vector
+
+    Args:
+     vector: the inputs to the network
+     matrix: the weights
+
+    Returns:
+     outputs: the network's outputs
+    """
+    vector_length = len(vector)
+    assert vector_length == len(matrix)
+    return [weighted_sum(vector, matrix[output])
+            for output in range(vector_length)]
+#+END_SRC
+
+To test it out I'll convert the weights to a matrix (list of lists).
+#+BEGIN_SRC python :session grok :results none
+weights = [[ 0.1,  0.1, -0.3],
+           [0.1,  0.2,  0.0],
+           [0,  1.3,  0.1]]
+#+END_SRC
+
+Now we'll create a team that averages 8.5 toes per player, has won 65 percent of its games and has 1.2 million fans.
+#+BEGIN_SRC python :session grok :results none
+inputs = [8.5, 0.65, 1.2]
+#+END_SRC
+
+What does it predict?
+#+BEGIN_SRC python :session grok :results output :exports both
+outputs = vector_matrix_multiplication(inputs, weights)
+expected_outputs = [0.555, 0.98, 0.965]
+tolerance = 0.1**5
+expected_actual = zip(expected_outputs, outputs)
+names = "Hurt Win Sad".split()
+for index, (expected, actual) in enumerate(expected_actual):
+    print("{}: {:.3f}".format(names[index], actual))
+    assert abs(actual - expected) < tolerance,\
+            "Expected: {} Actual: {} Difference: {}".format(expected,
+                                                            actual,
+                                                            expected-actual)
+#+END_SRC
+
+#+RESULTS:
+: Hurt: 0.555
+: Win: 0.980
+: Sad: 0.965
+
+So we are predicting that they have a 98% chance of winning and a 97% chance of being sad? I guess the fans have emotional problems outside of sports.

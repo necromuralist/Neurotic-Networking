@@ -1,0 +1,283 @@
+#+BEGIN_COMMENT
+.. title: Backpropagation Implementation (Again)
+.. slug: backpropagation-implementation-again
+.. date: 2018-11-18 13:41:28 UTC-08:00
+.. tags: backpropagation,lecture
+.. category: Lecture
+.. link: 
+.. description: A more complete implementation of backpropagation.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+#+BEGIN_SRC python :session backpropagation :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+This is an example of implementing back-propagation using the UCLA Student Admissions data that we used earlier for training with gradient descent.
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC python :session backpropagation :results none
+import itertools
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC python :session backpropagation :results none
+from graphviz import Graph
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import scale
+import numpy
+import pandas
+#+END_SRC
+*** This Project
+#+BEGIN_SRC python :session backpropagation :results none
+from neurotic.tangles.data_paths import DataPath
+from neurotic.tangles.helpers import org_table
+#+END_SRC
+** Set the Random Seed
+#+BEGIN_SRC python :session backpropagation :results none
+numpy.random.seed(21)
+#+END_SRC
+** Helper Functions
+   Once again, the sigmoid.
+
+#+BEGIN_SRC python :session backpropagation :results none
+def sigmoid(x):
+    """
+    Calculate sigmoid
+    """
+    return 1 / (1 + numpy.exp(-x))
+#+END_SRC
+* The Data
+We are using data originally take from the [[https://stats.idre.ucla.edu/][UCLA Institute for Digital Research and Education]] representing a group of students who applied for grad school at UCLA.
+
+#+BEGIN_SRC python :session backpropagation :results none
+path = DataPath("student_data.csv")
+data = pandas.read_csv(path.from_folder)
+#+END_SRC
+
+#+BEGIN_SRC python :session backpropagation :results output raw :exports both
+print(org_table(data.head()))
+#+END_SRC
+
+#+RESULTS:
+| admit | gre |  gpa | rank |
+|-------+-----+------+------|
+|     0 | 380 | 3.61 |    3 |
+|     1 | 660 | 3.67 |    3 |
+|     1 | 800 |    4 |    1 |
+|     1 | 640 | 3.19 |    4 |
+|     0 | 520 | 2.93 |    4 |
+
+* Pre-Processing the Data
+** Dummy Variables
+   Since the =rank= values are ordinal, not numeric, we need to create some one-hot-encoded columns for it using [[https://pandas.pydata.org/pandas-docs/stable/generated/pandas.get_dummies.html][get_dummies]].
+
+#+BEGIN_SRC python :session backpropagation :results none
+rank_counts = data["rank"].value_counts()
+data = pandas.get_dummies(data, columns=["rank"], prefix="rank")
+for rank in range(1, 5):
+    assert rank_counts[rank] == data["rank_{}".format(rank)].sum()
+#+END_SRC
+
+#+BEGIN_SRC python :session backpropagation :results output raw :exports both
+print(org_table(data.head()))
+#+END_SRC
+
+#+RESULTS:
+| admit | gre |  gpa | rank_1 | rank_2 | rank_3 | rank_4 |
+|-------+-----+------+--------+--------+--------+--------|
+|     0 | 380 | 3.61 |      0 |      0 |      1 |      0 |
+|     1 | 660 | 3.67 |      0 |      0 |      1 |      0 |
+|     1 | 800 |    4 |      1 |      0 |      0 |      0 |
+|     1 | 640 | 3.19 |      0 |      0 |      0 |      1 |
+|     0 | 520 | 2.93 |      0 |      0 |      0 |      1 |
+
+** Standardization
+   Now I'll convert the =gre= and =gpa= to have a mean of 0 and a variance of 1 using sklearn's [[https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.scale.html#sklearn.preprocessing.scale][scale]]
+function.
+
+#+BEGIN_SRC python :session backpropagation :results none
+data["gre"] = scale(data.gre.astype("float64").values)
+data["gpa"] = scale(data.gpa.values)
+#+END_SRC
+
+#+BEGIN_SRC python :session backpropagation :results output raw :exports both
+print(org_table(data.sample(5), showindex=True))
+#+END_SRC
+
+#+RESULTS:
+|     | admit |        gre |         gpa | rank_1 | rank_2 | rank_3 | rank_4 |
+|-----+-------+------------+-------------+--------+--------+--------+--------|
+|  72 |     0 |  -0.933502 | 0.000263095 |      0 |      0 |      0 |      1 |
+| 358 |     1 |  -0.240093 |    0.789548 |      0 |      0 |      1 |      0 |
+| 187 |     0 | -0.0667406 |    -1.34152 |      0 |      1 |      0 |      0 |
+|  93 |     0 | -0.0667406 |    -1.20997 |      0 |      1 |      0 |      0 |
+| 380 |     0 |   0.973373 |     0.68431 |      0 |      1 |      0 |      0 |
+
+#+BEGIN_SRC python :session backpropagation :results none
+assert data.gre.mean().round() == 0
+assert data.gre.std().round() == 1
+assert data.gpa.mean().round() == 0
+assert data.gpa.std().round() == 1
+#+END_SRC
+** Setting up the training and testing data
+   =features_all= is the input (/x/) data and =targets_all= is the target (/y/) data.
+#+BEGIN_SRC python :session backpropagation :results none
+features_all = data.drop("admit", axis="columns")
+targets_all = data.admit
+#+END_SRC
+
+Now we'll split it into training and testing sets.
+#+BEGIN_SRC python :session backpropagation :results none
+features, features_test, targets, targets_test = train_test_split(
+    features_all, targets_all, test_size=0.1)
+#+END_SRC
+* The Algorithm
+  These are the basic steps to train the network with backpropagation.
+
+  - Set the weights for each layer to 0
+    + Input to hidden weights: \(\Delta w_{ij} = 0\)
+    + Hidden to output weights: \(\Delta W_j=0\)
+  - For each entry in the training data:
+    + make a forward pass to get the output: \(\hat{y}\)
+    + Calculate the error gradient for the output: \(\delta^o=(y - \hat{y})f'(\sum_j W_j a_j)\)
+    + Propagate the errors to the hidden layer: \(\delta_j^h = \delta^o W_j f'(h_j)\)
+    + Update the weight steps:
+      - \(\Delta W_j = \Delta W_j + \delta^o a_j\)
+      - \(\Delta w_{ij} = \Delta w_{ij} + \delta_j^h a_i\)
+  - Update the weights (\(\eta\) is the learning rate and /m/ is the number of records)
+    + \(W_j = W_j + \eta \Delta W_j/m\)
+    + \(w_{ij} = w_{ij} + \eta \Delta w_{ij}/m\)
+  - Repeat for \(\epsilon\) epochs
+* Hyperparameters
+  These are the /hyperparameters/ that we set to define the training. We're going to use 2 hidden units.
+
+#+BEGIN_SRC python :session backpropagation :results raw drawer :ipyfile ../../../files/posts/nano/introduction-to-neural-networks/backpropagation-implementation-again/network.dot.png
+graph = Graph(format="png")
+
+# the input layer
+graph.node("a", "GRE")
+graph.node("b", "GPA")
+graph.node("c", "Rank 1")
+graph.node("d", "Rank 2")
+graph.node("e", "Rank 3")
+graph.node("f", "Rank 4")
+
+# the hidden layer
+graph.node("g", "h1")
+graph.node("h", "h2")
+
+# the output layer
+graph.node("i", "")
+
+inputs = "abcdef"
+hidden = "gh"
+
+graph.edges([x + h for x, h in itertools.product(inputs, hidden)])
+graph.edges([h + "i" for h in hidden])
+
+graph.render("graphs/network.dot")
+graph
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+# Out[45]:
+[[file:../../../files/posts/nano/introduction-to-neural-networks/backpropagation-implementation-again/network.dot.png]]
+:END:
+
+[[file:network.dot.png]]
+
+Well train it for 2,000 epochs with a learning rate of 0.005.
+
+#+BEGIN_SRC python :session backpropagation :results none
+n_hidden = 2
+epochs = 2000
+learning_rate = 0.005
+#+END_SRC
+
+We'll be using the =n_records=, and =n_features= to set up the weights matrices. =n_records= is also used to average out the amount of change we make to the weights (otherwise each weight would get the sum of all the corrections). =last_loss= is used for reporting epochs that do worse than the previous epoch.
+#+BEGIN_SRC python :session backpropagation :results none
+n_records, n_features = features.shape
+last_loss = None
+#+END_SRC
+** Initialize the Weights
+   We're going to use a normally distributed set of random weights to start with. The =scale= is the spread of the distribution we're sampling from. A rule-of-thumb for the spread is to use \(\frac{1}{\sqrt{n}}\) where /n/ is the numeber of input units. This keeps the input to the sigmoid low, even as the number of inputs goes up.
+
+#+BEGIN_SRC python :session backpropagation :results none
+weights_input_to_hidden = numpy.random.normal(scale=1 / n_features ** .5,
+                                           size=(n_features, n_hidden))
+weights_hidden_to_output = numpy.random.normal(scale=1 / n_features ** .5,
+                                            size=n_hidden)
+#+END_SRC
+* Train It
+  Now, we'll train the network using backpropagation.
+#+BEGIN_SRC python :session backpropagation :results output :exports both
+for epoch in range(epochs):
+    delta_weights_input_to_hidden = numpy.zeros(weights_input_to_hidden.shape)
+    delta_weights_hidden_to_output = numpy.zeros(weights_hidden_to_output.shape)
+    for x, y in zip(features.values, targets):
+        hidden_input = x.dot(weights_input_to_hidden)
+        hidden_output = sigmoid(hidden_input)
+        output = sigmoid(hidden_output.dot(weights_hidden_to_output))
+
+        ## Backward pass ##
+        error = y - output
+        output_error_term = error * output * (1 - output)
+
+        hidden_error = (weights_hidden_to_output.T
+                        * output_error_term)
+        hidden_error_term = (hidden_error
+                             *  hidden_output * (1 - hidden_output))
+
+        delta_weights_hidden_to_output += output_error_term * hidden_output
+        delta_weights_input_to_hidden += hidden_error_term * x[:, None]
+
+    weights_input_to_hidden += (learning_rate * delta_weights_input_to_hidden)/n_records
+    weights_hidden_to_output += (learning_rate * delta_weights_hidden_to_output)/n_records
+
+    # Printing out the mean square error on the training set
+    if epoch % (epochs / 10) == 0:
+        hidden_output = sigmoid(numpy.dot(x, weights_input_to_hidden))
+        out = sigmoid(numpy.dot(hidden_output,
+                             weights_hidden_to_output))
+        loss = numpy.mean((out - targets) ** 2)
+
+        if last_loss and last_loss < loss:
+            print("Train loss: ", loss, "  WARNING - Loss Increasing")
+        else:
+            print("Train loss: ", loss)
+        last_loss = loss
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Train loss:  0.2508914323518061
+Train loss:  0.24921862835632544
+Train loss:  0.24764092608110996
+Train loss:  0.24615251717689884
+Train loss:  0.24474791403688867
+Train loss:  0.24342194353528698
+Train loss:  0.24216973842045766
+Train loss:  0.24098672692610631
+Train loss:  0.23986862108158177
+Train loss:  0.2388114041271259
+#+end_example
+
+Now we'll calculate the accuracy of the model.
+
+#+BEGIN_SRC python :session backpropagation :results output :exports both
+hidden = sigmoid(numpy.dot(features_test, weights_input_to_hidden))
+out = sigmoid(numpy.dot(hidden, weights_hidden_to_output))
+predictions = out > 0.5
+accuracy = numpy.mean(predictions == targets_test)
+print("Prediction accuracy: {:.3f}".format(accuracy))
+#+END_SRC
+
+#+RESULTS:
+: Prediction accuracy: 0.750
+
+* More Backpropagation Reading
+
+- [[https://medium.com/@karpathy/yes-you-should-understand-backprop-e2f06eab496b][Yes you should understand backprop]]: Backpropagation has failure points that you have to know or you might get bitten by it.

@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="The inference and validation pytorch exercise." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Part 5 - Inference and Validation | In Too Deep</title>
+<link href="../../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/nano/pytorch/part-5-inference-and-validation/" rel="canonical"><!--[if lt IE 9]><script src="../../../../assets/js/html5.js"></script><![endif]-->
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="../part-4-fashion/" rel="prev" title="Part 4 - Classifying Fashion-MNIST" type="text/html">
+<link href="../part-6-saving-and-loading-models/" rel="next" title="Part 6 - Saving and Loading Models" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Part 5 - Inference and Validation" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/pytorch/part-5-inference-and-validation/" property="og:url">
+<meta content="The inference and validation pytorch exercise." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2018-11-19T22:19:42-08:00" property="article:published_time">
+<meta content="lecture" property="article:tag">
+<meta content="pytorch" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Part 5 - Inference and Validation</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2018-11-19T22:19:42-08:00" itemprop="datePublished" title="2018-11-19 22:19">2018-11-19 22:19</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org474fb42">Introduction</a></li>
+<li><a href="#orgf1025b4">Setup</a></li>
+<li><a href="#org710bd0b">The Data</a></li>
+<li><a href="#orgea269fc">The Model</a></li>
+<li><a href="#org16da4ce">Validation</a></li>
+<li><a href="#orga4b60de">Overfitting</a></li>
+<li><a href="#org17d9891">The Dropout Model</a></li>
+<li><a href="#orge9ab652">Inference</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org474fb42">
+<h2 id="org474fb42">Introduction</h2>
+<div class="outline-text-2" id="text-org474fb42">
+<p>This is from <a href="https://github.com/udacity/deep-learning-v2-pytorch.git">Udacity's Deep Learning Repository</a> which supports their Deep Learning Nanodegree.</p>
+<p>Now that you have a trained network, you can use it for making predictions. This is typically called <b>inference</b>, a term borrowed from statistics. However, neural networks have a tendency to perform <b>too well</b> on the training data and aren't able to generalize to data that hasn't been seen before. This is called <b>overfitting</b> and it impairs inference performance. To test for overfitting while training, we measure the performance on data not in the training set called the <b>validation</b> set. We avoid overfitting through regularization such as dropout while monitoring the validation performance during training.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgf1025b4">
+<h2 id="orgf1025b4">Setup</h2>
+<div class="outline-text-2" id="text-orgf1025b4"></div>
+<div class="outline-3" id="outline-container-org6258479">
+<h3 id="org6258479">Imports</h3>
+<div class="outline-text-3" id="text-org6258479"></div>
+<div class="outline-4" id="outline-container-orgd65d312">
+<h4 id="orgd65d312">Python</h4>
+<div class="outline-text-4" id="text-orgd65d312">
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc6dadb1">
+<h4 id="orgc6dadb1">PyPi</h4>
+<div class="outline-text-4" id="text-orgc6dadb1">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">optim</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">datasets</span><span class="p">,</span> <span class="n">transforms</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+<span class="kn">import</span> <span class="nn">seaborn</span>
+<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="kn">as</span> <span class="nn">F</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org2582ab4">
+<h4 id="org2582ab4">The Nano Degree Repo</h4>
+<div class="outline-text-4" id="text-org2582ab4">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">nano.pytorch</span> <span class="kn">import</span> <span class="n">helper</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org22f533f">
+<h4 id="org22f533f">This Project</h4>
+<div class="outline-text-4" id="text-org22f533f">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">fashion</span> <span class="kn">import</span> <span class="n">label_decoder</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgc1fef3e">
+<h3 id="orgc1fef3e">Plotting</h3>
+<div class="outline-text-3" id="text-orgc1fef3e">
+<div class="highlight">
+<pre><span></span><span class="n">get_python</span><span class="p">()</span><span class="o">.</span><span class="n">run_line_magic</span><span class="p">(</span><span class="s1">'matplotlib'</span><span class="p">,</span> <span class="s1">'inline'</span><span class="p">)</span>
+<span class="n">get_python</span><span class="p">()</span><span class="o">.</span><span class="n">run_line_magic</span><span class="p">(</span><span class="s1">'config'</span><span class="p">,</span> <span class="s2">"InlineBackend.figure_format = 'retina'"</span><span class="p">)</span>
+<span class="n">seaborn</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">style</span><span class="o">=</span><span class="s2">"whitegrid"</span><span class="p">,</span>
+            <span class="n">rc</span><span class="o">=</span><span class="p">{</span><span class="s2">"axes.grid"</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+                <span class="s2">"font.family"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"sans-serif"</span><span class="p">],</span>
+                <span class="s2">"font.sans-serif"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"Latin Modern Sans"</span><span class="p">,</span> <span class="s2">"Lato"</span><span class="p">],</span>
+                <span class="s2">"figure.figsize"</span><span class="p">:</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">)},</span>
+            <span class="n">font_scale</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgd6d268c">
+<h3 id="orgd6d268c">The Environment</h3>
+<div class="outline-text-3" id="text-orgd6d268c">
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">()</span>
+<span class="n">DATA_PATH</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"FASHION_MNIST"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">DATA_PATH</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+~/datasets/F_MNIST/
+
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org710bd0b">
+<h2 id="org710bd0b">The Data</h2>
+<div class="outline-text-2" id="text-org710bd0b">
+<p>We're going to load the dataset through torchvision but this time we'll be taking advantage of the test set which you can get by setting <code>train=False</code>.</p>
+<p>The test set contains images just like the training set. Typically you'll see 10-20% of the original dataset held out for testing and validation with the rest being used for training.</p>
+</div>
+<div class="outline-3" id="outline-container-org09c82cd">
+<h3 id="org09c82cd">Normalize the Data</h3>
+<div class="outline-text-3" id="text-org09c82cd">
+<div class="highlight">
+<pre><span></span><span class="n">means</span> <span class="o">=</span> <span class="n">spread</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+<span class="n">transform</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span><span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+                                <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">(</span><span class="n">means</span><span class="p">,</span> <span class="n">spread</span><span class="p">)])</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org10788c3">
+<h3 id="org10788c3">Training Data</h3>
+<div class="outline-text-3" id="text-org10788c3">
+<p>Once again we're going to use the <a href="https://github.com/zalandoresearch/fashion-mnist">Fashion MNIST</a> data set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">training_set</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">FashionMNIST</span><span class="p">(</span><span class="n">DATA_PATH</span><span class="p">,</span>
+                                     <span class="n">download</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                                     <span class="n">train</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                                     <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">training_batches</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">training_set</span><span class="p">,</span>
+                                               <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+                                               <span class="n">shuffle</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org4bcd1f5">
+<h3 id="org4bcd1f5">Test Data</h3>
+<div class="outline-text-3" id="text-org4bcd1f5">
+<p>By setting <code>train=False</code> in the <code>FashionMNIST</code> constructor you implicitly get the test set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">test_set</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">FashionMNIST</span><span class="p">(</span><span class="n">DATA_PATH</span><span class="p">,</span>
+                                 <span class="n">download</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                                 <span class="n">train</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                                 <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">test_batches</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">test_set</span><span class="p">,</span>
+                                           <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+                                           <span class="n">shuffle</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgea269fc">
+<h2 id="orgea269fc">The Model</h2>
+<div class="outline-text-2" id="text-orgea269fc">
+<p>We're going to use the object-oriented approach instead of the pipeline that we used earlier. It's going to have three hidden layers and one output layer.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">HyperParameters</span><span class="p">:</span>
+    <span class="n">inputs</span> <span class="o">=</span> <span class="mi">28</span><span class="o">**</span><span class="mi">2</span>
+    <span class="n">hidden_layer_1</span> <span class="o">=</span> <span class="mi">256</span>
+    <span class="n">hidden_layer_2</span> <span class="o">=</span> <span class="mi">128</span>
+    <span class="n">hidden_layer_3</span> <span class="o">=</span> <span class="mi">64</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="mi">10</span>
+    <span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">learning_rate</span> <span class="o">=</span> <span class="mf">0.003</span>
+    <span class="n">epochs</span> <span class="o">=</span> <span class="mi">30</span>
+    <span class="n">dropout_probability</span> <span class="o">=</span> <span class="mf">0.2</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Classifier</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_to_hidden</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span>
+                                         <span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_1_to_hidden_2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_1</span><span class="p">,</span>
+                                              <span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_2_to_hidden_3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_2</span><span class="p">,</span>
+                                              <span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_3</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_3_to_output</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">hidden_layer_3</span><span class="p">,</span>
+                                            <span class="n">HyperParameters</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""One forward-pass through the network"""</span>
+        <span class="c1"># make sure input tensor is flattened</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_to_hidden</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_1_to_hidden_2</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_2_to_hidden_3</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">log_softmax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_3_to_output</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+                          <span class="n">dim</span><span class="o">=</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">axis</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org16da4ce">
+<h2 id="org16da4ce">Validation</h2>
+<div class="outline-text-2" id="text-org16da4ce">
+<p>The goal of validation is to measure the model's performance on data that isn't part of the training set. Performance here is up to the developer to define though. Typically this is just accuracy, the percentage of classes the network predicted correctly. Other options are <a href="https://en.wikipedia.org/wiki/Precision_and_recall#Definition_(classification_context)">precision and recall</a>, top-5 error rate, etc.. We'll focus on accuracy here. First we'll do a forward pass with one batch from the test set.</p>
+<p>Get the next image-batch.</p>
+<div class="highlight">
+<pre><span></span><span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">test_batches</span><span class="p">))</span>
+</pre></div>
+<p>Now we'll get the model probabilities for the image-batch.</p>
+<div class="highlight">
+<pre><span></span><span class="n">probabilities</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">images</span><span class="p">))</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">shape</span> <span class="o">=</span> <span class="n">probabilities</span><span class="o">.</span><span class="n">shape</span>
+<span class="k">print</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span>
+<span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">shape</span>
+<span class="k">assert</span> <span class="n">rows</span> <span class="o">==</span> <span class="mi">64</span>
+<span class="k">assert</span> <span class="n">columns</span> <span class="o">==</span> <span class="mi">10</span>
+</pre></div>
+<pre class="example">
+torch.Size([64, 10])
+
+</pre>
+<p>With the probabilities, we can get the most likely class using the <a href="https://pytorch.org/docs/stable/torch.html#torch.topk"><code>probabilities.topk</code></a> method. This returns the \(k\) highest values in the tensor. Since we just want the most likely class, we can use <code>probabilities.topk(1)</code>. This returns a tuple of the top-\(k\) values and the top-\(k\) indices. If the highest value is the fifth element, we'll get back 4 as the index.</p>
+<div class="highlight">
+<pre><span></span><span class="n">top_p</span><span class="p">,</span> <span class="n">top_class</span> <span class="o">=</span> <span class="n">probabilities</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+<p>Look at the most likely classes for the first 10 examples</p>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">top_class</span><span class="p">[:</span><span class="mi">10</span><span class="p">,:])</span>
+</pre></div>
+<pre class="example">
+tensor([[6],
+        [6],
+        [6],
+        [6],
+        [6],
+        [6],
+        [6],
+        [6],
+        [5],
+        [6]])
+</pre>
+<p>Now we can check if the predicted classes match the labels. This is simple to do by equating <code>top_class</code> and <code>labels</code>, but we have to be careful of the shapes. Here <code>top_class</code> is a 2D tensor with shape <code>(64, 1)</code> while <code>labels</code> is 1D with shape <code>(64)</code>. To get the equality to work out the way we want, <code>top_class</code> and <code>labels</code> must have the same shape.</p>
+<p>If we do this:</p>
+<div class="highlight">
+<pre><span></span><span class="n">equals</span> <span class="o">=</span> <span class="n">top_class</span> <span class="o">==</span> <span class="n">labels</span>
+</pre></div>
+<p><code>equals</code> will have shape <code>(64, 64)</code>, try it yourself. What it's doing is comparing the one element in each row of <code>top_class</code> with each element in <code>labels</code> which returns 64 True/False boolean values for each row, so we have to reshape the labels first using the <code>view</code> method.</p>
+<div class="highlight">
+<pre><span></span><span class="n">equals</span> <span class="o">=</span> <span class="n">top_class</span> <span class="o">==</span> <span class="n">labels</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">*</span><span class="n">top_class</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</pre></div>
+<p>Now we need to calculate the percentage of correct predictions. <code>equals</code> has binary values, either 0 or 1. This means that if we just sum up all the values and divide by the number of values, we get the percentage of correct predictions. This is the same operation as taking the mean, so we can get the accuracy with a call to <code>torch.mean</code>. If only it was that simple. If you try <code>torch.mean(equals)</code>, you'll get an error.</p>
+<div class="highlight">
+<pre><span></span><span class="ne">RuntimeError</span><span class="p">:</span> <span class="n">mean</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">implemented</span> <span class="k">for</span> <span class="nb">type</span> <span class="n">torch</span><span class="o">.</span><span class="n">ByteTensor</span>
+</pre></div>
+<p>This happens because <code>equals</code> has type <code>torch.ByteTensor</code> but <code>torch.mean</code> isn't implemented for tensors with that type. So we'll need to convert <code>equals</code> to a float tensor. Note that when we take <code>torch.mean</code> it returns a scalar tensor, to get the actual value as a float we'll need to do <code>accuracy.item()</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="n">accuracy</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">equals</span><span class="o">.</span><span class="n">type</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">FloatTensor</span><span class="p">))</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s1">'Accuracy: {accuracy.item()*100}%'</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Accuracy: 10.9375%
+
+</pre>
+<p>The network is untrained so it's making random guesses and we should see an accuracy around 10%. Now let's train our network and include our validation pass so we can measure how well the network is performing on the test set. Since we're not updating our parameters in the validation pass, we can speed up our code by turning off gradients using <code>torch.no_grad()</code>:</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="c1"># validation pass here</span>
+    <span class="k">for</span> <span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">testloader</span><span class="p">:</span>
+</pre></div>
+<p>Implement the validation loop below and print out the total accuracy after the loop. You can largely copy and paste the code from above, but I suggest typing it in because writing it out yourself is essential for building the skill. In general you'll always learn more by typing it rather than copy-pasting. You should be able to get an accuracy above 80%.</p>
+<p>The <code>train_losses</code> and <code>test_losses</code> are kept for plotting later on.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">train</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">criterion</span><span class="p">):</span>
+    <span class="n">train_losses</span><span class="p">,</span> <span class="n">test_losses</span><span class="p">,</span> <span class="n">accuracies</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">):</span>
+        <span class="n">running_loss</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">training_batches</span><span class="p">:</span>        
+            <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="c1"># images = images.view(images.shape[0], -1)</span>
+            <span class="n">log_probabilities</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">images</span><span class="p">)</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">log_probabilities</span><span class="p">,</span> <span class="n">labels</span><span class="p">)</span>
+            <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+            <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="n">running_loss</span> <span class="o">+=</span> <span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">test_loss</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">accuracy</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">test_batches</span><span class="p">:</span>
+                    <span class="c1"># images = images.view(images.shape[0], -1)</span>
+                    <span class="n">log_probabilities</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">images</span><span class="p">)</span>
+                    <span class="n">test_loss</span> <span class="o">+=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">log_probabilities</span><span class="p">,</span> <span class="n">labels</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+                    <span class="n">probabilities</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">log_probabilities</span><span class="p">)</span>
+                    <span class="n">top_p</span><span class="p">,</span> <span class="n">top_class</span> <span class="o">=</span> <span class="n">probabilities</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                    <span class="n">equals</span> <span class="o">=</span> <span class="n">top_class</span> <span class="o">==</span> <span class="n">labels</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">*</span><span class="n">top_class</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+                    <span class="n">accuracy</span> <span class="o">+=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">equals</span><span class="o">.</span><span class="n">type</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">FloatTensor</span><span class="p">))</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="n">mean_accuracy</span> <span class="o">=</span> <span class="n">accuracy</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">test_batches</span><span class="p">)</span>
+            <span class="n">train_losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">running_loss</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">training_batches</span><span class="p">))</span>
+            <span class="n">test_losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">test_loss</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">test_batches</span><span class="p">))</span>
+            <span class="n">accuracies</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mean_accuracy</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="s2">"Epoch: {}/{}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">epoch</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span>
+                  <span class="s2">"Training loss: {:.2f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">train_losses</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
+                  <span class="s2">"Test Loss: {:.2f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">test_losses</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
+                  <span class="s2">"Test Accuracy: {:.2f}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">mean_accuracy</span><span class="p">)),</span>
+    <span class="k">return</span> <span class="n">train_losses</span><span class="p">,</span> <span class="n">test_losses</span><span class="p">,</span> <span class="n">accuracies</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">()</span>
+<span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">NLLLoss</span><span class="p">()</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">learning_rate</span><span class="p">)</span>
+
+<span class="n">train_losses_0</span><span class="p">,</span> <span class="n">test_losses_0</span><span class="p">,</span> <span class="n">accuracies_0</span> <span class="o">=</span> <span class="n">train</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">criterion</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Epoch: 1/30 Training loss: 0.51 Test Loss: 0.43 Test Accuracy: 0.84
+Epoch: 2/30 Training loss: 0.39 Test Loss: 0.42 Test Accuracy: 0.85
+Epoch: 3/30 Training loss: 0.35 Test Loss: 0.38 Test Accuracy: 0.86
+Epoch: 4/30 Training loss: 0.33 Test Loss: 0.38 Test Accuracy: 0.86
+Epoch: 5/30 Training loss: 0.32 Test Loss: 0.37 Test Accuracy: 0.87
+Epoch: 6/30 Training loss: 0.30 Test Loss: 0.37 Test Accuracy: 0.87
+Epoch: 7/30 Training loss: 0.29 Test Loss: 0.38 Test Accuracy: 0.87
+Epoch: 8/30 Training loss: 0.28 Test Loss: 0.38 Test Accuracy: 0.87
+Epoch: 9/30 Training loss: 0.28 Test Loss: 0.39 Test Accuracy: 0.87
+Epoch: 10/30 Training loss: 0.27 Test Loss: 0.38 Test Accuracy: 0.87
+Epoch: 11/30 Training loss: 0.26 Test Loss: 0.37 Test Accuracy: 0.87
+Epoch: 12/30 Training loss: 0.25 Test Loss: 0.38 Test Accuracy: 0.88
+Epoch: 13/30 Training loss: 0.25 Test Loss: 0.38 Test Accuracy: 0.88
+Epoch: 14/30 Training loss: 0.24 Test Loss: 0.36 Test Accuracy: 0.88
+Epoch: 15/30 Training loss: 0.24 Test Loss: 0.40 Test Accuracy: 0.88
+Epoch: 16/30 Training loss: 0.23 Test Loss: 0.39 Test Accuracy: 0.88
+Epoch: 17/30 Training loss: 0.23 Test Loss: 0.39 Test Accuracy: 0.88
+Epoch: 18/30 Training loss: 0.22 Test Loss: 0.42 Test Accuracy: 0.87
+Epoch: 19/30 Training loss: 0.22 Test Loss: 0.45 Test Accuracy: 0.87
+Epoch: 20/30 Training loss: 0.22 Test Loss: 0.38 Test Accuracy: 0.88
+Epoch: 21/30 Training loss: 0.21 Test Loss: 0.38 Test Accuracy: 0.89
+Epoch: 22/30 Training loss: 0.20 Test Loss: 0.42 Test Accuracy: 0.88
+Epoch: 23/30 Training loss: 0.21 Test Loss: 0.41 Test Accuracy: 0.88
+Epoch: 24/30 Training loss: 0.20 Test Loss: 0.42 Test Accuracy: 0.88
+Epoch: 25/30 Training loss: 0.20 Test Loss: 0.42 Test Accuracy: 0.88
+Epoch: 26/30 Training loss: 0.19 Test Loss: 0.43 Test Accuracy: 0.89
+Epoch: 27/30 Training loss: 0.19 Test Loss: 0.44 Test Accuracy: 0.88
+Epoch: 28/30 Training loss: 0.19 Test Loss: 0.43 Test Accuracy: 0.88
+Epoch: 29/30 Training loss: 0.19 Test Loss: 0.41 Test Accuracy: 0.88
+Epoch: 30/30 Training loss: 0.18 Test Loss: 0.41 Test Accuracy: 0.88
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">train_losses_0</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">train_losses_0</span><span class="p">)</span>
+<span class="n">accuracies_0</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">)</span>
+<span class="n">test_losses_0</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">test_losses_0n</span><span class="p">)</span>
+</pre></div>
+<p>What do our outcomes look like?</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">print_best</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">decimals</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+               <span class="n">minimum</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Print a table of the best and last outcomes</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     data: the source of the information</span>
+<span class="sd">     label: what to put in the headline</span>
+<span class="sd">     decimals: how many decimal places to use</span>
+<span class="sd">     minimum: whether we want the lowest score (vs the highest)</span>
+<span class="sd">    """</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|{}| Value|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">label</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|-+-|"</span><span class="p">)</span>
+    <span class="n">best</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+    <span class="n">best_index</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Best|{{:.{}f}}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">decimals</span><span class="p">)</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Best Location|{}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best_index</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Final|{{:.{}f}}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">decimals</span><span class="p">)</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">print_best</span><span class="p">(</span><span class="n">train_losses_0</span><span class="p">,</span> <span class="s2">"Training Loss"</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Training Loss</th>
+<th class="org-right" scope="col">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.180</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">29</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.180</td>
+</tr>
+</tbody>
+</table>
+<p>So our best training loss was the final one.</p>
+<div class="highlight">
+<pre><span></span><span class="n">print_best</span><span class="p">(</span><span class="n">test_losses_0</span><span class="p">,</span> <span class="s2">"Test Loss"</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Test Loss</th>
+<th class="org-right" scope="col">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.365</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">13</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.415</td>
+</tr>
+</tbody>
+</table>
+<p>While the test loss was best less than halfway through the epochs.</p>
+<div class="highlight">
+<pre><span></span><span class="n">print_best</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">,</span> <span class="s2">"Test Accuracy"</span><span class="p">,</span> <span class="n">minimum</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Test Accuracy</th>
+<th class="org-right" scope="col">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.854</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">17</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.851</td>
+</tr>
+</tbody>
+</table>
+<p>The accuracy also seems to have peaked almost at the halfway point, although the difference between the best and the final is pretty much just a rounding difference.</p>
+<div class="highlight">
+<pre><span></span><span class="n">figure</span><span class="p">,</span> <span class="p">(</span><span class="n">axe_0</span><span class="p">,</span> <span class="n">axe_1</span><span class="p">)</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">sharex</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">figure</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="s2">"Train and Test Without Dropout"</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s2">"bold"</span><span class="p">)</span>
+<span class="n">y_minimum</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="c1"># the top plot</span>
+<span class="n">axe_0</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">"Accuracy"</span><span class="p">)</span>
+
+<span class="c1"># the bottom plot</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">"Epoch"</span><span class="p">)</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">"Loss"</span><span class="p">)</span>
+
+<span class="n">test_rolling</span> <span class="o">=</span> <span class="n">test_losses_0</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">min_periods</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">train_losses_0</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Train"</span><span class="p">)</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">test_rolling</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Rolling Test"</span><span class="p">)</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">test_losses_0</span><span class="p">,</span> <span class="s2">"."</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Test"</span><span class="p">)</span>
+<span class="n">axe_1</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="n">y_minimum</span><span class="p">)</span>
+
+<span class="n">axe_0</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="n">y_minimum</span><span class="p">)</span>
+<span class="n">axe_0</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">)),</span> <span class="n">accuracies_0</span><span class="p">,</span> <span class="s2">"r"</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Mean Test Accuracy"</span><span class="p">)</span>
+<span class="n">axe_0</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">))</span>
+<span class="n">legend</span> <span class="o">=</span> <span class="n">axe</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+</pre></div>
+<div class="figure">
+<p><img alt="losses.png" src="losses.png"></p>
+</div>
+<p>So, although the accuracy metric on the test set is pretty stable, the training loss keeps going down even as the test loss is creeping upwards. Does this imply that accuracy isn't the right metric? Log-loss differs from accuracy in that it doesn't just penalize you for what you got wrong, but also by how far you were wrong - so if you predict a high probability for the wrong label, you will get penalized more than if you predicted it but with a relatively lower probability, as opposed to accuracy which just use the binary right and wrong. So, even though our accuracy looks stable, the Log-Loss is getting worse because our model is making the same mistakes but it is getting more confident about those bad predictions. So, on to the next section where we look at one way to try and fix this.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga4b60de">
+<h2 id="orga4b60de">Overfitting</h2>
+<div class="outline-text-2" id="text-orga4b60de">
+<p>If we look at the training and validation losses as we train the network, we can see a phenomenon known as overfitting.</p>
+<p>The network learns the training set better and better, resulting in lower training losses. However, it starts having problems generalizing to data outside the training set leading to the validation loss increasing. The ultimate goal of any deep learning model is to make predictions on new data, so we should strive to get the lowest validation loss possible. One option is to use the version of the model with the lowest validation loss, here the one around 8-10 training epochs. This strategy is called <b>early-stopping</b>. In practice, you'd save the model frequently as you're training then later choose the model with the lowest validation loss.</p>
+<p>The most common method to reduce overfitting (outside of early-stopping) is <a href="https://en.wikipedia.org/wiki/Dropout_(neural_networks)"><b>dropout</b></a>, where we randomly drop input units. This forces the network to share information between weights, increasing it's ability to generalize to new data. Adding dropout in PyTorch is straightforward using the <a href="https://pytorch.org/docs/stable/nn.html#torch.nn.Dropout"><code>nn.Dropout</code></a> module.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Classifier</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">784</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">128</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc4</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+
+        <span class="c1"># Dropout module with 0.2 drop probability</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">p</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="c1"># make sure input tensor is flattened</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Now with dropout</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fc1</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fc2</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fc3</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+
+        <span class="c1"># output so no dropout here</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">log_softmax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fc4</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">x</span>
+</pre></div>
+<p>During training we want to use dropout to prevent overfitting, but during inference we want to use the entire network. So, we need to turn off dropout during validation, testing, and whenever we're using the network to make predictions. To do this, you use <code>model.eval()</code>. This sets the model to evaluation mode where the dropout probability is 0. You can turn dropout back on by setting the model to train mode with <code>model.train()</code>. In general, the pattern for the validation loop will look like this, where you turn off gradients, set the model to evaluation mode, calculate the validation loss and metric, then set the model back to train mode.</p>
+<div class="highlight">
+<pre><span></span><span class="c1"># Turn off gradients</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="c1"># set model to evaluation mode</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+    <span class="c1"># validation pass here</span>
+    <span class="k">for</span> <span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">testloader</span><span class="p">:</span>
+        <span class="o">...</span>
+
+<span class="c1"># set model back to train mode</span>
+<span class="n">model</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org17d9891">
+<h2 id="org17d9891">The Dropout Model</h2>
+<div class="outline-text-2" id="text-org17d9891">
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">DropoutModel</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""Model with dropout to prevent overfitting</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     hyperparameters: object with the hyper-parameter settings</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hyperparameters</span><span class="p">:</span> <span class="nb">object</span><span class="o">=</span><span class="n">HyperParameters</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_to_hidden</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hyperparameters</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span>
+                                         <span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_1_to_hidden_2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_1</span><span class="p">,</span>
+                                              <span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_2_to_hidden_3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_2</span><span class="p">,</span>
+                                              <span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_3</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_3_to_output</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hyperparameters</span><span class="o">.</span><span class="n">hidden_layer_3</span><span class="p">,</span>
+                                            <span class="n">hyperparameters</span><span class="o">.</span><span class="n">outputs</span><span class="p">)</span>
+
+        <span class="c1"># Dropout module with 0.2 drop probability</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">p</span><span class="o">=</span><span class="n">hyperparameters</span><span class="o">.</span><span class="n">dropout_probability</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""One Forward pass through the network"""</span>
+        <span class="c1"># make sure input tensor is flattened</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Now with dropout</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_to_hidden</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_1_to_hidden_2</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_2_to_hidden_3</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+
+        <span class="c1"># output so no dropout here</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">log_softmax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hidden_3_to_output</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+                             <span class="n">dim</span><span class="o">=</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">axis</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">DropoutModel</span><span class="p">()</span>
+<span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">NLLLoss</span><span class="p">()</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">learning_rate</span><span class="p">)</span>
+<span class="n">train_loss_1</span><span class="p">,</span> <span class="n">test_loss_1</span><span class="p">,</span> <span class="n">accuracies_1</span> <span class="o">=</span> <span class="n">train</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">criterion</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Epoch: 1/30 Training loss: 0.60 Test Loss: 0.53 Test Accuracy: 0.81
+Epoch: 2/30 Training loss: 0.49 Test Loss: 0.49 Test Accuracy: 0.83
+Epoch: 3/30 Training loss: 0.45 Test Loss: 0.47 Test Accuracy: 0.84
+Epoch: 4/30 Training loss: 0.43 Test Loss: 0.48 Test Accuracy: 0.83
+Epoch: 5/30 Training loss: 0.43 Test Loss: 0.47 Test Accuracy: 0.84
+Epoch: 6/30 Training loss: 0.41 Test Loss: 0.45 Test Accuracy: 0.85
+Epoch: 7/30 Training loss: 0.40 Test Loss: 0.45 Test Accuracy: 0.85
+Epoch: 8/30 Training loss: 0.40 Test Loss: 0.49 Test Accuracy: 0.84
+Epoch: 9/30 Training loss: 0.40 Test Loss: 0.47 Test Accuracy: 0.83
+Epoch: 10/30 Training loss: 0.39 Test Loss: 0.44 Test Accuracy: 0.85
+Epoch: 11/30 Training loss: 0.38 Test Loss: 0.46 Test Accuracy: 0.85
+Epoch: 12/30 Training loss: 0.38 Test Loss: 0.49 Test Accuracy: 0.83
+Epoch: 13/30 Training loss: 0.38 Test Loss: 0.44 Test Accuracy: 0.85
+Epoch: 14/30 Training loss: 0.37 Test Loss: 0.43 Test Accuracy: 0.85
+Epoch: 15/30 Training loss: 0.38 Test Loss: 0.46 Test Accuracy: 0.85
+Epoch: 16/30 Training loss: 0.37 Test Loss: 0.47 Test Accuracy: 0.85
+Epoch: 17/30 Training loss: 0.37 Test Loss: 0.46 Test Accuracy: 0.85
+Epoch: 18/30 Training loss: 0.37 Test Loss: 0.54 Test Accuracy: 0.82
+Epoch: 19/30 Training loss: 0.37 Test Loss: 0.44 Test Accuracy: 0.86
+Epoch: 20/30 Training loss: 0.37 Test Loss: 0.45 Test Accuracy: 0.85
+Epoch: 21/30 Training loss: 0.36 Test Loss: 0.45 Test Accuracy: 0.85
+Epoch: 22/30 Training loss: 0.35 Test Loss: 0.47 Test Accuracy: 0.85
+Epoch: 23/30 Training loss: 0.36 Test Loss: 0.45 Test Accuracy: 0.86
+Epoch: 24/30 Training loss: 0.36 Test Loss: 0.46 Test Accuracy: 0.85
+Epoch: 25/30 Training loss: 0.35 Test Loss: 0.46 Test Accuracy: 0.85
+Epoch: 26/30 Training loss: 0.35 Test Loss: 0.48 Test Accuracy: 0.85
+Epoch: 27/30 Training loss: 0.35 Test Loss: 0.46 Test Accuracy: 0.86
+Epoch: 28/30 Training loss: 0.35 Test Loss: 0.45 Test Accuracy: 0.85
+Epoch: 29/30 Training loss: 0.35 Test Loss: 0.47 Test Accuracy: 0.86
+Epoch: 30/30 Training loss: 0.35 Test Loss: 0.46 Test Accuracy: 0.86
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">test_loss_1</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">test_loss_1</span><span class="p">)</span>
+<span class="n">train_loss_1</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">train_loss_1</span><span class="p">)</span>
+<span class="n">accuracies_1</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">accuracies_1</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">print_both</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">data_2</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+               <span class="n">decimals</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">minimum</span><span class="p">:</span><span class="nb">bool</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="sd">"""Prints both data sets side by side</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     data: the first data series</span>
+<span class="sd">     data_2: the second data series</span>
+<span class="sd">     label: something to identify the data sets</span>
+<span class="sd">     decimals: the number of decimal places to use</span>
+<span class="sd">     minimum: whether minimalization is the optimal</span>
+<span class="sd">    """</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|{}|First|Second|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">label</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|-+-+-|"</span><span class="p">)</span>
+    <span class="n">best</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+    <span class="n">best_index</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+    <span class="n">best_2</span> <span class="o">=</span> <span class="n">data_2</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data_2</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+    <span class="n">best_index_2</span> <span class="o">=</span>  <span class="n">data_2</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span> <span class="k">if</span> <span class="n">minimum</span> <span class="k">else</span> <span class="n">data_2</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Best|{{:.{0}f}}|{{:.{0}f}}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">decimals</span><span class="p">)</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best</span><span class="p">,</span> <span class="n">best_2</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Best Location|{}|{}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best_index</span><span class="p">,</span> <span class="n">best_index_2</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"|Final|{{:.{0}f}}|{{:.{0}f}}|"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">decimals</span><span class="p">)</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+        <span class="n">data</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span>
+        <span class="n">data_2</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">print_both</span><span class="p">(</span><span class="n">train_losses_0</span><span class="p">,</span> <span class="n">train_loss_1</span><span class="p">,</span> <span class="s2">"Training Loss"</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Training Loss</th>
+<th class="org-right" scope="col">First</th>
+<th class="org-right" scope="col">Second</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.180</td>
+<td class="org-right">0.347</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">29</td>
+<td class="org-right">29</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.180</td>
+<td class="org-right">0.347</td>
+</tr>
+</tbody>
+</table>
+<p>So the best loss in both the models was the last one, but our new model does considerably worse. Maybe you need more training when the dropout is used.</p>
+<div class="highlight">
+<pre><span></span><span class="n">print_both</span><span class="p">(</span><span class="n">test_losses_0</span><span class="p">,</span> <span class="n">test_loss_1</span><span class="p">,</span> <span class="s2">"Test Loss"</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Test Loss</th>
+<th class="org-right" scope="col">First</th>
+<th class="org-right" scope="col">Second</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.365</td>
+<td class="org-right">0.434</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">13</td>
+<td class="org-right">13</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.415</td>
+<td class="org-right">0.460</td>
+</tr>
+</tbody>
+</table>
+<p>Weirdly, they both peak at the same point in the epochs, also weirdly the test loss is still worse for the dropout model.</p>
+<div class="highlight">
+<pre><span></span><span class="n">print_both</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">,</span> <span class="n">accuracies_1</span><span class="p">,</span> <span class="s2">"Test Accuracy"</span><span class="p">,</span> <span class="n">minimum</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Test Accuracy</th>
+<th class="org-right" scope="col">First</th>
+<th class="org-right" scope="col">Second</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Best</td>
+<td class="org-right">0.886</td>
+<td class="org-right">0.859</td>
+</tr>
+<tr>
+<td class="org-left">Best Location</td>
+<td class="org-right">25</td>
+<td class="org-right">18</td>
+</tr>
+<tr>
+<td class="org-left">Final</td>
+<td class="org-right">0.882</td>
+<td class="org-right">0.859</td>
+</tr>
+</tbody>
+</table>
+<p>Our accuracy seems to peak at a little over half the epochs, but surprisingly, it also does quite a bit worse with dropout…</p>
+<div class="highlight">
+<pre><span></span><span class="n">figure</span><span class="p">,</span> <span class="p">(</span><span class="n">axe_top</span><span class="p">,</span> <span class="n">axe_bottom</span><span class="p">)</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">sharex</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">figure</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span>
+    <span class="s2">"Training and Test Loss with Dropout (p={})"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+        <span class="n">HyperParameters</span><span class="o">.</span><span class="n">dropout_probability</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="s2">"bold"</span><span class="p">)</span>
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">"Epoch"</span><span class="p">)</span>
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">"Loss"</span><span class="p">)</span>
+
+<span class="n">rolling_loss</span> <span class="o">=</span> <span class="n">test_loss_1</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">min_periods</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">rolling_loss_0</span> <span class="o">=</span> <span class="n">test_losses_0</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">min_periods</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">rolling_loss</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Rolling Mean Test"</span><span class="p">)</span>
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">rolling_loss_0</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Rolling Mean Test No Dropout"</span><span class="p">)</span>
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">train_loss_1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Train"</span><span class="p">)</span>
+<span class="n">axe_bottom</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="p">),</span> <span class="n">test_loss_1</span><span class="p">,</span> <span class="s2">"g.-"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Test"</span><span class="p">)</span>
+
+<span class="n">accuracy_rolling</span> <span class="o">=</span> <span class="n">accuracies_1</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">min_periods</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">accuracy_rolling_0</span> <span class="o">=</span> <span class="n">accuracies_0</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">min_periods</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">"Accuracy"</span><span class="p">)</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">accuracies_1</span><span class="p">)),</span> <span class="n">accuracy_rolling</span><span class="p">,</span> <span class="s2">"r"</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">)),</span> <span class="n">accuracy_rolling_0</span><span class="p">,</span> <span class="s2">"b"</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">accuracies_0</span><span class="p">)),</span> <span class="n">accuracies_0</span><span class="p">,</span> <span class="s2">"b."</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"No Dropout"</span><span class="p">)</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">accuracies_1</span><span class="p">)),</span> <span class="n">accuracies_1</span><span class="p">,</span> <span class="s2">"r."</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"With Dropout"</span><span class="p">)</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="n">HyperParameters</span><span class="o">.</span><span class="n">epochs</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+<span class="n">axe_top</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">legend</span> <span class="o">=</span> <span class="n">axe_bottom</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+</pre></div>
+<div class="figure">
+<p><img alt="dropout_losses.png" src="dropout_losses.png"></p>
+</div>
+<p>So we seem to have helped the problem of the loss growing at the expense of overall performance. I'm not sure this is really the lesson we're supposed to take away from this. Maybe if we tried more epochs the dropout model would emerge victorious.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge9ab652">
+<h2 id="orge9ab652">Inference</h2>
+<div class="outline-text-2" id="text-orge9ab652">
+<p>Now that the model is trained, we can use it for inference. We've done this before, but now we need to remember to set the model in inference mode with <code>model.eval()</code>. You'll also want to turn off autograd with the <code>torch.no_grad()</code> context.</p>
+</div>
+<div class="outline-3" id="outline-container-org7b736cb">
+<h3 id="org7b736cb">Testing the Model</h3>
+<div class="outline-text-3" id="text-org7b736cb"></div>
+<div class="outline-4" id="outline-container-org0634c3a">
+<h4 id="org0634c3a">Get the Test Image</h4>
+<div class="outline-text-4" id="text-org0634c3a">
+<div class="highlight">
+<pre><span></span><span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+<span class="n">images</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">test_batches</span><span class="p">)</span><span class="o">.</span><span class="n">next</span><span class="p">()</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org0bb5f2b">
+<h4 id="org0bb5f2b">Convert the 2D image to a 1D vector</h4>
+<div class="outline-text-4" id="text-org0bb5f2b">
+<div class="highlight">
+<pre><span></span><span class="n">image</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">784</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org72eb047">
+<h4 id="org72eb047">Calculate the Class Probabilities (softmax) for the Image</h4>
+<div class="outline-text-4" id="text-org72eb047">
+<p>We run the forward pass once with the gradient turned off to get our probabilities.</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+<span class="n">probabilities</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org6712d07">
+<h4 id="org6712d07">Plot the image and probabilities</h4>
+<div class="outline-text-4" id="text-org6712d07">
+<div class="highlight">
+<pre><span></span><span class="n">helper</span><span class="o">.</span><span class="n">view_classify</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">),</span> <span class="n">probabilities</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s1">'Fashion'</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="test_image.png" src="test_image.png"></p>
+</div>
+<div class="highlight">
+<pre><span></span><span class="n">expected</span> <span class="o">=</span> <span class="n">label_decoder</span><span class="p">[</span><span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">label_decoder</span><span class="p">[</span><span class="n">probabilities</span><span class="o">.</span><span class="n">argmax</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">"Expected: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">expected</span><span class="p">))</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">"Actual: {}"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">actual</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">expected</span> <span class="o">==</span> <span class="n">actual</span>
+</pre></div>
+<pre class="example">
+Expected: Trouser
+Actual: Trouser
+
+</pre>
+<p>So, it looks like we got it right this time.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../../categories/lecture/" rel="tag">lecture</a></li>
+<li><a class="tag p-category" href="../../../../categories/pytorch/" rel="tag">pytorch</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../part-4-fashion/" rel="prev" title="Part 4 - Classifying Fashion-MNIST">Previous post</a></li>
+<li class="next"><a href="../part-6-saving-and-loading-models/" rel="next" title="Part 6 - Saving and Loading Models">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2019 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../../assets/js/all-nocdn.js"></script><!-- fancy dates -->
+<script>
+
+    moment.locale("en");
+    fancydates(0, "YYYY-MM-DD HH:mm");
+</script><!-- end fancy dates -->
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>
