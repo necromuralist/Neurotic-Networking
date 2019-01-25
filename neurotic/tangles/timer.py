@@ -59,3 +59,15 @@ class Timer:
             self.speaker.say(self.message)
             self.speaker.runAndWait()
         return
+
+    stop = end
+
+    def __enter__(self):
+        """Starts the timer"""
+        self.start()
+        return self
+
+    def __exit__(self, type, value, traceback) -> None:
+        """Stops the timer"""
+        self.end()
+        return

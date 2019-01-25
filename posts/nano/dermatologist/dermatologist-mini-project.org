@@ -19,7 +19,7 @@
 
 There is a paper online [[https://arxiv.org/pdf/1710.05006.pdf][here]] (PDF link) that describes the approaches that did best in the competition.
 * Data Sources
-  The data is taken from the [[https://challenge.kitware.com/#challenge/583f126bcad3a51cc66c8d9a][ISIC 2017: Skin Lesion Analysis Towards Melanoma Detection]] challenge. 
+  The data is taken from the [[https://challenge.kitware.com/#challenge/583f126bcad3a51cc66c8d9a][ISIC 2017: Skin Lesion Analysis Towards Melanoma Detection]] challenge.
   - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/train.zip][Training Data]]
   - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/valid.zip][Validation Data]]
   - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/test.zip][Test Data]]
@@ -35,11 +35,19 @@ Each folder contains three sub-folders:
 #+BEGIN_SRC ipython :session dermatologoist :results none
 from pathlib import Path
 import os
+import warnings
 #+END_SRC
 *** PyPi
 #+BEGIN_SRC ipython :session dermatologoist :results none
 from dotenv import load_dotenv
 from torchvision import datasets
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.pyplot as pyplot
+import matplotlib.image as mpimage
+import matplotlib.patches as patches
+import numpy
+import pyttsx3
+import seaborn
 import torch
 import torchvision.models as models
 import torch.nn as nn
@@ -49,19 +57,430 @@ import torchvision.transforms as transforms
 #+END_SRC
 *** This Project
 #+BEGIN_SRC ipython :session dermatologoist :results none
+from neurotic.tangles.data_paths import DataPathTwo
 from neurotic.tangles.timer import Timer
 #+END_SRC
+** Plotting
+#+BEGIN_SRC ipython :session dermatologist :results none
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=1)
+#+END_SRC
+** Set the Random Seed
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+numpy.random.seed(seed=2019)
+#+END_SRC
+
+** Check If CUDA Is Available
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+#+END_SRC
+
+#+RESULTS:
+: cuda
+** Handle Truncated Images
+   There seems to be at least one image that is truncated which will cause an exception when it's loaded so this next setting lets us ignore the error and keep working.
+#+BEGIN_SRC ipython :session dermatologist :results none
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+#+END_SRC
+** Build the Timer
+    The timer times how long a code-block takes to run so that if I run it more than once I'll know if it will take a while.
+#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref create-timer
+timer = Timer()
+#+END_SRC
+
+* The Model
 ** Loading the Data
 #+BEGIN_SRC ipython :session dermatologoist :results none
-load_dotenv()
-train_path = Path(os.environ.get("TRAIN")).expanduser()
-test_path = Path(os.environ.get("TEST")).expanduser()
-validate_path = Path(os.environ.get("VALIDATE")).expanduser()
+class TrainingTestingValidationPaths:
+    """Holds the paths to the folders
 
-assert train_path.is_dir()
-assert test_path.is_dir()
-assert validate_path.is_dir()
+    Args:
+     train_key: key in the environemnt for the training folder
+     test_key: key in the environment for the testing folder
+     validation_key: key in the environment for the validation folder
+    """
+    def __init__(self, train_key="TRAIN", test_key="TEST",
+                 validation_key="VALIDATE") -> None:
+        load_dotenv()
+        self.train_key = train_key
+        self.test_key = test_key
+        self.validation_key= validation_key
+        self._training = None
+        self._testing = None
+        self._validation = None
+        return
+
+    @property
+    def training(self) -> DataPathTwo:
+        """The path to the training set"""
+        if self._training is None:
+            self._training = DataPathTwo(folder_key=self.train_key)
+        return self._training
+
+    @property
+    def testing(self) -> DataPathTwo:
+        """path to the testing set"""
+        if self._testing is None:
+            self._testing = DataPathTwo(folder_key=self.test_key)
+        return self._training
+
+    @property
+    def validation(self) -> DataPathTwo:
+        """path to the validation set"""
+        if self._validation is None:
+            self._validation = DataPathTwo(folder_key=self.validation_key)
+        return self._validation
+
+    def check(self) ->None:
+        """Checks that the folders are valid
+
+        Raises: 
+         AssertionError: folder doesn't exist
+        """
+        self.main.check_folder()
+        self.training.check_folder()
+        self.validation.check_folder()
+        self.testing.check_folder()
+        return
 #+END_SRC
+
+** The Data Transformer
+#+BEGIN_SRC ipython :session dermatologist :results none
+class Transformer:
+    """builds the data-sets
+
+    Args:
+     means: list of means for each channel
+     deviations: list of standard deviations for each channel
+     image_size: size to crop the image to
+    """
+    def __init__(self,
+                 means: list=[0.485, 0.456, 0.406],
+                 deviations: list=[0.229, 0.224, 0.225],
+                 image_size: int=299) -> None:
+        self.means = means
+        self.deviations = deviations
+        self.image_size = image_size
+        self._training = None
+        self._testing = None
+        return
+
+    @property
+    def training(self) -> transforms.Compose:
+        """The image transformers for the training"""
+        if self._training is None:
+            self._training = transforms.Compose([
+                transforms.RandomRotation(30),
+                transforms.RandomResizedCrop(self.image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(self.means,
+                                     self.deviations)])
+        return self._training
+
+    @property
+    def testing(self) -> transforms.Compose:
+        """Image transforms for the testing"""
+        if self._testing is None:
+            self._testing = transforms.Compose(
+                [transforms.Resize(350),
+                 transforms.CenterCrop(self.image_size),
+                 transforms.ToTensor(),
+                 transforms.Normalize(self.means,
+                                      self.deviations)])
+        return self._testing
+#+END_SRC
+** The Data Set Loader
+#+BEGIN_SRC ipython :session dermatologist :results none
+class DataSets:
+    """Builds the data-sets
+    
+    Args:
+     paths: object with the paths to the data-sets
+     transformer: object with the image transformations
+    """
+    def __init__(self, paths: TrainingTestingValidationPaths=None,
+                 transformer: Transformer=None) -> None:
+        self._paths = paths
+        self._transformer = transformer
+        self._training = None
+        self._validation = None
+        self._testing = None
+        return
+    
+    @property
+    def paths(self) -> TrainingTestingValidationPaths:
+        """Object with the paths to the image files"""
+        if self._paths is None:
+            self._paths = TrainingTestingValidationPaths()
+            self._paths.check()
+        return self._paths
+    
+    @property
+    def transformer(self) -> Transformer:
+        """Object with the image transforms"""
+        if self._transformer is None:
+            self._transformer = Transformer()
+        return self._transformer
+    
+    @property
+    def training(self) -> datasets.ImageFolder:
+        """The training data set"""
+        if self._training is None:
+            self._training = datasets.ImageFolder(
+                root=self.paths.training.folder,
+                transform=self.transformer.training)
+        return self._training
+    
+    @property
+    def validation(self) -> datasets.ImageFolder:
+        """The validation dataset"""
+        if self._validation is None:
+            self._validation = datasets.ImageFolder(
+                root=self.paths.validation.folder,
+                transform=self.transformer.testing)
+        return self._validation
+    
+    @property
+    def testing(self) -> datasets.ImageFolder:
+        """The test set"""
+        if self._testing is None:
+            self._testing = datasets.ImageFolder(
+                root=self.paths.testing.folder,
+                transform=self.transformer.testing)
+        return self._testing
+#+END_SRC
+** The Batch Loader
+#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-batches
+class Batches:
+    """The data batch loaders
+    
+    Args:
+     datasets: a data-set builder
+     batch_size: the size of each batch loaded
+     workers: the number of processes to use
+    """
+    def __init__(self, datasets: DataSets,
+                 batch_size: int=20,
+                 workers: int=0) -> None:
+        self.datasets = datasets
+        self.batch_size = batch_size
+        self.workers = workers
+        self._training = None
+        self._validation = None
+        self._testing = None
+        return
+    
+    @property
+    def training(self) -> torch.utils.data.DataLoader:
+        """The training batches"""
+        if self._training is None:
+            self._training = torch.utils.data.DataLoader(
+                self.datasets.training,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._training
+    
+    @property
+    def validation(self) -> torch.utils.data.DataLoader:
+        """The validation batches"""
+        if self._validation is None:
+            self._validation = torch.utils.data.DataLoader(
+                self.datasets.validation,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._validation
+    
+    @property
+    def testing(self) -> torch.utils.data.DataLoader:
+        """The testing batches"""
+        if self._testing is None:
+            self._testing = torch.utils.data.DataLoader(
+                self.datasets.testing,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._testing
+#+END_SRC
+
+** The Inception Classifier
+
+Although the constructor for the pytorch Inception model takes an =aux_logits= parameter, if you set it to false then it will raise an error saying there are unexpected keys in the state dict. But if you don't set it False it will return a tuple from the =forward= method so either set it to False after the constructor or catch a tuple as the output =(x, aux)= and throw away the second part (or figure out how to combine them). I decided to leave it set because it is supposed to help with training and changed the training function to handle it. But I don't really show that in this notebook. I'll have to re-write things later.
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+class Inception:
+    """Sets up the model, criterion, and optimizer for the transfer learning
+    
+    Args:
+     classes: number of outputs for the final layer
+     device: processor to use
+     model_path: path to a saved model
+     learning_rate: learning rate for the optimizer
+     momentum: momentum for the optimizer
+    """
+    def __init__(self, classes: int,
+                 device: torch.device=None,
+                 model_path: str=None,
+                 learning_rate: float=0.001, momentum: float=0.9) -> None:
+        self.classes = classes
+        self.model_path = model_path
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self._device = device
+        self._model = None
+        self._classifier_inputs = None
+        self._criterion = None
+        self._optimizer = None
+        return
+    
+    @property
+    def device(self) -> torch.device:
+        """Processor to use (cpu or cuda)"""
+        if self._device is None:
+            self._device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu")
+        return self._device
+    
+    @property
+    def model(self) -> models.inception_v3:
+        """The inception model"""
+        if self._model is None:
+            self._model = models.inception_v3(pretrained=True)
+            for parameter in self._model.parameters():
+                parameter.requires_grad = False
+            classifier_inputs = self._model.fc.in_features
+            self._model.fc = nn.Linear(in_features=classifier_inputs,
+                                       out_features=self.classes,
+                                       bias=True)
+            self._model.to(self.device)
+            if self.model_path:
+                self._model.load_state_dict(torch.load(self.model_path))
+        return self._model
+    
+    @property
+    def criterion(self) -> nn.CrossEntropyLoss:
+        """The loss callable"""
+        if self._criterion is None:
+            self._criterion = nn.CrossEntropyLoss()
+        return self._criterion
+    
+    @property
+    def optimizer(self) -> optimizer.SGD:
+        """The Gradient Descent object"""
+        if self._optimizer is None:
+            self._optimizer = optimizer.Adam(
+                self.model.parameters(),
+                lr=self.learning_rate)
+        return self._optimizer
+#+END_SRC
+
+** Disecting the Inception Class
+   The =Inception= class bundles together a bunch of stuff that was originally being done in separate cells. Rather than putting comments all over it I'm going to show what it's doing by describing how I was doing it before I created the class.
+*** The Model Property
+The last layer of the classifier in the =Inception.model= property is the only layer of the pre-trained model that I change. In the case of the =Inception V3= model there is a single layer called /fc/, as opposed to multiple layers called /classifier/ as with the =VGG16= model, so I just re-assign it to a fully-connected layer with the number of outputs that matches the number of dog breeds.
+
+Here's a little inspection to show what it's doing.
+
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+model_transfer = models.inception_v3(pretrained=True)
+print(model_transfer.fc)
+#+END_SRC
+
+#+RESULTS:
+: Linear(in_features=2048, out_features=1000, bias=True)
+
+#+BEGIN_SRC :session dermatologist :results none :noweb-ref transfer-input-count
+CLASSIFIER_INPUTS = model_transfer.fc.in_features
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+print(CLASSIFIER_INPUTS) 
+print(model_transfer.fc.out_features)
+#+END_SRC
+
+#+RESULTS:
+: 2048
+: 1000
+
+The layer we're going to replace has 2,048 inputs and 1,000 outputs. We'll have to match the number of inputs and change it to our 133.
+
+*** Freeze the Features Layers
+   In the =model= property I'm also freezing the parameters so that the pre-trained parameters don't change when training the last layer.
+#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-freeze
+for parameter in model_transfer.parameters():
+   parameter.requires_grad = False
+#+END_SRC
+*** The New Classifier
+  This next block of code is also in the =Inception.model= definition and is where I'm replacing the last layer with out dog-breed-classification layer.
+
+#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-classifier
+model_transfer.fc = nn.Linear(in_features=CLASSIFIER_INPUTS,
+                             out_features=BREEDS,
+                             bias=True)
+#+END_SRC
+
+*** The Loss Function and Optimizer
+   The =Inception= class uses the same loss and gradient descent definitions as the naive model did (in the =criterion= and =optimizer= properties).
+
+#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-criterion
+criterion_transfer = nn.CrossEntropyLoss()
+optimizer_transfer = optimizer.Adam(model_transfer.parameters(),
+                                 lr=0.001)
+#+END_SRC
+
+** The Training
+I trained the inception model on paperspace for 100 epochs each. This took around five hours each so I'm not going to re-run it here, but I'll show how I would train the model and some of the output from the real training. The =Tee= class isn't integrated with my =trainer= so I can't really show how to train it that way, so I'll show it the orignal function-based way.
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+transfer_path = MODEL_PATH.folder.joinpath("model_transfer.pt")
+transfer_log = Tee(log_name="transfer_train.log")
+#+END_SRC
+
++BEGIN_SRC ipython :session dermatologist :results none
+POCHS = 100
+nception = Inception()
+rain(EPOCHS,
+     loaders=loaders_transfer,
+     model=inception.model,
+     optimizer=inception.optimizer,
+     criterion=inception.criterion,
+     use_cuda=use_cuda,
+     save_path=transfer_model_path,
+     print_function=transfer_log,
+     is_inception=True)
++END_SRC
+
+nd the last lines of the output.
+
++BEGIN_EXAMPLE
+poch: 98 	Training Loss: 0.973978 	Validation Loss: 0.416819	Elapsed: 0:03:12.167687
+alidation loss decreased (0.417785 --> 0.416819). Saving model ...
+poch: 99 	Training Loss: 0.994163 	Validation Loss: 0.418498	Elapsed: 0:03:17.225706
+poch: 100 	Training Loss: 0.998819 	Validation Loss: 0.423518	Elapsed: 0:03:18.415953
+raining Ended: 2019-01-07 10:55:04.465024
+otal Training Time: 5:29:54.161034
++END_EXAMPLE
+** Test It
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+model_transfer.load_state_dict(torch.load(transfer_model_path))
+transfer_test_log = Tee("transfer_test.log")
+test(loaders_transfer, model_transfer, criterion_transfer, use_cuda, print_function=transfer_test_log)
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+Test Loss: 0.425383
+
+
+Test Accuracy: 87% (734/836)
+#+END_EXAMPLE
+
 
 * References
   - [[https://github.com/udacity/dermatologist-ai][Github Repository]]

@@ -266,3 +266,56 @@ class DataPathTwo:
         """
         load_dotenv()
         return
+
+
+class TrainingTestingValidationPaths:
+    """Holds the paths to the folders
+
+    Args:
+     train_key: key in the environemnt for the training folder
+     test_key: key in the environment for the testing folder
+     validation_key: key in the environment for the validation folder
+    """
+    def __init__(self, train_key="TRAIN", test_key="TEST",
+                 validation_key="VALIDATE") -> None:
+        load_dotenv()
+        self.train_key = train_key
+        self.test_key = test_key
+        self.validation_key= validation_key
+        self._training = None
+        self._testing = None
+        self._validation = None
+        return
+
+    @property
+    def training(self) -> DataPathTwo:
+        """The path to the training set"""
+        if self._training is None:
+            self._training = DataPathTwo(folder_key=self.train_key)
+        return self._training
+
+    @property
+    def testing(self) -> DataPathTwo:
+        """path to the testing set"""
+        if self._testing is None:
+            self._testing = DataPathTwo(folder_key=self.test_key)
+        return self._training
+
+    @property
+    def validation(self) -> DataPathTwo:
+        """path to the validation set"""
+        if self._validation is None:
+            self._validation = DataPathTwo(folder_key=self.validation_key)
+        return self._validation
+
+    def check(self) ->None:
+        """Checks that the folders are valid
+
+        Raises: 
+         AssertionError: folder doesn't exist
+        """
+        self.main.check_folder()
+        self.training.check_folder()
+        self.validation.check_folder()
+        self.testing.check_folder()
+        return
