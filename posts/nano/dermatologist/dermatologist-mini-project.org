@@ -59,6 +59,8 @@ import torchvision.transforms as transforms
 #+BEGIN_SRC ipython :session dermatologoist :results none
 from neurotic.tangles.data_paths import DataPathTwo
 from neurotic.tangles.timer import Timer
+from neurotic.tangles.trainer import Trainer
+from neurotic.tangles.logging import Tee
 #+END_SRC
 ** Plotting
 #+BEGIN_SRC ipython :session dermatologist :results none
@@ -97,6 +99,10 @@ timer = Timer()
 #+END_SRC
 
 * The Model
+** Model Path
+#+BEGIN_SRC ipython :session dermatologist :results none
+MODEL_PATH = DataPathTwo(folder_key="MODELS")
+#+END_SRC
 ** Loading the Data
 #+BEGIN_SRC ipython :session dermatologoist :results none
 class TrainingTestingValidationPaths:
@@ -379,6 +385,15 @@ class Inception:
                 self.model.parameters(),
                 lr=self.learning_rate)
         return self._optimizer
+
+    def load_model(self, model_path: Path) -> None:
+        """Load a saved model
+
+        Args:
+         path: path to the parameters file
+        """
+        self.model.load_state_dict(torch.load(model_path))
+        return
 #+END_SRC
 
 ** Disecting the Inception Class
@@ -436,51 +451,34 @@ optimizer_transfer = optimizer.Adam(model_transfer.parameters(),
 #+END_SRC
 
 ** The Training
-I trained the inception model on paperspace for 100 epochs each. This took around five hours each so I'm not going to re-run it here, but I'll show how I would train the model and some of the output from the real training. The =Tee= class isn't integrated with my =trainer= so I can't really show how to train it that way, so I'll show it the orignal function-based way.
 
 #+BEGIN_SRC ipython :session dermatologist :results none
+EPOCHS = 2
 transfer_path = MODEL_PATH.folder.joinpath("model_transfer.pt")
-transfer_log = Tee(log_name="transfer_train.log")
+transfer_log = Tee(log_name="inception_train.log")
+inception = Inception(CLASSES)
+data_sets = DataSets()
+batches = Batches(data_sets)
+trainer = Trainer(training_batches=batches.training,
+                 validation_batches=batches.validation,
+                 testing_batches=batches.testing,
+                 model=inception.model,
+                 model_path=transfer_path,
+                 optimizer=inception.optimizer,
+                 criterion=inception.criterion ,
+                 device=inception.device,
+                 epochs=EPOCHS,
+                 epoch_start=1,
+                 is_inception=True,
+                 load_model=False,
+                 logger=transfer_log,
+                 beep=True,
+)
 #+END_SRC
 
-+BEGIN_SRC ipython :session dermatologist :results none
-POCHS = 100
-nception = Inception()
-rain(EPOCHS,
-     loaders=loaders_transfer,
-     model=inception.model,
-     optimizer=inception.optimizer,
-     criterion=inception.criterion,
-     use_cuda=use_cuda,
-     save_path=transfer_model_path,
-     print_function=transfer_log,
-     is_inception=True)
-+END_SRC
-
-nd the last lines of the output.
-
-+BEGIN_EXAMPLE
-poch: 98 	Training Loss: 0.973978 	Validation Loss: 0.416819	Elapsed: 0:03:12.167687
-alidation loss decreased (0.417785 --> 0.416819). Saving model ...
-poch: 99 	Training Loss: 0.994163 	Validation Loss: 0.418498	Elapsed: 0:03:17.225706
-poch: 100 	Training Loss: 0.998819 	Validation Loss: 0.423518	Elapsed: 0:03:18.415953
-raining Ended: 2019-01-07 10:55:04.465024
-otal Training Time: 5:29:54.161034
-+END_EXAMPLE
-** Test It
 #+BEGIN_SRC ipython :session dermatologist :results output :exports both
-model_transfer.load_state_dict(torch.load(transfer_model_path))
-transfer_test_log = Tee("transfer_test.log")
-test(loaders_transfer, model_transfer, criterion_transfer, use_cuda, print_function=transfer_test_log)
+trainer()
 #+END_SRC
-
-#+BEGIN_EXAMPLE
-Test Loss: 0.425383
-
-
-Test Accuracy: 87% (734/836)
-#+END_EXAMPLE
-
 
 * References
   - [[https://github.com/udacity/dermatologist-ai][Github Repository]]

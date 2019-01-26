@@ -1,0 +1,56 @@
+# python
+from pathlib import Path
+
+
+class Tee:
+    """Save the input to a file and print it
+
+    Args:
+     log_name: name to give the log    
+     directory_path: path to the directory for the file     
+    """
+    def __init__(self, log_name: str, 
+                 directory_name: str="~/logs/") -> None:
+        self.directory_name = directory_name
+        self.log_name = log_name
+        self._directory = None
+        self._path = None
+        self._log = None
+        return
+
+    @property
+    def directory(self) -> Path:
+        """The directory for the file output
+
+        Raises:
+         AssertionError: the directory doesn't exist
+        """
+        if self._directory is None:
+            self._directory = Path(self.directory_name).expanduser()
+            assert self._directory.is_dir(), "The '{}' folder doesn't exist.".format(
+                self._directory)
+        return self._directory
+
+    @property
+    def path(self) -> Path:
+        """path to the log-file"""
+        if self._path is None:
+            self._path = self.directory.joinpath(self.log_name)
+        return self._path
+
+    @property
+    def log(self):
+        """File object to write log to"""
+        if self._log is None:
+            self._log = self.path.open("w", buffering=1)
+        return self._log
+
+    def __call__(self, line: str) -> None:
+        """Writes to the file and stdout
+
+        Args:
+         line: text to emit
+        """
+        self.log.write("{}\n".format(line))
+        print(line)
+        return
