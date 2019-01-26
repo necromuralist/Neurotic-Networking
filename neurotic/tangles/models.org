@@ -1,0 +1,101 @@
+#+TITLE: Model Builders
+
+#+BEGIN_SRC python :tangle models.py
+<<imports-python>>
+
+<<imports-pypi>>
+
+
+<<inception>>
+#+END_SRC
+* Imports
+** python
+   Path is only being used for type-hinting here.
+#+BEGIN_SRC python :noweb-ref imports-python
+from pathlib import Path
+#+END_SRC
+** pypi
+#+BEGIN_SRC python :noweb-ref imports-pypi
+import torch
+import torch.nn as nn
+import torch.optim as optimizer
+import torchvision.models as models
+#+END_SRC
+* Inception
+Although the constructor for the pytorch Inception model takes an =aux_logits= parameter, if you set it to false then it will raise an error saying there are unexpected keys in the state dict. But if you don't set it False it will return a tuple from the =forward= method so either set it to False after the constructor or catch a tuple as the output =(x, aux)= and throw away the second part (or figure out how to combine them). I decided to leave it set because it is supposed to help with training and changed the training function to handle it. But I don't really show that in this notebook. I'll have to re-write things later.
+
+#+BEGIN_SRC python :noweb-ref inception
+class Inception:
+    """Sets up the model, criterion, and optimizer for the transfer learning
+    
+    Args:
+     classes: number of outputs for the final layer
+     device: processor to use
+     model_path: path to a saved model
+     learning_rate: learning rate for the optimizer
+     momentum: momentum for the optimizer
+    """
+    def __init__(self, classes: int,
+                 device: torch.device=None,
+                 model_path: str=None,
+                 learning_rate: float=0.001, momentum: float=0.9) -> None:
+        self.classes = classes
+        self.model_path = model_path
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self._device = device
+        self._model = None
+        self._classifier_inputs = None
+        self._criterion = None
+        self._optimizer = None
+        return
+    
+    @property
+    def device(self) -> torch.device:
+        """Processor to use (cpu or cuda)"""
+        if self._device is None:
+            self._device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu")
+        return self._device
+    
+    @property
+    def model(self) -> models.inception_v3:
+        """The inception model"""
+        if self._model is None:
+            self._model = models.inception_v3(pretrained=True)
+            for parameter in self._model.parameters():
+                parameter.requires_grad = False
+            classifier_inputs = self._model.fc.in_features
+            self._model.fc = nn.Linear(in_features=classifier_inputs,
+                                       out_features=self.classes,
+                                       bias=True)
+            self._model.to(self.device)
+            if self.model_path:
+                self._model.load_state_dict(torch.load(self.model_path))
+        return self._model
+    
+    @property
+    def criterion(self) -> nn.CrossEntropyLoss:
+        """The loss callable"""
+        if self._criterion is None:
+            self._criterion = nn.CrossEntropyLoss()
+        return self._criterion
+    
+    @property
+    def optimizer(self) -> optimizer.SGD:
+        """The Gradient Descent object"""
+        if self._optimizer is None:
+            self._optimizer = optimizer.Adam(
+                self.model.parameters(),
+                lr=self.learning_rate)
+        return self._optimizer
+
+    def load_model(self, model_path: Path) -> None:
+        """Load a saved model
+
+        Args:
+         path: path to the parameters file
+        """
+        self.model.load_state_dict(torch.load(model_path))
+        return
+#+END_SRC

@@ -1,10 +1,15 @@
+# from python
+from pathlib import Path
+
 # from pypi
 import numpy
 import torch
 import torch.nn as nn
+import torch.optim as optimizer
 
 # this project
 from neurotic.tangles.logging import Tee
+from neurotic.tangles.timer import Timer
 
 
 class Trainer:
@@ -122,7 +127,8 @@ class Trainer:
             if training and self.is_inception:
                 # throw away the auxiliary output
                 output, _ = self.model(data)
-            output = self.model(data)
+            else:
+                output = self.model(data)
             loss = self.criterion(output, target)
             if training:
                 loss.backward()

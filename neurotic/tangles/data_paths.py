@@ -5,6 +5,9 @@ import os
 
 # from pypi
 from dotenv import load_dotenv
+from torchvision import datasets
+import torch
+import torchvision.transforms as transforms
 
 # this project
 from neurotic.base.errors import ConfigurationError
@@ -314,8 +317,177 @@ class TrainingTestingValidationPaths:
         Raises: 
          AssertionError: folder doesn't exist
         """
-        self.main.check_folder()
         self.training.check_folder()
         self.validation.check_folder()
         self.testing.check_folder()
         return
+
+
+class Transformer:
+    """builds the data-sets
+
+    Args:
+     means: list of means for each channel
+     deviations: list of standard deviations for each channel
+     image_size: size to crop the image to
+    """
+    def __init__(self,
+                 means: list=[0.485, 0.456, 0.406],
+                 deviations: list=[0.229, 0.224, 0.225],
+                 image_size: int=299) -> None:
+        self.means = means
+        self.deviations = deviations
+        self.image_size = image_size
+        self._training = None
+        self._testing = None
+        return
+
+    @property
+    def training(self) -> transforms.Compose:
+        """The image transformers for the training"""
+        if self._training is None:
+            self._training = transforms.Compose([
+                transforms.RandomRotation(30),
+                transforms.RandomResizedCrop(self.image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(self.means,
+                                     self.deviations)])
+        return self._training
+
+    @property
+    def testing(self) -> transforms.Compose:
+        """Image transforms for the testing"""
+        if self._testing is None:
+            self._testing = transforms.Compose(
+                [transforms.Resize(350),
+                 transforms.CenterCrop(self.image_size),
+                 transforms.ToTensor(),
+                 transforms.Normalize(self.means,
+                                      self.deviations)])
+        return self._testing
+
+
+class DataSets:
+    """Builds the data-sets
+    
+    Args:
+     paths: object with the paths to the data-sets
+     transformer: object with the image transformations
+    """
+    def __init__(self, paths: TrainingTestingValidationPaths=None,
+                 transformer: Transformer=None) -> None:
+        self._paths = paths
+        self._transformer = transformer
+        self._training = None
+        self._validation = None
+        self._testing = None
+        self._classes = None
+        self._class_count = None
+        return
+    
+    @property
+    def paths(self) -> TrainingTestingValidationPaths:
+        """Object with the paths to the image files"""
+        if self._paths is None:
+            self._paths = TrainingTestingValidationPaths()
+            self._paths.check()
+        return self._paths
+    
+    @property
+    def transformer(self) -> Transformer:
+        """Object with the image transforms"""
+        if self._transformer is None:
+            self._transformer = Transformer()
+        return self._transformer
+    
+    @property
+    def training(self) -> datasets.ImageFolder:
+        """The training data set"""
+        if self._training is None:
+            self._training = datasets.ImageFolder(
+                root=self.paths.training.folder,
+                transform=self.transformer.training)
+        return self._training
+    
+    @property
+    def validation(self) -> datasets.ImageFolder:
+        """The validation dataset"""
+        if self._validation is None:
+            self._validation = datasets.ImageFolder(
+                root=self.paths.validation.folder,
+                transform=self.transformer.testing)
+        return self._validation
+    
+    @property
+    def testing(self) -> datasets.ImageFolder:
+        """The test set"""
+        if self._testing is None:
+            self._testing = datasets.ImageFolder(
+                root=self.paths.testing.folder,
+                transform=self.transformer.testing)
+        return self._testing
+
+    @property
+    def classes(self) -> list:
+        """Classes in the training folder"""
+        if self._classes is None:
+            self._classes = sorted(list(self.paths.training.folder.iterdir()))
+        return self._classes
+
+    @property
+    def class_count(self) -> int:
+        """Number of classes in the training folder"""
+        if self._class_count is None:
+            self._class_count = len(self.classes)
+        return self._class_count
+
+
+class Batches:
+    """The data batch loaders
+    
+    Args:
+     datasets: a data-set builder
+     batch_size: the size of each batch loaded
+     workers: the number of processes to use
+    """
+    def __init__(self, datasets: DataSets,
+                 batch_size: int=20,
+                 workers: int=0) -> None:
+        self.datasets = datasets
+        self.batch_size = batch_size
+        self.workers = workers
+        self._training = None
+        self._validation = None
+        self._testing = None
+        return
+    
+    @property
+    def training(self) -> torch.utils.data.DataLoader:
+        """The training batches"""
+        if self._training is None:
+            self._training = torch.utils.data.DataLoader(
+                self.datasets.training,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._training
+    
+    @property
+    def validation(self) -> torch.utils.data.DataLoader:
+        """The validation batches"""
+        if self._validation is None:
+            self._validation = torch.utils.data.DataLoader(
+                self.datasets.validation,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._validation
+    
+    @property
+    def testing(self) -> torch.utils.data.DataLoader:
+        """The testing batches"""
+        if self._testing is None:
+            self._testing = torch.utils.data.DataLoader(
+                self.datasets.testing,
+                batch_size=self.batch_size,
+                shuffle=True, num_workers=self.workers)
+        return self._testing    
