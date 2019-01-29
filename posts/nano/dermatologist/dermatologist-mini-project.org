@@ -38,12 +38,13 @@ Each folder contains three sub-folders:
 ** Imports
 *** Python
 #+BEGIN_SRC ipython :session dermatologist :results none
+from pathlib import Path
 import warnings
 #+END_SRC
 *** PyPi
 #+BEGIN_SRC ipython :session dermatologist :results none
 from dotenv import load_dotenv
-from PIL import ImageFile
+from PIL import Image, ImageFile
 from torchvision import datasets
 import matplotlib
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
@@ -94,75 +95,25 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 #+END_SRC
 ** Constants
    These are some global constants
+** Load Dotenv
+#+BEGIN_SRC ipython :session dermatologist :results none
+load_dotenv()
+#+END_SRC
 *** Model Path
     This is where to save the best model.
 #+BEGIN_SRC ipython :session dermatologist :results none
 MODEL_PATH = DataPathTwo(folder_key="MODELS")
 #+END_SRC
 * The Model
-
-** Disecting the Inception Class
-   The =Inception= class bundles together a bunch of stuff that was originally being done in separate cells. Rather than putting comments all over it I'm going to show what it's doing by describing how I was doing it before I created the class.
-*** The Model Property
-The last layer of the classifier in the =Inception.model= property is the only layer of the pre-trained model that I change. In the case of the =Inception V3= model there is a single layer called /fc/, as opposed to multiple layers called /classifier/ as with the =VGG16= model, so I just re-assign it to a fully-connected layer with the number of outputs that matches the number of dog breeds.
-
-Here's a little inspection to show what it's doing.
-
-#+BEGIN_SRC ipython :session dermatologist :results output :exports both
-model_transfer = models.inception_v3(pretrained=True)
-print(model_transfer.fc)
-#+END_SRC
-
-#+RESULTS:
-: Linear(in_features=2048, out_features=1000, bias=True)
-
-#+BEGIN_SRC :session dermatologist :results none :noweb-ref transfer-input-count
-CLASSIFIER_INPUTS = model_transfer.fc.in_features
-#+END_SRC
-
-#+BEGIN_SRC ipython :session dermatologist :results output :exports both
-print(CLASSIFIER_INPUTS) 
-print(model_transfer.fc.out_features)
-#+END_SRC
-
-#+RESULTS:
-: 2048
-: 1000
-
-The layer we're going to replace has 2,048 inputs and 1,000 outputs. We'll have to match the number of inputs and change it to our 133.
-
-*** Freeze the Features Layers
-   In the =model= property I'm also freezing the parameters so that the pre-trained parameters don't change when training the last layer.
-#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-freeze
-for parameter in model_transfer.parameters():
-   parameter.requires_grad = False
-#+END_SRC
-*** The New Classifier
-  This next block of code is also in the =Inception.model= definition and is where I'm replacing the last layer with out dog-breed-classification layer.
-
-#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-classifier
-model_transfer.fc = nn.Linear(in_features=CLASSIFIER_INPUTS,
-                             out_features=BREEDS,
-                             bias=True)
-#+END_SRC
-
-*** The Loss Function and Optimizer
-   The =Inception= class uses the same loss and gradient descent definitions as the naive model did (in the =criterion= and =optimizer= properties).
-
-#+BEGIN_SRC ipython :session dermatologist :results none :noweb-ref transfer-criterion
-criterion_transfer = nn.CrossEntropyLoss()
-optimizer_transfer = optimizer.Adam(model_transfer.parameters(),
-                                 lr=0.001)
-#+END_SRC
-
 ** The Training
 
 #+BEGIN_SRC ipython :session dermatologist :results none
 load_dotenv()
 EPOCHS = 100
 transfer_path = MODEL_PATH.folder.joinpath("model_transfer.pt")
-training_log = Tee(log_name="inception_train.log")
-testing_log = Tee(log_name="inception_test.log")
+directory = "~/logs/dermatalogist"
+training_log = Tee(log_name="inception_train.log", directory_name=directory)
+testing_log = Tee(log_name="inception_test.log", directory_name=directory)
 data_sets = DataSets()
 inception = Inception(data_sets.class_count)
 batches = Batches(data_sets)
@@ -212,9 +163,151 @@ Test Accuracy: 70.95 (1419.0/2000)
 Ended: 2019-01-26 14:47:30.356073
 Elapsed: 0:14:05.649898
 #+end_example
+* The Testing
+  The remote session died so I'll just load the test output.
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+testing_log = Tee(log_name="inception_test.log", directory_name="~/logs/dermatologist")
+with testing_log.path.open() as reader:
+    for line in reader:
+        print(line.rstrip())
+#+END_SRC
 
+#+RESULTS:
+: 
+: Starting Testing
+: Test Loss: 0.620
+: Test Accuracy: 74.80 (1496.0/2000)
+
+* Prepping The Test File
+  To check the model you need to create a CSV file with three columns.
+
+| Column   | Description             | Example                               |
+|----------+-------------------------+---------------------------------------|
+| =Id=     | Path to the file        | =data/test/melanoma/ISIC_0012258.jpg= |
+| =task_1= | Is melanoma             | =0=                                   |
+| =task_2= | Is seborrheic keratosis | =1=                                   |
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+class Predictions:
+    """Maps the test data to a predictions file
+
+    Args:
+     model_path: path to the stored model parameters
+     device: processor to use
+     output_path: path to the CSV to output
+     test_path: path to the test folder
+     inception: object with the model
+    """
+    def __init__(self, model_path: Path,
+                 device: torch.device,
+                 output_path: Path,
+                 test_path: Path,
+                 data_sets: DataSets=None,                 
+                 inception: Inception=None) -> None:
+        self.model_path = model_path
+        self.output_path = output_path
+        self.test_path = test_path
+        self._device = device
+        self._data_sets = data_sets
+        self._activation = None
+        self.inception = inception
+        return
+
+    @property
+    def data_sets(self) -> DataSets:
+        """the data-sets"""
+        if self._data_sets is None:
+            self._data_sets = DataSets()
+        return self._data_sets
+
+    @property
+    def device(self):
+        """The processor to use"""
+        if self._device is None:
+            self._device = torch.device("cuda"
+                                        if torch.cuda.is_available()
+                                        else "cpu")
+        return self._device
+
+    @property
+    def inception(self) -> Inception:
+        """The Inception Object"""
+        if self._inception is None:
+            self._inception = Inception(
+                classel= self.data_sets.class_count,
+                model_path=self.model_path,
+                device=self.device)
+            self._inception.model.eval()
+        return self._inception
+
+    @property
+    def activation(self) -> nn.Sigmoid:
+        """The non-linear activation"""
+        if self._activation is None:
+            self._activation = nn.Sigmoid()
+        return self._activation
+
+    @inception.setter
+    def inception(self, new_inception: Inception) -> None:
+        """Sets the inception model to eval only"""
+        self._inception = new_inception
+        self._inception.model.eval()
+        return
+
+    def prediction(self, image_path: Path) -> numpy.ndarray:
+        """Calculate predicted class for an image
+
+        Args:
+         image_path: path to an inmage file
+        Returns:
+         array with the probabilities for each disease
+        """
+        model = self.inception.model        
+        image = Image.open(image_path)
+        tensor = self.data_sets.transformer.testing(image)
+        # add a batch number
+        tensor = tensor.unsqueeze_(0)
+        tensor = tensor.to(self.inception.device)
+        x = torch.autograd.Variable(tensor)
+        output = torch.exp(model(x))
+        _, top_class = output.topk(1, dim=1)
+        return top_class.item()
+
+    def __call__(self) -> None:
+        """Creates CSV of predictions"""
+        with self.output_path.open("w") as writer:
+            writer.write("Id,task_1,task_2\n")
+            for category in self.test_path.iterdir():
+                for path in category.iterdir():
+                    identifier = 'data/' + str(path).split("/dermatologist/")[-1]
+                    guess = self.prediction(path)
+                    first = 0 if guess else 1
+                    second = 1 if guess == 2 else 0
+                    writer.write("{},{},{}\n".format(identifier,
+                                                     first,
+                                                     second))
+        return
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+TIMER = Timer()
+test_path = DataPathTwo(folder_key="TEST").folder
+csv_output = Path("~/documents/pcloud_drive/outcomes/dermatologist/predictions.csv").expanduser()
+
+predictions = Predictions(model_path=transfer_path,
+                          device=inception.device,
+                          output_path=csv_output,
+                          test_path=test_path,
+                          data_sets=data_sets,
+                          inception=inception)
+with TIMER:
+    predictions()
+#+END_SRC
+
+#+RESULTS:
+: Started: 2019-01-28 23:40:54.278102
+: Ended: 2019-01-28 23:51:30.767418
+: Elapsed: 0:10:36.489316
 
 * References
   - [[https://github.com/udacity/dermatologist-ai][Github Repository]]
-
-
