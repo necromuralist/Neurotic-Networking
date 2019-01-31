@@ -1,0 +1,313 @@
+#+BEGIN_COMMENT
+.. title: Dermatologist Mini-Project
+.. slug: dermatologist-mini-project
+.. date: 2019-01-16 21:17:45 UTC-08:00
+.. tags: project,dermatologist,cnn,transfer learning
+.. category: Project
+.. link: 
+.. description: Replicating the melanoma-detection CNN project.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 1
+#+BEGIN_SRC ipython :session dermatologist :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Introduction
+  This is an exercise in using transfer learning to diagnose melanoma based on images of skin legions. There are three diseases to be detected:
+  - Melanoma
+  - Nevus
+  - Sebhorrheic Keratosis
+
+There is a paper online [[https://arxiv.org/pdf/1710.05006.pdf][here]] (PDF link) that describes the approaches that did best in the competition.
+* Data Sources
+  The data is taken from the [[https://challenge.kitware.com/#challenge/583f126bcad3a51cc66c8d9a][ISIC 2017: Skin Lesion Analysis Towards Melanoma Detection]] challenge.
+  - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/train.zip][Training Data]]
+  - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/valid.zip][Validation Data]]
+  - [[https://s3-us-west-1.amazonaws.com/udacity-dlnfd/datasets/skin-cancer/test.zip][Test Data]]
+
+Each folder contains three sub-folders:
+ - =melanoma/=
+ - =nevus/=
+ - =seborrheic_keratosis/=
+
+* Set Up
+** Imports
+*** Python
+#+BEGIN_SRC ipython :session dermatologist :results none
+from pathlib import Path
+import warnings
+#+END_SRC
+*** PyPi
+#+BEGIN_SRC ipython :session dermatologist :results none
+from dotenv import load_dotenv
+from PIL import Image, ImageFile
+from torchvision import datasets
+import matplotlib
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.pyplot as pyplot
+import matplotlib.image as mpimage
+import matplotlib.patches as patches
+import numpy
+import pyttsx3
+import seaborn
+import torch
+import torchvision.models as models
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optimizer
+import torchvision.transforms as transforms
+#+END_SRC
+*** This Project
+#+BEGIN_SRC ipython :session dermatologist :results none
+from neurotic.tangles.data_paths import (Batches, DataPathTwo, DataSets,
+                                         TrainingTestingValidationPaths,
+                                         Transformer)
+from neurotic.tangles.models import Inception
+from neurotic.tangles.timer import Timer
+from neurotic.tangles.trainer import Trainer
+from neurotic.tangles.logging import Tee
+#+END_SRC
+** Plotting
+#+BEGIN_SRC ipython :session dermatologist :results none
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=1)
+#+END_SRC
+** Set the Random Seed
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+numpy.random.seed(seed=2019)
+#+END_SRC
+
+** Handle Truncated Images
+   There seems to be at least one image that is truncated which will cause an exception when it's loaded so this next setting lets us ignore the error and keep working.
+#+BEGIN_SRC ipython :session dermatologist :results none
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+#+END_SRC
+** Constants
+   These are some global constants
+** Load Dotenv
+#+BEGIN_SRC ipython :session dermatologist :results none
+load_dotenv()
+#+END_SRC
+*** Model Path
+    This is where to save the best model.
+#+BEGIN_SRC ipython :session dermatologist :results none
+MODEL_PATH = DataPathTwo(folder_key="MODELS")
+#+END_SRC
+* The Model
+** The Training
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+load_dotenv()
+EPOCHS = 100
+transfer_path = MODEL_PATH.folder.joinpath("model_transfer.pt")
+directory = "~/logs/dermatalogist"
+training_log = Tee(log_name="inception_train.log", directory_name=directory)
+testing_log = Tee(log_name="inception_test.log", directory_name=directory)
+data_sets = DataSets()
+inception = Inception(data_sets.class_count)
+batches = Batches(data_sets)
+trainer = Trainer(training_batches=batches.training,
+                  validation_batches=batches.validation,
+                  testing_batches=batches.testing,
+                  model=inception.model,
+                  model_path=transfer_path,
+                  optimizer=inception.optimizer,
+                  criterion=inception.criterion ,
+                  device=inception.device,
+                  epochs=EPOCHS,
+                  epoch_start=1,
+                  is_inception=True,
+                  load_model=False,
+                  training_log=training_log,
+                  testing_log=testing_log,
+                  beep=True,
+)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+trainer()
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Starting Training
+Started: 2019-01-26 13:59:40.249210
+Started: 2019-01-26 13:59:40.249398
+Ended: 2019-01-26 14:16:25.675136
+Elapsed: 0:16:45.425738
+Epoch: 1	Training - Loss: 0.85	Accuracy: 0.67	Validation - Loss: 0.97	Accuracy: 0.53
+Validation loss decreased (inf --> 0.973706). Saving model ...
+Started: 2019-01-26 14:16:26.913182
+Ended: 2019-01-26 14:33:23.108155
+Elapsed: 0:16:56.194973
+Epoch: 2	Training - Loss: 0.78	Accuracy: 0.68	Validation - Loss: 0.93	Accuracy: 0.56
+Validation loss decreased (0.973706 --> 0.934509). Saving model ...
+Ended: 2019-01-26 14:33:23.997547
+Elapsed: 0:16:57.084365
+
+Starting Testing
+Started: 2019-01-26 14:33:24.706175
+Test Loss: 0.697
+Test Accuracy: 70.95 (1419.0/2000)
+Ended: 2019-01-26 14:47:30.356073
+Elapsed: 0:14:05.649898
+#+end_example
+* The Testing
+  The remote session died so I'll just load the test output.
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+testing_log = Tee(log_name="inception_test.log", directory_name="~/logs/dermatologist")
+with testing_log.path.open() as reader:
+    for line in reader:
+        print(line.rstrip())
+#+END_SRC
+
+#+RESULTS:
+: 
+: Starting Testing
+: Test Loss: 0.620
+: Test Accuracy: 74.80 (1496.0/2000)
+
+* Prepping The Test File
+  To check the model you need to create a CSV file with three columns.
+
+| Column   | Description             | Example                               |
+|----------+-------------------------+---------------------------------------|
+| =Id=     | Path to the file        | =data/test/melanoma/ISIC_0012258.jpg= |
+| =task_1= | Is melanoma             | =0=                                   |
+| =task_2= | Is seborrheic keratosis | =1=                                   |
+
+#+BEGIN_SRC ipython :session dermatologist :results none
+class Predictions:
+    """Maps the test data to a predictions file
+
+    Args:
+     model_path: path to the stored model parameters
+     device: processor to use
+     output_path: path to the CSV to output
+     test_path: path to the test folder
+     inception: object with the model
+    """
+    def __init__(self, model_path: Path,
+                 device: torch.device,
+                 output_path: Path,
+                 test_path: Path,
+                 data_sets: DataSets=None,                 
+                 inception: Inception=None) -> None:
+        self.model_path = model_path
+        self.output_path = output_path
+        self.test_path = test_path
+        self._device = device
+        self._data_sets = data_sets
+        self._activation = None
+        self.inception = inception
+        return
+
+    @property
+    def data_sets(self) -> DataSets:
+        """the data-sets"""
+        if self._data_sets is None:
+            self._data_sets = DataSets()
+        return self._data_sets
+
+    @property
+    def device(self):
+        """The processor to use"""
+        if self._device is None:
+            self._device = torch.device("cuda"
+                                        if torch.cuda.is_available()
+                                        else "cpu")
+        return self._device
+
+    @property
+    def inception(self) -> Inception:
+        """The Inception Object"""
+        if self._inception is None:
+            self._inception = Inception(
+                classel= self.data_sets.class_count,
+                model_path=self.model_path,
+                device=self.device)
+            self._inception.model.eval()
+        return self._inception
+
+    @property
+    def activation(self) -> nn.Sigmoid:
+        """The non-linear activation"""
+        if self._activation is None:
+            self._activation = nn.Sigmoid()
+        return self._activation
+
+    @inception.setter
+    def inception(self, new_inception: Inception) -> None:
+        """Sets the inception model to eval only"""
+        self._inception = new_inception
+        self._inception.model.eval()
+        return
+
+    def prediction(self, image_path: Path) -> numpy.ndarray:
+        """Calculate predicted class for an image
+
+        Args:
+         image_path: path to an inmage file
+        Returns:
+         array with the probabilities for each disease
+        """
+        model = self.inception.model        
+        image = Image.open(image_path)
+        tensor = self.data_sets.transformer.testing(image)
+        # add a batch number
+        tensor = tensor.unsqueeze_(0)
+        tensor = tensor.to(self.inception.device)
+        x = torch.autograd.Variable(tensor)
+        output = torch.exp(model(x))
+        _, top_class = output.topk(1, dim=1)
+        return top_class.item()
+
+    def __call__(self) -> None:
+        """Creates CSV of predictions"""
+        with self.output_path.open("w") as writer:
+            writer.write("Id,task_1,task_2\n")
+            for category in self.test_path.iterdir():
+                for path in category.iterdir():
+                    identifier = 'data/' + str(path).split("/dermatologist/")[-1]
+                    guess = self.prediction(path)
+                    first = 0 if guess else 1
+                    second = 1 if guess == 2 else 0
+                    writer.write("{},{},{}\n".format(identifier,
+                                                     first,
+                                                     second))
+        return
+#+END_SRC
+
+#+BEGIN_SRC ipython :session dermatologist :results output :exports both
+TIMER = Timer()
+test_path = DataPathTwo(folder_key="TEST").folder
+csv_output = Path("~/documents/pcloud_drive/outcomes/dermatologist/predictions.csv").expanduser()
+
+predictions = Predictions(model_path=transfer_path,
+                          device=inception.device,
+                          output_path=csv_output,
+                          test_path=test_path,
+                          data_sets=data_sets,
+                          inception=inception)
+with TIMER:
+    predictions()
+#+END_SRC
+
+#+RESULTS:
+: Started: 2019-01-29 22:36:10.975682
+: Ended: 2019-01-29 22:46:47.190355
+: Elapsed: 0:10:36.214673
+
+* References
+  - [[https://github.com/udacity/dermatologist-ai][Github Repository]]
