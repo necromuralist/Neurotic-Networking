@@ -10,34 +10,75 @@
 
 #+END_COMMENT
 #+OPTIONS: ^:{}
-#+TOC: headlines 1
+#+TOC: headlines 2
 #+BEGIN_SRC ipython :session tv :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* What is this about?
+* What is this about, then?
 In this project, you'll generate your own [[https://en.wikipedia.org/wiki/Seinfeld][Seinfeld]] TV scripts using RNNs.  You'll be using part of the [[https://www.kaggle.com/thec03u5/seinfeld-chronicles#scripts.csv][Seinfeld dataset]] of scripts from 9 seasons.  The Neural Network you'll build will generate a new ,"fake" TV script, based on patterns it recognizes in this training data.
 * Set Up
 ** Imports
 *** Python
 #+BEGIN_SRC ipython :session tv :results none
 from collections import Counter
+from functools import partial
 from pathlib import Path
+from typing import Collection
 import os
+import pickle
 #+END_SRC
 *** PyPi
-#+BEGIN_SRC ipython :session tv :results none :exports none
+#+BEGIN_SRC ipython :session tv :results none
 from dotenv import load_dotenv
 from tabulate import tabulate
+from torch.utils.data import TensorDataset, DataLoader
+import bokeh.palettes as palettes
+import numpy
+import pandas
+import hvplot.pandas
+import torch
+#+END_SRC
+*** This Project
+#+BEGIN_SRC ipython :session tv :results none
+from bartleby_the_penguin.tangles.embed_bokeh import EmbedBokeh
 #+END_SRC
 *** Support Code
 #+BEGIN_SRC ipython :session tv :results none
+from udacity.project_tv_script_generation import helper
 import udacity.project_tv_script_generation.problem_unittests as unittests
 #+END_SRC
 ** Load Dotenv
 #+BEGIN_SRC ipython :session tv :results none
 load_dotenv()
 #+END_SRC
+** The Folder Path
+   This is the path for saving files for this post.
+#+BEGIN_SRC ipython :session tv :results none
+FOLDER_PATH = Path("../../../files/posts/nano/tv-script-generation/"
+                   "tv-script-generation/")
+if not FOLDER_PATH.is_dir():
+    FOLDER_PATH.mkdir(parents=True)
+#+END_SRC
+** The Bokeh Embedder
+   This sets up the bokeh files and HTML.
+#+BEGIN_SRC ipython :session tv :results none
+Embed = partial(EmbedBokeh, folder_path=FOLDER_PATH)
+#+END_SRC
+** Check CUDA
+#+BEGIN_SRC ipython :session tv :results output
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+assert device.type == "cuda", 'No GPU found. Please use a GPU to train your neural network.'
+print("Using {}".format(device))
+#+END_SRC
+
+#+RESULTS:
+: Using cuda
+** Some Types
+#+BEGIN_SRC ipython :session tv :results none
+WordIndices = Collection(int)
+#+END_SRC
+
 * Get the Data
 #+BEGIN_SRC ipython :session tv :results none
 class Scripts:
@@ -45,20 +86,23 @@ class Scripts:
 
     Args:
      environment_key: environment variable with the source location
+     dialog_only: remove descriptive columns
     """
-    def __init__(self, environment_key: str="SCRIPTS") -> None:
-        self.environment_key = environment_key        
+    def __init__(self, environment_key: str="SCRIPTS", dialog_only: bool=True) -> None:
+        self.environment_key = environment_key
+        self.dialog_only = dialog_only
         self._script_blob = None
         self._path = None
         self._lines = None
         self._tokens = None
+        self._line_tokens = None
         return
 
     @property
     def path(self) -> Path:
         """The path to the file"""
         if self._path is None:
-            load_dotenv()
+            load_dotenv(".env")
             self._path = Path(os.environ.get("SCRIPTS")).expanduser()
             assert self._path.is_file()
         return self._path
@@ -72,10 +116,21 @@ class Scripts:
         return self._script_blob
 
     @property
+    def line_tokens(self) -> list:
+        """list of tokens for each line"""
+        if self._line_tokens is None:
+            self._line_tokens = [line.split(" ") for line in self.lines]
+        return self._line_tokens
+
+    @property
     def lines(self) -> list:
         """The lines of the script"""
         if self._lines is None:
-            self._lines = self.script_blob.split("\n")
+            lines = self.script_blob.split("\n")
+            if self.dialog_only:
+                lines = lines[1:]
+                lines = [(",").join(line.split(",")[2:-3]) for line in lines]
+            self._lines = lines
         return self._lines
 
     @property
@@ -100,6 +155,9 @@ class ScriptInspector:
         self._line_count = None
         self._count_per_line = None
         self._mean_words_per_line = None
+        self._median_words_per_line = None
+        self._max_words_per_line = None
+        self._min_words_per_line = None
         self._token_count = None
         return
 
@@ -121,8 +179,8 @@ class ScriptInspector:
     def count_per_line(self) -> list:
         """tokens per line"""
         if self._count_per_line is None:
-            self._count_per_line = [len(line.split(" "))
-                                    for line in self.scripts.lines]
+            self._count_per_line = [len(tokens)
+                                    for tokens in self.scripts.line_tokens]
         return self._count_per_line
 
     @property
@@ -132,6 +190,27 @@ class ScriptInspector:
             self._mean_words_per_line = (sum(self.count_per_line)
                                          /self.line_count)
         return self._mean_words_per_line
+
+    @property
+    def median_words_per_line(self) -> float:
+        """Median words per line in the scripts"""
+        if self._median_words_per_line is None:
+            self._median_words_per_line = numpy.median(self.count_per_line)
+        return self._median_words_per_line
+
+    @property
+    def max_words_per_line(self) -> int:
+        """Count of words in longest line"""
+        if self._max_words_per_line is None:
+            self._max_words_per_line = max(self.count_per_line)
+        return self._max_words_per_line
+
+    @property
+    def min_words_per_line(self) -> int:
+        """Count of words in shortest line"""
+        if self._min_words_per_line is None:
+            self._min_words_per_line = min(self.count_per_line)
+        return self._min_words_per_line
 
     @property
     def token_count(self) -> int:
@@ -146,7 +225,9 @@ class ScriptInspector:
         Args:
          count: number of tuples to return in the list
         """
-        return self.scripts.tokens.most_common(count)
+        if count > 0:
+            return self.scripts.tokens.most_common(count)
+        return self.scripts.tokens.most_common()[count:]
 
     def line_range(self, start: int=0, stop: int=10) -> list:
         """lines within range
@@ -165,28 +246,89 @@ inspector = ScriptInspector()
 #+END_SRC
 
 * Explore the Data
-  Note that the first line is a header, but we're ignoring that and including it with the counts. So this is /very/ rough.
 #+BEGIN_SRC ipython :session tv :results none
 view_line_range = (0, 10)
 #+END_SRC
+
+#+BEGIN_SRC ipython :session tv :results output :exports both
+words_per_line = pandas.DataFrame(inspector.count_per_line,
+                                  columns=["line_counts"])
+print(words_per_line.shape)
+#+END_SRC
+
+#+RESULTS:
+: (54617, 1)
 
 ** Dataset Statistics
 #+BEGIN_SRC ipython :session tv :results output raw :exports both
 lines = (("Number of unique tokens", "{:,}".format(inspector.token_count)),
          ("Number of lines", "{:,}".format(inspector.line_count)),
+         ("Words in longest line", "{:,}".format(inspector.max_words_per_line)),
          ("Average number of words in each line", "{:.2f}".format(
-             inspector.mean_words_per_line)))
+             inspector.mean_words_per_line)),
+         ("Median Words Per Line", "{:.2f}".format(
+             inspector.median_words_per_line)),
+         ("Words in shortest line", "{}".format(inspector.min_words_per_line))
+)
 print(tabulate(lines, headers="Statistic Value".split(), tablefmt="orgtbl"))
 #+END_SRC
 
 #+RESULTS:
-| Statistic                            | Value   |
+| Statistic                            |   Value |
 |--------------------------------------+---------|
 | Number of unique tokens              | 550,996 |
-| Number of lines                      | 54,618  |
-| Average number of words in each line | 10.09   |
+| Number of lines                      |  54,617 |
+| Words in longest line                |     363 |
+| Average number of words in each line |   10.01 |
+| Median Words Per Line                |    7.00 |
+| Words in shortest line               |       1 |
 
-** Top Ten Words
+Why would a line have 363 words?
+#+BEGIN_SRC ipython :session tv :results output :exports both
+index = words_per_line.line_counts.idxmax()
+print(inspector.count_per_line[index])
+print(inspector.scripts.lines[index])
+#+END_SRC
+
+#+RESULTS:
+: 363
+: "The dating world is not a fun world...its a pressure world, its a world of tension, its a world of pain...and you know, if a woman comes over to my house, I gotta get that bathroom ready, cause she needs things. Women need equipment. I dont know what they need. I know I dont have it, I know that- You know what they need, women seem to need a lot of cotton-balls. This is the one Im- always has been one of the amazing things to me...I have no cotton-balls, were all human beings, what is the story? Ive never had one...I never bought one, I never needed one, Ive never been in a situation, when I thought to myself I could use a cotton-ball right now. I can certainly get out of this mess. Women need them and they dont need one or two, they need thousands of them, they need bags, theyre like peat moss bags, have you ever seen these giant bags? Theyre huge and two days later, theyre out, theyre gone, the, the bag is empty, where are the cotton-balls, ladies? What are you doin with them? The only time I ever see em is in the bottom of your little waste basket, theres two or three, that look like theyve been through some horrible experience... tortured, interrogated, I dont know what happened to them. I once went out with a girl whos left a little zip-lock-baggy of cotton-balls over at my house. I dont know what to do with them, I took them out, I put them on my kitchen floor like little tumbleweeds. I thought maybe the cockroaches would see it, figure this is a dead town. Lets move on. The dating world is a world of pressure. Lets face it a date is a job interview that lasts all night. The only difference between a date and a job interview is not many job interviews is there a chance youll end up naked at the end of it. You know? Well, Bill, the boss thinks youre the man for the position, why dont you strip down and meet some of the people youll be workin with?"
+
+This is one of Seinfeld's stand up routines, so I don't think it's, strictly speaking, a line.
+
+What about one word?
+
+#+BEGIN_SRC ipython :session tv :results output :exports both
+print(inspector.scripts.lines[words_per_line.line_counts.idxmin()])
+#+END_SRC
+
+#+RESULTS:
+: Ha.
+
+There's probably a lot of one word lines ("Yes", "No", etc.).
+** Plot the Words Per Line
+
+#+BEGIN_SRC ipython :session tv :results output raw :exports both
+plot = words_per_line.line_counts.hvplot.kde(title="Word Counts Per Line Distribution")
+Embed(plot, "line_counts.js")()
+#+END_SRC
+
+#+RESULTS:
+#+BEGIN_EXPORT html
+<script src="line_counts.js" id="83b105ba-8d79-47c9-92be-ea54ed327ef8"></script>
+#+END_EXPORT
+
+#+BEGIN_SRC ipython :session tv :results output raw :exports both
+plot = words_per_line.line_counts.hvplot.box(title="Words Per Line")
+Embed(plot, "line_counts_boxplot.js")()
+#+END_SRC
+
+#+RESULTS:
+#+BEGIN_EXPORT html
+<script src="line_counts_boxplot.js" id="e5dc1c0f-70ec-4e34-8ae0-20049af0afbe"></script>
+#+END_EXPORT
+
+** Most Used Words
 #+BEGIN_SRC ipython :session tv :results output raw :exports both
 lines = ((token, "{:,}".format(count))
          for token, count in inspector.most_common_tokens())
@@ -210,6 +352,21 @@ print(tabulate(lines,
 
 So it looks like the stop words are the most common, as you might expect.
 
+#+BEGIN_SRC ipython :session tv :results output raw :exports both
+words, counts = zip(*inspector.most_common_tokens(20))
+top_twenty = pandas.DataFrame([counts], columns=words).T.reset_index()
+top_twenty.columns = ["Word", "Count"]
+layout = top_twenty.hvplot.bar(x="Word", y="Count",
+                               title="Twenty Most Used Words",
+                               colormap="Category20")
+Embed(layout, "top_twenty.js")()
+#+END_SRC
+
+#+RESULTS:
+#+BEGIN_EXPORT html
+<script src="top_twenty.js" id="5bbc20b0-45b3-4921-9ec9-2f5201d0b1fc"></script>
+#+END_EXPORT
+
 ** The First five Lines
 #+BEGIN_SRC ipython :session tv :results output :exports both
 for line in inspector.line_range(stop=5):
@@ -217,14 +374,13 @@ for line in inspector.line_range(stop=5):
 #+END_SRC
 
 #+RESULTS:
-: ,Character,Dialogue,EpisodeNo,SEID,Season
-: 0,JERRY,"Do you know what this is all about? Do you know, why were here? To be out, this is out...and out is one of the single most enjoyable experiences of life. People...did you ever hear people talking about We should go out? This is what theyre talking about...this whole thing, were all out now, no one is home. Not one person here is home, were all out! There are people tryin to find us, they dont know where we are. (on an imaginary phone) Did you ring?, I cant find him. Where did he go? He didnt tell me where he was going. He must have gone out. You wanna go out you get ready, you pick out the clothes, right? You take the shower, you get all ready, get the cash, get your friends, the car, the spot, the reservation...Then youre standing around, whatta you do? You go We gotta be getting back. Once youre out, you wanna get back! You wanna go to sleep, you wanna get up, you wanna go out again tomorrow, right? Where ever you are in life, its my feeling, youve gotta go.",1.0,S01E01,1.0
-: 1,JERRY,"(pointing at Georges shirt) See, to me, that button is in the worst possible spot. The second button literally makes or breaks the shirt, look at it. Its too high! Its in no-mans-land. You look like you live with your mother.",1.0,S01E01,1.0
-: 2,GEORGE,Are you through?,1.0,S01E01,1.0
-: 3,JERRY,"You do of course try on, when you buy?",1.0,S01E01,1.0
+: "Do you know what this is all about? Do you know, why were here? To be out, this is out...and out is one of the single most enjoyable experiences of life. People...did you ever hear people talking about We should go out? This is what theyre talking about...this whole thing, were all out now, no one is home. Not one person here is home, were all out! There are people tryin to find us, they dont know where we are. (on an imaginary phone) Did you ring?, I cant find him. Where did he go? He didnt tell me where he was going. He must have gone out. You wanna go out you get ready, you pick out the clothes, right? You take the shower, you get all ready, get the cash, get your friends, the car, the spot, the reservation...Then youre standing around, whatta you do? You go We gotta be getting back. Once youre out, you wanna get back! You wanna go to sleep, you wanna get up, you wanna go out again tomorrow, right? Where ever you are in life, its my feeling, youve gotta go."
+: "(pointing at Georges shirt) See, to me, that button is in the worst possible spot. The second button literally makes or breaks the shirt, look at it. Its too high! Its in no-mans-land. You look like you live with your mother."
+: Are you through?
+: "You do of course try on, when you buy?"
+: "Yes, it was purple, I liked it, I dont actually recall considering the buttons."
 
-As you can see it is a comma-separated file with a header. What's not so obvious is how the index works. Is it for all the lines? Since the episode number is in the row-data I would assume so.
-
+I took out the header and the identifying columns so this is just the dialog part of the data. It looks like they left in all the punctuation except for apostrophes for some reason.
 * Pre-Processing the Text
 The first thing to do to any dataset is pre-processing.  Implement the following pre-processing functions below:
  - Lookup Table
@@ -237,168 +393,170 @@ The first thing to do to any dataset is pre-processing.  Implement the following
 
 Return these dictionaries in the following **tuple** =(vocab_to_int, int_to_vocab)=
 
-# In[ ]:
-
-
-import problem_unittests as tests
-
-def create_lookup_tables(text):
+#+BEGIN_SRC ipython :session tv :results none
+def create_lookup_tables(text: list) -> tuple:
     """
     Create lookup tables for vocabulary
-    :param text: The text of tv scripts split into words
-    :return: A tuple of dicts (vocab_to_int, int_to_vocab)
-    """
-    # TODO: Implement Function
+
+    Args:
+     text The text of tv scripts split into words
     
-    # return tuple
-    return (None, None)
+    Returns: 
+     A tuple of dicts (vocab_to_int, int_to_vocab)
+    """
+    text = set(text)
+    vocabulary_to_index = {token: index for index, token in enumerate(text)}
+    index_to_vocabulary = {index: token for index, token in enumerate(text)}
+    return vocabulary_to_index, index_to_vocabulary
+#+END_SRC
+#+BEGIN_SRC ipython :session tv :results none
+test_text = '''
+Moe_Szyslak Moe's Tavern Where the elite meet to drink
+Bart_Simpson Eh yeah hello is Mike there Last name Rotch
+Moe_Szyslak Hold on I'll check Mike Rotch Mike Rotch Hey has anybody seen Mike Rotch lately
+Moe_Szyslak Listen you little puke One of these days I'm gonna catch you and I'm gonna carve my name on your back with an ice pick
+Moe_Szyslak Whats the matter Homer You're not your normal effervescent self
+Homer_Simpson I got my problems Moe Give me another one
+Moe_Szyslak Homer hey you should not drink to forget your problems
+Barney_Gumble Yeah you should only drink to enhance your social skills'''
+#+END_SRC
 
+#+BEGIN_SRC ipython :session tv :results output :exports both
+unittests.test_create_lookup_tables(create_lookup_tables)
+#+END_SRC
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
-tests.test_create_lookup_tables(create_lookup_tables)
+#+RESULTS:
+: Tests Passed
 
+** Tokenize Punctuation
+We'll be splitting the script into a word array using spaces as delimiters.  However, punctuations like periods and exclamation marks can create multiple ids for the same word. For example, "bye" and "bye!" would generate two different word ids.
 
-# ### Tokenize Punctuation
-# We'll be splitting the script into a word array using spaces as delimiters.  However, punctuations like periods and exclamation marks can create multiple ids for the same word. For example, "bye" and "bye!" would generate two different word ids.
-# 
-# Implement the function `token_lookup` to return a dict that will be used to tokenize symbols like "!" into "||Exclamation_Mark||".  Create a dictionary for the following symbols where the symbol is the key and value is the token:
-# - Period ( **.** )
-# - Comma ( **,** )
-# - Quotation Mark ( **"** )
-# - Semicolon ( **;** )
-# - Exclamation mark ( **!** )
-# - Question mark ( **?** )
-# - Left Parentheses ( **(** )
-# - Right Parentheses ( **)** )
-# - Dash ( **-** )
-# - Return ( **\n** )
-# 
-# This dictionary will be used to tokenize the symbols and add the delimiter (space) around it.  This separates each symbols as its own word, making it easier for the neural network to predict the next word. Make sure you don't use a value that could be confused as a word; for example, instead of using the value "dash", try using something like "||dash||".
+Implement the function =token_lookup= to return a dict that will be used to tokenize symbols like "!" into "||Exclamation_Mark||".  Create a dictionary for the following symbols where the symbol is the key and value is the token:
+ - Period ( **.** )
+ - Comma ( **,** )
+ - Quotation Mark ( **"** )
+ - Semicolon ( **;** )
+ - Exclamation mark ( **!** )
+ - Question mark ( **?** )
+ - Left Parentheses ( **(** )
+ - Right Parentheses ( **)** )
+ - Dash ( **-** )
+ - Return ( **\n** )
+ 
+ This dictionary will be used to tokenize the symbols and add the delimiter (space) around it.  This separates each symbols as its own word, making it easier for the neural network to predict the next word. Make sure you don't use a value that could be confused as a word; for example, instead of using the value "dash", try using something like "||dash||".
 
-# In[ ]:
-
-
+#+BEGIN_SRC ipython :session tv :results none
 def token_lookup():
     """
     Generate a dict to turn punctuation into a token.
-    :return: Tokenized dictionary where the key is the punctuation and the value is the token
+    
+    Returns:
+     Tokenized dictionary where the key is the punctuation and the value is the token
     """
-    # TODO: Implement Function
-        
-    return None
+    tokens = {'.': "period",
+              ',': 'comma',
+              '"': 'quotation',
+              ';': 'semicolon',
+              '!': 'exclamation',
+              '?': 'question',
+              '(': 'leftparenthesis',
+              ')': 'rightparenthesis',
+              '-': 'dash',
+              '\n': 'newline'}
+    return {token: '**{}**'.format(coded) for token,coded in tokens.items()}
+#+END_SRC
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
-"""
-tests.test_tokenize(token_lookup)
+#+BEGIN_SRC ipython :session tv :results output
+unittests.test_tokenize(token_lookup)
+#+END_SRC
 
+#+RESULTS:
+: Tests Passed
 
-# ## Pre-process all the data and save it
-# 
-# Running the code cell below will pre-process all the data and save it to file. You're encouraged to lok at the code for `preprocess_and_save_data` in the `helpers.py` file to see what it's doing in detail, but you do not need to change this code.
+** Pre-process all the data and save it
+ Running the code cell below will pre-process all the data and save it to file. You're encouraged to look at the code for =preprocess_and_save_data= in the =helpers.py= file to see what it's doing in detail, but you do not need to change this code.
 
-# In[ ]:
+#+BEGIN_SRC ipython :session tv :results none
+text = helper.load_data(inspector.scripts.path)
+text = text[81:]
+token_dict = token_lookup()
+for key, token in token_dict.items():
+    text = text.replace(key, ' {} '.format(token))
+text = text.lower()
+text = text.split()
+vocab_to_int, int_to_vocab = create_lookup_tables(text + list(helper.SPECIAL_WORDS.values()))
+int_text = [vocab_to_int[word] for word in text]
+pre_processed = inspector.scripts.path.parent.joinpath('preprocess.pkl')
+with pre_processed.open("wb") as writer:
+    pickle.dump((int_text, vocab_to_int, int_to_vocab, token_dict), writer)
+#+END_SRC
 
+* Check Point
+This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk.
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
-# pre-process training data
-helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)
+#+BEGIN_SRC ipython :session tv :results none
+pre_processed = inspector.scripts.path.parent.joinpath('preprocess.pkl')
+with pre_processed.open("rb") as reader:
+    int_text, vocab_to_int, int_to_vocab, token_dict = pickle.load(reader)
+#+END_SRC
 
+* Build the Neural Network
+In this section, you'll build the components necessary to build an RNN by implementing the RNN Module and forward and backpropagation functions.
 
-# # Check Point
-# This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk.
+** Input
+   Let's start with the preprocessed input data. We'll use [[http://pytorch.org/docs/master/data.html#torch.utils.data.TensorDataset][TensorDataset]] to provide a known format to our dataset; in combination with [[http://pytorch.org/docs/master/data.html#torch.utils.data.DataLoader][DataLoader]], it will handle batching, shuffling, and other dataset iteration functions.
 
-# In[ ]:
+You can create data with TensorDataset by passing in feature and target tensors. Then create a DataLoader as usual.
+#+BEGIN_SRC python
+data = TensorDataset(feature_tensors, target_tensors)
+data_loader = torch.utils.data.DataLoader(data, 
+                                          batch_size=batch_size)
+#+END_SRC
+** Batching
+ Implement the =batch_data= function to batch =words= data into chunks of size =batch_size= using the =TensorDataset= and =DataLoader= classes.
 
+You can batch words using the DataLoader, but it will be up to you to create =feature_tensors= and =target_tensors= of the correct size and content for a given =sequence_length=.
 
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
-import helper
-import problem_unittests as tests
+For example, say we have these as input:
+#+BEGIN_SRC python
+words = [1, 2, 3, 4, 5, 6, 7]
+sequence_length = 4
+#+END_SRC
 
-int_text, vocab_to_int, int_to_vocab, token_dict = helper.load_preprocess()
+ Your first =feature_tensor= should contain the values:
+#+BEGIN_SRC python
+[1, 2, 3, 4]
+#+END_SRC
 
+And the corresponding ~target_tensor~ should just be the next "word"/tokenized word value:
+#+BEGIN_SRC python
+5
+#+END_SRC
 
-# ## Build the Neural Network
-# In this section, you'll build the components necessary to build an RNN by implementing the RNN Module and forward and backpropagation functions.
-# 
-# ### Check Access to GPU
+This should continue with the second ~feature_tensor~, ~target_tensor~ being:
+#+BEGIN_SRC python
+[2, 3, 4, 5]  # features
+6             # target
+#+END_SRC
 
-# In[ ]:
-
-
-"""
-DON'T MODIFY ANYTHING IN THIS CELL
-"""
-import torch
-
-# Check for a GPU
-train_on_gpu = torch.cuda.is_available()
-if not train_on_gpu:
-    print('No GPU found. Please use a GPU to train your neural network.')
-
-
-# ## Input
-# Let's start with the preprocessed input data. We'll use [TensorDataset](http://pytorch.org/docs/master/data.html#torch.utils.data.TensorDataset) to provide a known format to our dataset; in combination with [DataLoader](http://pytorch.org/docs/master/data.html#torch.utils.data.DataLoader), it will handle batching, shuffling, and other dataset iteration functions.
-# 
-# You can create data with TensorDataset by passing in feature and target tensors. Then create a DataLoader as usual.
-# ```
-# data = TensorDataset(feature_tensors, target_tensors)
-# data_loader = torch.utils.data.DataLoader(data, 
-#                                           batch_size=batch_size)
-# ```
-# 
-# ### Batching
-# Implement the `batch_data` function to batch `words` data into chunks of size `batch_size` using the `TensorDataset` and `DataLoader` classes.
-# 
-# >You can batch words using the DataLoader, but it will be up to you to create `feature_tensors` and `target_tensors` of the correct size and content for a given `sequence_length`.
-# 
-# For example, say we have these as input:
-# ```
-# words = [1, 2, 3, 4, 5, 6, 7]
-# sequence_length = 4
-# ```
-# 
-# Your first `feature_tensor` should contain the values:
-# ```
-# [1, 2, 3, 4]
-# ```
-# And the corresponding `target_tensor` should just be the next "word"/tokenized word value:
-# ```
-# 5
-# ```
-# This should continue with the second `feature_tensor`, `target_tensor` being:
-# ```
-# [2, 3, 4, 5]  # features
-# 6             # target
-# ```
-
-# In[ ]:
-
-
-from torch.utils.data import TensorDataset, DataLoader
-
-
-def batch_data(words, sequence_length, batch_size):
+#+BEGIN_SRC ipython :session tv :results none
+def batch_data(words: WordIndices, sequence_length: int, batch_size: int) -> DataLoader:
     """
     Batch the neural network data using DataLoader
-    :param words: The word ids of the TV scripts
-    :param sequence_length: The sequence length of each batch
-    :param batch_size: The size of each batch; the number of sequences in a batch
-    :return: DataLoader with batched data
-    """
-    # TODO: Implement function
-    
-    # return a dataloader
-    return None
 
-# there is no test for this function, but you are encouraged to create
-# print statements and tests of your own
+    Args:
+     - words: The word ids of the TV scripts
+     - sequence_length: The sequence length of each batch
+     - batch_size: The size of each batch; the number of sequences in a batch
+    Returns: 
+     DataLoader with batched data
+    """
+    feature_tensor = torch.Tensor(words[:sequence_length])
+    target_tensor = torch.Tensor(words[sequence_length])
+    return DataLoader()
+#+END_SRC
+
+There is no test for this function, but you are encouraged to create tests of your own.
 
 
 # ### Test your dataloader 

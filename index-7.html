@@ -48,6 +48,591 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nano/style-transfer/style-transfer/">Style Transfer</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nano/style-transfer/style-transfer/" rel="bookmark"><time class="published dt-published" datetime="2018-12-22T14:44:24-08:00" itemprop="datePublished" title="2018-12-22 14:44">2018-12-22 14:44</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nano/style-transfer/style-transfer/#orge7484c5">Introduction</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org1cd1da6">Set Up</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org4a2e1e9">The VGG 19 Network</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org8435d2b">Load in Content and Style Images</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org7674a7f">VGG19 Layers</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org368bf6f">Content and Style Features</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org84f441e">Gram Matrix</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#orgb0032fb">Putting it all Together</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org7b6b9e8">Loss and Weights</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org655270a">Updating the Target & Calculating Losses</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org96b3744">Content Loss</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org7179d56">Style Loss</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#org2958024">Total Loss</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#orgda6db02">Display the Target Image</a></li>
+<li><a href="posts/nano/style-transfer/style-transfer/#orge966afd">A Holhwein Transfer</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge7484c5">
+<h2 id="orge7484c5">Introduction</h2>
+<div class="outline-text-2" id="text-orge7484c5">
+<p>In this notebook, we’ll <b>recreate</b> a style transfer method that is outlined in the paper, <a href="https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Gatys_Image_Style_Transfer_CVPR_2016_paper.pdf">Image Style Transfer Using Convolutional Neural Networks, by Gatys</a> in PyTorch.</p>
+<p>In this paper, style transfer uses the features found in the 19-layer VGG Network, which is comprised of a series of convolutional and pooling layers, and a few fully-connected layers. In the image below, the convolutional layers are named by stack and their order in the stack. Conv_1_1 is the first convolutional layer that an image is passed through, in the first stack. Conv_2_1 is the first convolutional layer in the <b>second</b> stack. The deepest convolutional layer in the network is conv_5_4.</p>
+</div>
+<div class="outline-3" id="outline-container-orga50afff">
+<h3 id="orga50afff">Separating Style and Content</h3>
+<div class="outline-text-3" id="text-orga50afff">
+<p>Style transfer relies on separating the content and style of an image. Given one content image and one style image, we aim to create a new, <i>target</i> image which should contain our desired content and style components:</p>
+<ul class="org-ul">
+<li>objects and their arrangement are similar to that of the <b>content image</b></li>
+<li>style, colors, and textures are similar to that of the <b>style image</b></li>
+</ul>
+<p>In this notebook, we'll use a pre-trained VGG19 Net to extract content or style features from a passed in image. We'll then formalize the idea of content and style <i>losses</i> and use those to iteratively update our target image until we get a result that we want. You are encouraged to use a style and content image of your own and share your work on Twitter with @udacity; we'd love to see what you come up with!</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org1cd1da6">
+<h2 id="org1cd1da6">Set Up</h2>
+<div class="outline-text-2" id="text-org1cd1da6"></div>
+<div class="outline-3" id="outline-container-org200c331">
+<h3 id="org200c331">Imports</h3>
+<div class="outline-text-3" id="text-org200c331"></div>
+<div class="outline-4" id="outline-container-org576f42b">
+<h4 id="org576f42b">Python Standard Library</h4>
+<div class="outline-text-4" id="text-org576f42b">
+<div class="highlight">
+<pre><span></span>from datetime import datetime
+import pathlib
+from typing import Union
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgacbaaf0">
+<h4 id="orgacbaaf0">From PyPi</h4>
+<div class="outline-text-4" id="text-orgacbaaf0">
+<div class="highlight">
+<pre><span></span>start = datetime.now()
+from dotenv import load_dotenv
+from PIL import Image
+import matplotlib.pyplot as pyplot
+import numpy
+import seaborn
+import torch
+import torch.optim as optim
+import torch.nn.functional as F
+from torchvision import transforms, models
+print("Elapsed: {}".format(datetime.now() - start))
+</pre></div>
+<pre class="example">
+Elapsed: 0:00:03.711236
+
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orgdd271eb">
+<h4 id="orgdd271eb">This Project</h4>
+<div class="outline-text-4" id="text-orgdd271eb">
+<div class="highlight">
+<pre><span></span>from neurotic.tangles.data_paths import DataPathTwo
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org6af41dd">
+<h3 id="org6af41dd">Plotting</h3>
+<div class="outline-text-3" id="text-org6af41dd">
+<div class="highlight">
+<pre><span></span>get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "font.size": 12,
+                "xtick.labelsize": 10,
+                "ytick.labelsize": 10,
+                "axes.titlesize": 12,
+                "figure.figsize": (8, 6),
+            },
+            font_scale=3)
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org92724b6">
+<h3 id="org92724b6">Typing</h3>
+<div class="outline-text-3" id="text-org92724b6">
+<div class="highlight">
+<pre><span></span>PathType = Union[pathlib.Path, str]
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org4a2e1e9">
+<h2 id="org4a2e1e9">The VGG 19 Network</h2>
+<div class="outline-text-2" id="text-org4a2e1e9"></div>
+<div class="outline-3" id="outline-container-orgd1aab74">
+<h3 id="orgd1aab74">Load in VGG19 (features)</h3>
+<div class="outline-text-3" id="text-orgd1aab74">
+<p>VGG19 is split into two portions:</p>
+<ul class="org-ul">
+<li><code>vgg19.features</code>, which are all the convolutional and pooling layers</li>
+<li><code>vgg19.classifier</code>, which are the three linear, classifier layers at the end</li>
+</ul>
+<p>We only need the <code>features</code> portion, which we're going to load in and "freeze" the weights of, below.</p>
+<p>Get the "features" portion of VGG19 (we will not need the "classifier" portion).</p>
+<div class="highlight">
+<pre><span></span>start = datetime.now()
+vgg = models.vgg19(pretrained=True).features
+print("Elapsed: {}".format(datetime.now() - start))
+</pre></div>
+<pre class="example">
+Elapsed: 0:00:03.197737
+
+</pre>
+<p>Freeze all VGG parameters since we're only optimizing the target image.</p>
+<div class="highlight">
+<pre><span></span>for param in vgg.parameters():
+    param.requires_grad_(False)
+</pre></div>
+<p>move the model to GPU, if available</p>
+<div class="highlight">
+<pre><span></span>start = datetime.now()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+vgg.to(device)
+print("Using: {}".format(device))
+print("Elapsed: {}".format(datetime.now() - start))
+</pre></div>
+<pre class="example">
+Using: cuda
+Elapsed: 0:00:04.951571
+
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org8435d2b">
+<h2 id="org8435d2b">Load in Content and Style Images</h2>
+<div class="outline-text-2" id="text-org8435d2b">
+<p>You can load in any images you want! Below, we've provided a helper function for loading in any type and size of image. The <code>load_image</code> function also converts images to normalized Tensors.</p>
+<p>Additionally, it will be easier to have smaller images and to squish the content and style images so that they are of the same size.</p>
+<div class="highlight">
+<pre><span></span>def load_image(img_path: PathType, max_size: int=400, shape=None):
+    ''' Load in and transform an image, making sure the image
+       is &lt;= max_size pixels in the x-y dims.'''
+
+    image = Image.open(img_path).convert('RGB')
+
+    # large images will slow down processing
+    if max(image.size) &gt; max_size:
+        size = max_size
+    else:
+        size = max(image.size)
+
+    if shape is not None:
+        size = shape
+
+    in_transform = transforms.Compose([
+                        transforms.Resize(size),
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.485, 0.456, 0.406), 
+                                             (0.229, 0.224, 0.225))])
+
+    # discard the transparent, alpha channel (that's the :3) and add the batch dimension
+    image = in_transform(image)[:3,:,:].unsqueeze(0)
+
+    return image
+</pre></div>
+<p>Next, I'm loading in images by file name and forcing the style image to be the same size as the content image.</p>
+<p>Load in content and style image.</p>
+<div class="highlight">
+<pre><span></span>load_dotenv()
+max_size = 400 if torch.cuda.is_available() else 128
+path = DataPathTwo(folder_key="IMAGES", filename_key="RAVEN")
+content = load_image(path.from_folder, max_size=max_size).to(device)
+</pre></div>
+<p>Resize style to match content, makes code easier</p>
+<div class="highlight">
+<pre><span></span>style_path = DataPathTwo(filename_key="VERMEER", folder_key="IMAGES")
+style = load_image(style_path.from_folder, shape=content.shape[-2:]).to(device)
+</pre></div>
+<p>A helper function for un-normalizing an image and converting it from a Tensor image to a NumPy image for display.</p>
+<div class="highlight">
+<pre><span></span>def im_convert(tensor: torch.Tensor) -&gt; numpy.ndarray:
+    """ Display a tensor as an image.
+
+    Args:
+     tensor: tensor with image
+
+    Returns:
+     numpy image from tensor
+    """
+
+    image = tensor.to("cpu").clone().detach()
+    image = image.numpy().squeeze()
+    image = image.transpose(1,2,0)
+    image = image * numpy.array((0.229, 0.224, 0.225)) + numpy.array((0.485, 0.456, 0.406))
+    image = image.clip(0, 1)
+    return image
+</pre></div>
+<p>Display the images.</p>
+<div class="highlight">
+<pre><span></span>figure, (ax1, ax2) = pyplot.subplots(1, 2)
+figure.suptitle("Content and Style Images Side-By-Side", weight="bold", y=0.75)
+ax1.set_title("Raven (content)")
+ax2.set_title("Girl With a Pearl Earring (style)")
+ax1.imshow(im_convert(content))
+image = ax2.imshow(im_convert(style))
+</pre></div>
+<div class="figure">
+<p><img alt="images.png" src="posts/nano/style-transfer/style-transfer/images.png"></p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org7674a7f">
+<h2 id="org7674a7f">VGG19 Layers</h2>
+<div class="outline-text-2" id="text-org7674a7f">
+<p>To get the content and style representations of an image, we have to pass an image forward through the VGG19 network until we get to the desired layer(s) and then get the output from that layer.</p>
+<p>Print out VGG19 structure so you can see the names of various layers.</p>
+<div class="highlight">
+<pre><span></span>print(vgg)
+</pre></div>
+<pre class="example">
+Sequential(
+  (0): Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (1): ReLU(inplace)
+  (2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (3): ReLU(inplace)
+  (4): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+  (5): Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (6): ReLU(inplace)
+  (7): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (8): ReLU(inplace)
+  (9): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+  (10): Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (11): ReLU(inplace)
+  (12): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (13): ReLU(inplace)
+  (14): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (15): ReLU(inplace)
+  (16): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (17): ReLU(inplace)
+  (18): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+  (19): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (20): ReLU(inplace)
+  (21): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (22): ReLU(inplace)
+  (23): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (24): ReLU(inplace)
+  (25): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (26): ReLU(inplace)
+  (27): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+  (28): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (29): ReLU(inplace)
+  (30): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (31): ReLU(inplace)
+  (32): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (33): ReLU(inplace)
+  (34): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (35): ReLU(inplace)
+  (36): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+)
+</pre></div>
+</div>
+<div class="outline-2" id="outline-container-org368bf6f">
+<h2 id="org368bf6f">Content and Style Features</h2>
+<div class="outline-text-2" id="text-org368bf6f">
+<div class="highlight">
+<pre><span></span>def get_features(image, model, layers=None):
+    """ Run an image forward through a model and get the features for 
+        a set of layers. Default layers are for VGGNet matching Gatys et al (2016)
+    """
+    if layers is None:
+        layers = {'0': 'conv1_1',
+                  '5': 'conv2_1',
+                  '10': 'conv3_1', 
+                  '19': 'conv4_1',
+                  '21': 'conv4_2',  ## content representation
+                  '28': 'conv5_1'}
+
+
+    ## -- do not need to change the code below this line -- ##
+    features = {}
+    x = image
+    # model._modules is a dictionary holding each module in the model
+    for name, layer in model._modules.items():
+        x = layer(x)
+        if name in layers:
+            features[layers[name]] = x            
+    return features
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org84f441e">
+<h2 id="org84f441e">Gram Matrix</h2>
+<div class="outline-text-2" id="text-org84f441e">
+<p>The output of every convolutional layer is a Tensor with dimensions associated with the <code>batch_size</code>, a depth, <code>d</code> and some height and width (<code>h</code>, <code>w</code>). The Gram matrix of a convolutional layer can be calculated as follows:</p>
+<ul class="org-ul">
+<li>Get the depth, height, and width of a tensor using <code>batch_size, d, h, w = tensor.size</code></li>
+<li>Reshape that tensor so that the spatial dimensions are flattened</li>
+<li>Calculate the gram matrix by multiplying the reshaped tensor by it's transpose</li>
+</ul>
+<p><b>Note: You can multiply two matrices using <code>torch.mm(matrix1, matrix2)</code>.</b></p>
+<div class="highlight">
+<pre><span></span>def gram_matrix(tensor: torch.Tensor) -&gt; torch.Tensor:
+    """ Calculate the Gram Matrix of a given tensor 
+        Gram Matrix: https://en.wikipedia.org/wiki/Gramian_matrix
+    """
+    batch_size, depth, height, width = tensor.size()
+    tensor = tensor.view(batch_size * depth, height * width)
+    gram = torch.mm(tensor, tensor.t())
+    return gram 
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgb0032fb">
+<h2 id="orgb0032fb">Putting it all Together</h2>
+<div class="outline-text-2" id="text-orgb0032fb">
+<p>Now that we've written functions for extracting features and computing the gram matrix of a given convolutional layer; let's put all these pieces together! We'll extract our features from our images and calculate the gram matrices for each layer in our style representation.</p>
+<p>Get content and style features only once before forming the target image.</p>
+<div class="highlight">
+<pre><span></span>content_features = get_features(content, vgg)
+style_features = get_features(style, vgg)
+</pre></div>
+<p>calculate the gram matrices for each layer of our style representation</p>
+<div class="highlight">
+<pre><span></span>style_grams = {layer: gram_matrix(style_features[layer]) for layer in style_features}
+</pre></div>
+<p>Create a third "target" image and prep it for change. It is a good idea to start off with the target as a copy of our <b>content</b> image then iteratively change its style.</p>
+<div class="highlight">
+<pre><span></span>target = content.clone().requires_grad_(True).to(device)
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org7b6b9e8">
+<h2 id="org7b6b9e8">Loss and Weights</h2>
+<div class="outline-text-2" id="text-org7b6b9e8"></div>
+<div class="outline-3" id="outline-container-org1f8ef15">
+<h3 id="org1f8ef15">Individual Layer Style Weights</h3>
+<div class="outline-text-3" id="text-org1f8ef15">
+<p>Below, you are given the option to weight the style representation at each relevant layer. It's suggested that you use a range between 0-1 to weight these layers. By weighting earlier layers (<code>conv1_1</code> and <code>conv2_1</code>) more, you can expect to get <i>larger</i> style artifacts in your resulting, target image. Should you choose to weight later layers, you'll get more emphasis on smaller features. This is because each layer is a different size and together they create a multi-scale style representation!</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgf58add0">
+<h3 id="orgf58add0">Content and Style Weight</h3>
+<div class="outline-text-3" id="text-orgf58add0">
+<p>Just like in the paper, we define an alpha (<code>content_weight</code>) and a beta (<code>style_weight</code>). This ratio will affect how <i>stylized</i> your final image is. It's recommended that you leave the content_weight = 1 and set the style_weight to achieve the ratio you want.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org9dd0248">
+<h3 id="org9dd0248">Weights For Each Style Layer</h3>
+<div class="outline-text-3" id="text-org9dd0248">
+<p>Weighting earlier layers more will result in <b>larger</b> style artifacts. Notice we are excluding <code>conv4_2</code> our content representation.</p>
+<div class="highlight">
+<pre><span></span>style_weights = {'conv1_1': 1.,
+                 'conv2_1': 0.8,
+                 'conv3_1': 0.6,
+                 'conv4_1': 0.4,
+                 'conv5_1': 0.2}
+</pre></div>
+<div class="highlight">
+<pre><span></span>content_weight = 1  # alpha
+style_weight = 1e6  # beta
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org655270a">
+<h2 id="org655270a">Updating the Target & Calculating Losses</h2>
+<div class="outline-text-2" id="text-org655270a">
+<p>You'll decide on a number of steps for which to update your image, this is similar to the training loop that you've seen before, only we are changing our <span class="underline">target</span> image and nothing else about VGG19 or any other image. Therefore, the number of steps is really up to you to set! <b>I recommend using at least 2000 steps for good results.</b> But, you may want to start out with fewer steps if you are just testing out different weight values or experimenting with different images.</p>
+<p>Inside the iteration loop, you'll calculate the content and style losses and update your target image, accordingly.</p>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org96b3744">
+<h2 id="org96b3744">Content Loss</h2>
+<div class="outline-text-2" id="text-org96b3744">
+<p>The content loss will be the mean squared difference between the target and content features at layer <code>conv4_2</code>. This can be calculated as follows:</p>
+<div class="highlight">
+<pre><span></span><span class="n">content_loss</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">((</span><span class="n">target_features</span><span class="p">[</span><span class="s1">'conv4_2'</span><span class="p">]</span> <span class="o">-</span> <span class="n">content_features</span><span class="p">[</span><span class="s1">'conv4_2'</span><span class="p">])</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org7179d56">
+<h2 id="org7179d56">Style Loss</h2>
+<div class="outline-text-2" id="text-org7179d56">
+<p>The style loss is calculated in a similar way, only you have to iterate through a number of layers, specified by name in our dictionary <code>style_weights</code>.</p>
+<ul class="org-ul">
+<li>You'll calculate the gram matrix for the target image, <code>target_gram</code> and style image <code>style_gram</code> at each of these layers and compare those gram matrices, calculating the <code>layer_style_loss</code>.</li>
+<li>Later, you'll see that this value is normalized by the size of the layer.</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org2958024">
+<h2 id="org2958024">Total Loss</h2>
+<div class="outline-text-2" id="text-org2958024">
+<p>Finally, you'll create the total loss by adding up the style and content losses and weighting them with your specified alpha and beta!</p>
+<p>Intermittently, we'll print out this loss; don't be alarmed if the loss is very large. It takes some time for an image's style to change and you should focus on the appearance of your target image rather than any loss value. Still, you should see that this loss decreases over some number of iterations.</p>
+<div class="highlight">
+<pre><span></span>show_every = 400
+
+# iteration hyperparameters
+optimizer = optim.Adam([target], lr=0.003)
+steps = 2000  # decide how many iterations to update your image (5000)
+CONTENT_LAYER = "conv4_2"
+start = datetime.now()
+for repetition in range(1, steps+1):
+    target_features = get_features(target, vgg)
+    content_loss = F.mse_loss(target_features[CONTENT_LAYER],
+                              content_features[CONTENT_LAYER])
+
+    # the style loss
+    # initialize the style loss to 0
+    style_loss = 0
+    # iterate through each style layer and add to the style loss
+    for layer in style_weights:
+        # get the "target" style representation for the layer
+        target_feature = target_features[layer]
+        _, d, h, w = target_feature.shape
+
+        target_gram = gram_matrix(target_feature)
+
+        style_gram = style_grams[layer]
+
+        layer_style_loss = style_weights[layer] * F.mse_loss(target_gram,
+                                                             style_gram)
+        # add to the style loss
+        style_loss += layer_style_loss / (d * h * w)
+
+    total_loss = content_weight * content_loss + style_weight * style_loss
+
+    ## -- do not need to change code, below -- ##
+    # update your target image
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+    # display intermediate images and print the loss
+    if  repetition % show_every == 0:
+        print('({}) Total loss: {}'.format(repetition, total_loss.item()))
+        #plt.imshow(im_convert(target))
+        #plt.show()
+print("Elapsed: {}".format(datetime.now() - start))
+</pre></div>
+<pre class="example">
+(400) Total loss: 26489776.0
+(800) Total loss: 12765434.0
+(1200) Total loss: 8439541.0
+(1600) Total loss: 6268045.0
+(2000) Total loss: 4820489.5
+Elapsed: 0:08:03.885520
+
+</pre></div>
+</div>
+<div class="outline-2" id="outline-container-orgda6db02">
+<h2 id="orgda6db02">Display the Target Image</h2>
+<div class="outline-text-2" id="text-orgda6db02">
+<div class="highlight">
+<pre><span></span>figure, (ax1, ax2) = pyplot.subplots(1, 2)
+figure.suptitle("Vermeer Raven", weight="bold", y=0.75)
+ax1.imshow(im_convert(content))
+image = ax2.imshow(im_convert(target))
+</pre></div>
+<div class="figure">
+<p><img alt="raven_vermeer.png" src="posts/nano/style-transfer/style-transfer/raven_vermeer.png"></p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge966afd">
+<h2 id="orge966afd">A Holhwein Transfer</h2>
+<div class="outline-text-2" id="text-orge966afd">
+<div class="highlight">
+<pre><span></span>max_size = 400 if torch.cuda.is_available() else 128
+path = DataPathTwo(folder_key="IMAGES", filename_key="RAVEN")
+content = load_image(path.from_folder, max_size=max_size).to(device)
+
+style_path = DataPathTwo(filename_key="HOHLWEIN", folder_key="IMAGES")
+style = load_image(style_path.from_folder, shape=content.shape[-2:]).to(device)
+
+content_features = get_features(content, vgg)
+target = content.clone().requires_grad_(True).to(device)
+content_loss = torch.mean((target_features['conv4_2'] - content_features['conv4_2'])**2)
+style_features = get_features(style, vgg)
+style_grams = {layer: gram_matrix(style_features[layer]) for layer in style_features}
+</pre></div>
+<div class="highlight">
+<pre><span></span>show_every = 400
+vgg = models.vgg19(pretrained=True).features
+for param in vgg.parameters():
+    param.requires_grad_(False)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+vgg.to(device)
+# iteration hyperparameters
+optimizer = optim.Adam([target], lr=0.003)
+steps = 2000  # decide how many iterations to update your image (5000)
+CONTENT_LAYER = "conv4_2"
+start = datetime.now()
+for repetition in range(1, steps+1):
+    target_features = get_features(target, vgg)
+    content_loss = F.mse_loss(target_features[CONTENT_LAYER],
+                              content_features[CONTENT_LAYER])
+
+    # the style loss
+    # initialize the style loss to 0
+    style_loss = 0
+    # iterate through each style layer and add to the style loss
+    for layer in style_weights:
+        # get the "target" style representation for the layer
+        target_feature = target_features[layer]
+        _, d, h, w = target_feature.shape
+
+        target_gram = gram_matrix(target_feature)
+
+        style_gram = style_grams[layer]
+
+        layer_style_loss = style_weights[layer] * F.mse_loss(target_gram,
+                                                             style_gram)
+        # add to the style loss
+        style_loss += layer_style_loss / (d * h * w)
+
+    total_loss = content_weight * content_loss + style_weight * style_loss
+
+    ## -- do not need to change code, below -- ##
+    # update your target image
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+    # display intermediate images and print the loss
+    if  repetition % show_every == 0:
+        print('({}) Total loss: {}'.format(repetition, total_loss.item()))
+print("Elapsed: {}".format(datetime.now() - start))
+</pre></div>
+<pre class="example">
+(400) Total loss: 38191616.0
+(800) Total loss: 19276114.0
+(1200) Total loss: 12646590.0
+(1600) Total loss: 9095670.0
+(2000) Total loss: 6934397.0
+Elapsed: 0:08:09.517655
+
+</pre>
+<div class="highlight">
+<pre><span></span>figure, (ax1, ax2) = pyplot.subplots(1, 2)
+figure.suptitle("Hohlwein Raven", weight="bold", y=.8)
+ax1.imshow(im_convert(content))
+image = ax2.imshow(im_convert(target))
+</pre></div>
+<div class="figure">
+<p><img alt="hohlwein_raven.png" src="posts/nano/style-transfer/style-transfer/hohlwein_raven.png"></p>
+</div>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nano/autoencoders/denoising-autoencoder/">Denoising Autoencoder</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>

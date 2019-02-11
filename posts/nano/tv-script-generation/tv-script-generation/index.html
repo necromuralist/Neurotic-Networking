@@ -15,6 +15,7 @@
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
 <meta content="Cloistered Monkey" name="author">
 <link href="../../../more-links/" rel="prev" title="More Links" type="text/html">
+<link href="../../../pytorch/text/chatbot-tutorial/" rel="next" title="Chatbot Tutorial" type="text/html">
 <meta content="In Too Deep" property="og:site_name">
 <meta content="TV Script Generation" property="og:title">
 <meta content="https://necromuralist.github.io/In-Too-Deep/posts/nano/tv-script-generation/tv-script-generation/" property="og:url">
@@ -69,80 +70,175 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#orgb224de0">What is this about?</a></li>
-<li><a href="#orgeeb2191">Set Up</a></li>
-<li><a href="#orgd1c1622">Get the Data</a></li>
-<li><a href="#org9fc01e3">Explore the Data</a></li>
-<li><a href="#org785a27b">Pre-Processing the Text</a></li>
+<li><a href="#orga78ac27">What is this about, then?</a></li>
+<li><a href="#orged01366">Set Up</a>
+<ul>
+<li><a href="#org56095c7">Imports</a></li>
+<li><a href="#orgc00fb48">Load Dotenv</a></li>
+<li><a href="#org922d30b">The Folder Path</a></li>
+<li><a href="#orgd6740fd">The Bokeh Embedder</a></li>
+<li><a href="#org68f57fe">Check CUDA</a></li>
+<li><a href="#org2bb6f43">Some Types</a></li>
+</ul>
+</li>
+<li><a href="#org03c607d">Get the Data</a></li>
+<li><a href="#org95f8fd7">Explore the Data</a>
+<ul>
+<li><a href="#org624a208">Dataset Statistics</a></li>
+<li><a href="#orgdb2cc3d">Plot the Words Per Line</a></li>
+<li><a href="#orgbc9d1b2">Most Used Words</a></li>
+<li><a href="#org6fd386a">The First five Lines</a></li>
+</ul>
+</li>
+<li><a href="#org412c08a">Pre-Processing the Text</a>
+<ul>
+<li><a href="#org316d77c">Lookup Table</a></li>
+<li><a href="#org4792a03">Tokenize Punctuation</a></li>
+<li><a href="#orge707109">Pre-process all the data and save it</a></li>
+</ul>
+</li>
+<li><a href="#orge1fdaed">Check Point</a></li>
+<li><a href="#org5047691">Build the Neural Network</a>
+<ul>
+<li><a href="#org361effd">Input</a></li>
+<li><a href="#orgccea3b8">Batching</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgb224de0">
-<h2 id="orgb224de0">What is this about?</h2>
-<div class="outline-text-2" id="text-orgb224de0">
+<div class="outline-2" id="outline-container-orga78ac27">
+<h2 id="orga78ac27">What is this about, then?</h2>
+<div class="outline-text-2" id="text-orga78ac27">
 <p>In this project, you'll generate your own <a href="https://en.wikipedia.org/wiki/Seinfeld">Seinfeld</a> TV scripts using RNNs. You'll be using part of the <a href="https://www.kaggle.com/thec03u5/seinfeld-chronicles#scripts.csv">Seinfeld dataset</a> of scripts from 9 seasons. The Neural Network you'll build will generate a new ,"fake" TV script, based on patterns it recognizes in this training data.</p>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgeeb2191">
-<h2 id="orgeeb2191">Set Up</h2>
-<div class="outline-text-2" id="text-orgeeb2191"></div>
-<div class="outline-3" id="outline-container-orge53924b">
-<h3 id="orge53924b">Imports</h3>
-<div class="outline-text-3" id="text-orge53924b"></div>
-<div class="outline-4" id="outline-container-org83faf6d">
-<h4 id="org83faf6d">Python</h4>
-<div class="outline-text-4" id="text-org83faf6d">
+<div class="outline-2" id="outline-container-orged01366">
+<h2 id="orged01366">Set Up</h2>
+<div class="outline-text-2" id="text-orged01366"></div>
+<div class="outline-3" id="outline-container-org56095c7">
+<h3 id="org56095c7">Imports</h3>
+<div class="outline-text-3" id="text-org56095c7"></div>
+<div class="outline-4" id="outline-container-orgcb083e3">
+<h4 id="orgcb083e3">Python</h4>
+<div class="outline-text-4" id="text-orgcb083e3">
 <div class="highlight">
 <pre><span></span>from collections import Counter
+from functools import partial
 from pathlib import Path
+from typing import Collection
 import os
+import pickle
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgcaf0e70">
-<h4 id="orgcaf0e70">PyPi</h4>
-</div>
-<div class="outline-4" id="outline-container-org21ed799">
-<h4 id="org21ed799">Support Code</h4>
-<div class="outline-text-4" id="text-org21ed799">
+<div class="outline-4" id="outline-container-org673c7f6">
+<h4 id="org673c7f6">PyPi</h4>
+<div class="outline-text-4" id="text-org673c7f6">
 <div class="highlight">
-<pre><span></span>import udacity.project_tv_script_generation.problem_unittests as unittests
+<pre><span></span>from dotenv import load_dotenv
+from tabulate import tabulate
+from torch.utils.data import TensorDataset, DataLoader
+import bokeh.palettes as palettes
+import numpy
+import pandas
+import hvplot.pandas
+import torch
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org87d764e">
+<h4 id="org87d764e">This Project</h4>
+<div class="outline-text-4" id="text-org87d764e">
+<div class="highlight">
+<pre><span></span>from bartleby_the_penguin.tangles.embed_bokeh import EmbedBokeh
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc242752">
+<h4 id="orgc242752">Support Code</h4>
+<div class="outline-text-4" id="text-orgc242752">
+<div class="highlight">
+<pre><span></span>from udacity.project_tv_script_generation import helper
+import udacity.project_tv_script_generation.problem_unittests as unittests
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org14c2281">
-<h3 id="org14c2281">Load Dotenv</h3>
-<div class="outline-text-3" id="text-org14c2281">
+<div class="outline-3" id="outline-container-orgc00fb48">
+<h3 id="orgc00fb48">Load Dotenv</h3>
+<div class="outline-text-3" id="text-orgc00fb48">
 <div class="highlight">
 <pre><span></span>load_dotenv()
 </pre></div>
 </div>
 </div>
+<div class="outline-3" id="outline-container-org922d30b">
+<h3 id="org922d30b">The Folder Path</h3>
+<div class="outline-text-3" id="text-org922d30b">
+<p>This is the path for saving files for this post.</p>
+<div class="highlight">
+<pre><span></span>FOLDER_PATH = Path("../../../files/posts/nano/tv-script-generation/"
+                   "tv-script-generation/")
+if not FOLDER_PATH.is_dir():
+    FOLDER_PATH.mkdir(parents=True)
+</pre></div>
 </div>
-<div class="outline-2" id="outline-container-orgd1c1622">
-<h2 id="orgd1c1622">Get the Data</h2>
-<div class="outline-text-2" id="text-orgd1c1622">
+</div>
+<div class="outline-3" id="outline-container-orgd6740fd">
+<h3 id="orgd6740fd">The Bokeh Embedder</h3>
+<div class="outline-text-3" id="text-orgd6740fd">
+<p>This sets up the bokeh files and HTML.</p>
+<div class="highlight">
+<pre><span></span>Embed = partial(EmbedBokeh, folder_path=FOLDER_PATH)
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org68f57fe">
+<h3 id="org68f57fe">Check CUDA</h3>
+<div class="outline-text-3" id="text-org68f57fe">
+<div class="highlight">
+<pre><span></span>device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+assert device.type == "cuda", 'No GPU found. Please use a GPU to train your neural network.'
+print("Using {}".format(device))
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org2bb6f43">
+<h3 id="org2bb6f43">Some Types</h3>
+<div class="outline-text-3" id="text-org2bb6f43">
+<div class="highlight">
+<pre><span></span>WordIndices = Collection(int)
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org03c607d">
+<h2 id="org03c607d">Get the Data</h2>
+<div class="outline-text-2" id="text-org03c607d">
 <div class="highlight">
 <pre><span></span>class Scripts:
     """Seinfeld Scripts
 
     Args:
      environment_key: environment variable with the source location
+     dialog_only: remove descriptive columns
     """
-    def __init__(self, environment_key: str="SCRIPTS") -&gt; None:
-        self.environment_key = environment_key        
+    def __init__(self, environment_key: str="SCRIPTS", dialog_only: bool=True) -&gt; None:
+        self.environment_key = environment_key
+        self.dialog_only = dialog_only
         self._script_blob = None
         self._path = None
         self._lines = None
         self._tokens = None
+        self._line_tokens = None
         return
 
     @property
     def path(self) -&gt; Path:
         """The path to the file"""
         if self._path is None:
-            load_dotenv()
+            load_dotenv(".env")
             self._path = Path(os.environ.get("SCRIPTS")).expanduser()
             assert self._path.is_file()
         return self._path
@@ -156,10 +252,21 @@ import os
         return self._script_blob
 
     @property
+    def line_tokens(self) -&gt; list:
+        """list of tokens for each line"""
+        if self._line_tokens is None:
+            self._line_tokens = [line.split(" ") for line in self.lines]
+        return self._line_tokens
+
+    @property
     def lines(self) -&gt; list:
         """The lines of the script"""
         if self._lines is None:
-            self._lines = self.script_blob.split("\n")
+            lines = self.script_blob.split("\n")
+            if self.dialog_only:
+                lines = lines[1:]
+                lines = [(",").join(line.split(",")[2:-3]) for line in lines]
+            self._lines = lines
         return self._lines
 
     @property
@@ -183,6 +290,9 @@ import os
         self._line_count = None
         self._count_per_line = None
         self._mean_words_per_line = None
+        self._median_words_per_line = None
+        self._max_words_per_line = None
+        self._min_words_per_line = None
         self._token_count = None
         return
 
@@ -204,8 +314,8 @@ import os
     def count_per_line(self) -&gt; list:
         """tokens per line"""
         if self._count_per_line is None:
-            self._count_per_line = [len(line.split(" "))
-                                    for line in self.scripts.lines]
+            self._count_per_line = [len(tokens)
+                                    for tokens in self.scripts.line_tokens]
         return self._count_per_line
 
     @property
@@ -215,6 +325,27 @@ import os
             self._mean_words_per_line = (sum(self.count_per_line)
                                          /self.line_count)
         return self._mean_words_per_line
+
+    @property
+    def median_words_per_line(self) -&gt; float:
+        """Median words per line in the scripts"""
+        if self._median_words_per_line is None:
+            self._median_words_per_line = numpy.median(self.count_per_line)
+        return self._median_words_per_line
+
+    @property
+    def max_words_per_line(self) -&gt; int:
+        """Count of words in longest line"""
+        if self._max_words_per_line is None:
+            self._max_words_per_line = max(self.count_per_line)
+        return self._max_words_per_line
+
+    @property
+    def min_words_per_line(self) -&gt; int:
+        """Count of words in shortest line"""
+        if self._min_words_per_line is None:
+            self._min_words_per_line = min(self.count_per_line)
+        return self._min_words_per_line
 
     @property
     def token_count(self) -&gt; int:
@@ -229,7 +360,9 @@ import os
         Args:
          count: number of tuples to return in the list
         """
-        return self.scripts.tokens.most_common(count)
+        if count &gt; 0:
+            return self.scripts.tokens.most_common(count)
+        return self.scripts.tokens.most_common()[count:]
 
     def line_range(self, start: int=0, stop: int=10) -&gt; list:
         """lines within range
@@ -246,54 +379,113 @@ import os
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org9fc01e3">
-<h2 id="org9fc01e3">Explore the Data</h2>
-<div class="outline-text-2" id="text-org9fc01e3">
-<p>Note that the first line is a header, but we're ignoring that and including it with the counts. So this is <i>very</i> rough.</p>
+<div class="outline-2" id="outline-container-org95f8fd7">
+<h2 id="org95f8fd7">Explore the Data</h2>
+<div class="outline-text-2" id="text-org95f8fd7">
 <div class="highlight">
 <pre><span></span>view_line_range = (0, 10)
 </pre></div>
-</div>
-<div class="outline-3" id="outline-container-org6a359c6">
-<h3 id="org6a359c6">Dataset Statistics</h3>
-<div class="outline-text-3" id="text-org6a359c6">
+<div class="highlight">
+<pre><span></span>words_per_line = pandas.DataFrame(inspector.count_per_line,
+                                  columns=["line_counts"])
+print(words_per_line.shape)
+</pre></div>
+<pre class="example">
+(54617, 1)
+
+</pre></div>
+<div class="outline-3" id="outline-container-org624a208">
+<h3 id="org624a208">Dataset Statistics</h3>
+<div class="outline-text-3" id="text-org624a208">
 <div class="highlight">
 <pre><span></span>lines = (("Number of unique tokens", "{:,}".format(inspector.token_count)),
          ("Number of lines", "{:,}".format(inspector.line_count)),
+         ("Words in longest line", "{:,}".format(inspector.max_words_per_line)),
          ("Average number of words in each line", "{:.2f}".format(
-             inspector.mean_words_per_line)))
+             inspector.mean_words_per_line)),
+         ("Median Words Per Line", "{:.2f}".format(
+             inspector.median_words_per_line)),
+         ("Words in shortest line", "{}".format(inspector.min_words_per_line))
+)
 print(tabulate(lines, headers="Statistic Value".split(), tablefmt="orgtbl"))
 </pre></div>
 <table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
 <colgroup>
 <col class="org-left">
-<col class="org-left"></colgroup>
+<col class="org-right"></colgroup>
 <thead>
 <tr>
 <th class="org-left" scope="col">Statistic</th>
-<th class="org-left" scope="col">Value</th>
+<th class="org-right" scope="col">Value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td class="org-left">Number of unique tokens</td>
-<td class="org-left">550,996</td>
+<td class="org-right">550,996</td>
 </tr>
 <tr>
 <td class="org-left">Number of lines</td>
-<td class="org-left">54,618</td>
+<td class="org-right">54,617</td>
+</tr>
+<tr>
+<td class="org-left">Words in longest line</td>
+<td class="org-right">363</td>
 </tr>
 <tr>
 <td class="org-left">Average number of words in each line</td>
-<td class="org-left">10.09</td>
+<td class="org-right">10.01</td>
+</tr>
+<tr>
+<td class="org-left">Median Words Per Line</td>
+<td class="org-right">7.00</td>
+</tr>
+<tr>
+<td class="org-left">Words in shortest line</td>
+<td class="org-right">1</td>
 </tr>
 </tbody>
 </table>
+<p>Why would a line have 363 words?</p>
+<div class="highlight">
+<pre><span></span>index = words_per_line.line_counts.idxmax()
+print(inspector.count_per_line[index])
+print(inspector.scripts.lines[index])
+</pre></div>
+<pre class="example">
+363
+"The dating world is not a fun world...its a pressure world, its a world of tension, its a world of pain...and you know, if a woman comes over to my house, I gotta get that bathroom ready, cause she needs things. Women need equipment. I dont know what they need. I know I dont have it, I know that- You know what they need, women seem to need a lot of cotton-balls. This is the one Im- always has been one of the amazing things to me...I have no cotton-balls, were all human beings, what is the story? Ive never had one...I never bought one, I never needed one, Ive never been in a situation, when I thought to myself I could use a cotton-ball right now. I can certainly get out of this mess. Women need them and they dont need one or two, they need thousands of them, they need bags, theyre like peat moss bags, have you ever seen these giant bags? Theyre huge and two days later, theyre out, theyre gone, the, the bag is empty, where are the cotton-balls, ladies? What are you doin with them? The only time I ever see em is in the bottom of your little waste basket, theres two or three, that look like theyve been through some horrible experience... tortured, interrogated, I dont know what happened to them. I once went out with a girl whos left a little zip-lock-baggy of cotton-balls over at my house. I dont know what to do with them, I took them out, I put them on my kitchen floor like little tumbleweeds. I thought maybe the cockroaches would see it, figure this is a dead town. Lets move on. The dating world is a world of pressure. Lets face it a date is a job interview that lasts all night. The only difference between a date and a job interview is not many job interviews is there a chance youll end up naked at the end of it. You know? Well, Bill, the boss thinks youre the man for the position, why dont you strip down and meet some of the people youll be workin with?"
+
+</pre>
+<p>This is one of Seinfeld's stand up routines, so I don't think it's, strictly speaking, a line.</p>
+<p>What about one word?</p>
+<div class="highlight">
+<pre><span></span>print(inspector.scripts.lines[words_per_line.line_counts.idxmin()])
+</pre></div>
+<pre class="example">
+Ha.
+
+</pre>
+<p>There's probably a lot of one word lines ("Yes", "No", etc.).</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org8f74d88">
-<h3 id="org8f74d88">Top Ten Words</h3>
-<div class="outline-text-3" id="text-org8f74d88">
+<div class="outline-3" id="outline-container-orgdb2cc3d">
+<h3 id="orgdb2cc3d">Plot the Words Per Line</h3>
+<div class="outline-text-3" id="text-orgdb2cc3d">
+<div class="highlight">
+<pre><span></span>plot = words_per_line.line_counts.hvplot.kde(title="Word Counts Per Line Distribution")
+Embed(plot, "line_counts.js")()
+</pre></div>
+<script id="83b105ba-8d79-47c9-92be-ea54ed327ef8" src="line_counts.js"></script>
+<div class="highlight">
+<pre><span></span>plot = words_per_line.line_counts.hvplot.box(title="Words Per Line")
+Embed(plot, "line_counts_boxplot.js")()
+</pre></div>
+<script id="e5dc1c0f-70ec-4e34-8ae0-20049af0afbe" src="line_counts_boxplot.js"></script></div>
+</div>
+<div class="outline-3" id="outline-container-orgbc9d1b2">
+<h3 id="orgbc9d1b2">Most Used Words</h3>
+<div class="outline-text-3" id="text-orgbc9d1b2">
 <div class="highlight">
 <pre><span></span>lines = ((token, "{:,}".format(count))
          for token, count in inspector.most_common_tokens())
@@ -354,61 +546,221 @@ print(tabulate(lines,
 </tbody>
 </table>
 <p>So it looks like the stop words are the most common, as you might expect.</p>
+<div class="highlight">
+<pre><span></span>words, counts = zip(*inspector.most_common_tokens(20))
+top_twenty = pandas.DataFrame([counts], columns=words).T.reset_index()
+top_twenty.columns = ["Word", "Count"]
+layout = top_twenty.hvplot.bar(x="Word", y="Count",
+                               title="Twenty Most Used Words",
+                               colormap="Category20")
+Embed(layout, "top_twenty.js")()
+</pre></div>
+<script id="5bbc20b0-45b3-4921-9ec9-2f5201d0b1fc" src="top_twenty.js"></script></div>
 </div>
-</div>
-<div class="outline-3" id="outline-container-orgaea3838">
-<h3 id="orgaea3838">The First five Lines</h3>
-<div class="outline-text-3" id="text-orgaea3838">
+<div class="outline-3" id="outline-container-org6fd386a">
+<h3 id="org6fd386a">The First five Lines</h3>
+<div class="outline-text-3" id="text-org6fd386a">
 <div class="highlight">
 <pre><span></span>for line in inspector.line_range(stop=5):
     print(line)
 </pre></div>
 <pre class="example">
-,Character,Dialogue,EpisodeNo,SEID,Season
-0,JERRY,"Do you know what this is all about? Do you know, why were here? To be out, this is out...and out is one of the single most enjoyable experiences of life. People...did you ever hear people talking about We should go out? This is what theyre talking about...this whole thing, were all out now, no one is home. Not one person here is home, were all out! There are people tryin to find us, they dont know where we are. (on an imaginary phone) Did you ring?, I cant find him. Where did he go? He didnt tell me where he was going. He must have gone out. You wanna go out you get ready, you pick out the clothes, right? You take the shower, you get all ready, get the cash, get your friends, the car, the spot, the reservation...Then youre standing around, whatta you do? You go We gotta be getting back. Once youre out, you wanna get back! You wanna go to sleep, you wanna get up, you wanna go out again tomorrow, right? Where ever you are in life, its my feeling, youve gotta go.",1.0,S01E01,1.0
-1,JERRY,"(pointing at Georges shirt) See, to me, that button is in the worst possible spot. The second button literally makes or breaks the shirt, look at it. Its too high! Its in no-mans-land. You look like you live with your mother.",1.0,S01E01,1.0
-2,GEORGE,Are you through?,1.0,S01E01,1.0
-3,JERRY,"You do of course try on, when you buy?",1.0,S01E01,1.0
+"Do you know what this is all about? Do you know, why were here? To be out, this is out...and out is one of the single most enjoyable experiences of life. People...did you ever hear people talking about We should go out? This is what theyre talking about...this whole thing, were all out now, no one is home. Not one person here is home, were all out! There are people tryin to find us, they dont know where we are. (on an imaginary phone) Did you ring?, I cant find him. Where did he go? He didnt tell me where he was going. He must have gone out. You wanna go out you get ready, you pick out the clothes, right? You take the shower, you get all ready, get the cash, get your friends, the car, the spot, the reservation...Then youre standing around, whatta you do? You go We gotta be getting back. Once youre out, you wanna get back! You wanna go to sleep, you wanna get up, you wanna go out again tomorrow, right? Where ever you are in life, its my feeling, youve gotta go."
+"(pointing at Georges shirt) See, to me, that button is in the worst possible spot. The second button literally makes or breaks the shirt, look at it. Its too high! Its in no-mans-land. You look like you live with your mother."
+Are you through?
+"You do of course try on, when you buy?"
+"Yes, it was purple, I liked it, I dont actually recall considering the buttons."
 
 </pre>
-<p>As you can see it is a comma-separated file with a header. What's not so obvious is how the index works. Is it for all the lines? Since the episode number is in the row-data I would assume so.</p>
+<p>I took out the header and the identifying columns so this is just the dialog part of the data. It looks like they left in all the punctuation except for apostrophes for some reason.</p>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org785a27b">
-<h2 id="org785a27b">Pre-Processing the Text</h2>
-<div class="outline-text-2" id="text-org785a27b">
+<div class="outline-2" id="outline-container-org412c08a">
+<h2 id="org412c08a">Pre-Processing the Text</h2>
+<div class="outline-text-2" id="text-org412c08a">
 <p>The first thing to do to any dataset is pre-processing. Implement the following pre-processing functions below:</p>
 <ul class="org-ul">
 <li>Lookup Table</li>
 <li>Tokenize Punctuation</li>
 </ul>
 </div>
-<div class="outline-3" id="outline-container-org74e1e0d">
-<h3 id="org74e1e0d">Lookup Table</h3>
-<div class="outline-text-3" id="text-org74e1e0d">
+<div class="outline-3" id="outline-container-org316d77c">
+<h3 id="org316d77c">Lookup Table</h3>
+<div class="outline-text-3" id="text-org316d77c">
 <p>To create a word embedding, you first need to transform the words to ids. In this function, create two dictionaries:</p>
 <ul class="org-ul">
 <li>Dictionary to go from the words to an id, we'll call <code>vocab_to_int</code></li>
 <li>Dictionary to go from the id to word, we'll call <code>int_to_vocab</code></li>
 </ul>
 <p>Return these dictionaries in the following <b>tuple</b> <code>(vocab_to_int, int_to_vocab)</code></p>
-<p>import problem_unittests as tests</p>
-<p>def create_lookup_tables(text): """ Create lookup tables for vocabulary :param text: The text of tv scripts split into words :return: A tuple of dicts (vocab_to_int, int_to_vocab) """</p>
-<p>return (None, None)</p>
-<p>""" DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE """ tests.test_create_lookup_tables(create_lookup_tables)</p>
-<p>def token_lookup(): """ Generate a dict to turn punctuation into a token. :return: Tokenized dictionary where the key is the punctuation and the value is the token """</p>
-<p>return None</p>
-<p>""" DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE """ tests.test_tokenize(token_lookup)</p>
-<p>""" DON'T MODIFY ANYTHING IN THIS CELL """</p>
-<p>helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)</p>
-<p>""" DON'T MODIFY ANYTHING IN THIS CELL """ import helper import problem_unittests as tests</p>
-<p>int_text, vocab_to_int, int_to_vocab, token_dict = helper.load_preprocess()</p>
-<p>""" DON'T MODIFY ANYTHING IN THIS CELL """ import torch</p>
-<p>train_on_gpu = torch.cuda.is_available() if not train_on_gpu: print('No GPU found. Please use a GPU to train your neural network.')</p>
-<p>from torch.utils.data import TensorDataset, DataLoader</p>
-<p>def batch_data(words, sequence_length, batch_size): """ Batch the neural network data using DataLoader :param words: The word ids of the TV scripts :param sequence_length: The sequence length of each batch :param batch_size: The size of each batch; the number of sequences in a batch :return: DataLoader with batched data """</p>
-<p>return None</p>
+<div class="highlight">
+<pre><span></span>def create_lookup_tables(text: list) -&gt; tuple:
+    """
+    Create lookup tables for vocabulary
+
+    Args:
+     text The text of tv scripts split into words
+
+    Returns: 
+     A tuple of dicts (vocab_to_int, int_to_vocab)
+    """
+    text = set(text)
+    vocabulary_to_index = {token: index for index, token in enumerate(text)}
+    index_to_vocabulary = {index: token for index, token in enumerate(text)}
+    return vocabulary_to_index, index_to_vocabulary
+</pre></div>
+<div class="highlight">
+<pre><span></span>test_text = '''
+Moe_Szyslak Moe's Tavern Where the elite meet to drink
+Bart_Simpson Eh yeah hello is Mike there Last name Rotch
+Moe_Szyslak Hold on I'll check Mike Rotch Mike Rotch Hey has anybody seen Mike Rotch lately
+Moe_Szyslak Listen you little puke One of these days I'm gonna catch you and I'm gonna carve my name on your back with an ice pick
+Moe_Szyslak Whats the matter Homer You're not your normal effervescent self
+Homer_Simpson I got my problems Moe Give me another one
+Moe_Szyslak Homer hey you should not drink to forget your problems
+Barney_Gumble Yeah you should only drink to enhance your social skills'''
+</pre></div>
+<div class="highlight">
+<pre><span></span>unittests.test_create_lookup_tables(create_lookup_tables)
+</pre></div>
+<pre class="example">
+Tests Passed
+
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org4792a03">
+<h3 id="org4792a03">Tokenize Punctuation</h3>
+<div class="outline-text-3" id="text-org4792a03">
+<p>We'll be splitting the script into a word array using spaces as delimiters. However, punctuations like periods and exclamation marks can create multiple ids for the same word. For example, "bye" and "bye!" would generate two different word ids.</p>
+<p>Implement the function <code>token_lookup</code> to return a dict that will be used to tokenize symbols like "!" into "||Exclamation_Mark||". Create a dictionary for the following symbols where the symbol is the key and value is the token:</p>
+<ul class="org-ul">
+<li>Period ( <b>.</b> )</li>
+<li>Comma ( <b>,</b> )</li>
+<li>Quotation Mark ( <b>"</b> )</li>
+<li>Semicolon ( <b>;</b> )</li>
+<li>Exclamation mark ( <b>!</b> )</li>
+<li>Question mark ( <b>?</b> )</li>
+<li>Left Parentheses ( <b>(</b> )</li>
+<li>Right Parentheses ( <b>)</b> )</li>
+<li>Dash ( <b>-</b> )</li>
+<li>Return ( <b>\n</b> )</li>
+</ul>
+<p>This dictionary will be used to tokenize the symbols and add the delimiter (space) around it. This separates each symbols as its own word, making it easier for the neural network to predict the next word. Make sure you don't use a value that could be confused as a word; for example, instead of using the value "dash", try using something like "||dash||".</p>
+<div class="highlight">
+<pre><span></span>def token_lookup():
+    """
+    Generate a dict to turn punctuation into a token.
+
+    Returns:
+     Tokenized dictionary where the key is the punctuation and the value is the token
+    """
+    tokens = {'.': "period",
+              ',': 'comma',
+              '"': 'quotation',
+              ';': 'semicolon',
+              '!': 'exclamation',
+              '?': 'question',
+              '(': 'leftparenthesis',
+              ')': 'rightparenthesis',
+              '-': 'dash',
+              '\n': 'newline'}
+    return {token: '**{}**'.format(coded) for token,coded in tokens.items()}
+</pre></div>
+<div class="highlight">
+<pre><span></span>unittests.test_tokenize(token_lookup)
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orge707109">
+<h3 id="orge707109">Pre-process all the data and save it</h3>
+<div class="outline-text-3" id="text-orge707109">
+<p>Running the code cell below will pre-process all the data and save it to file. You're encouraged to look at the code for <code>preprocess_and_save_data</code> in the <code>helpers.py</code> file to see what it's doing in detail, but you do not need to change this code.</p>
+<div class="highlight">
+<pre><span></span>text = helper.load_data(inspector.scripts.path)
+text = text[81:]
+token_dict = token_lookup()
+for key, token in token_dict.items():
+    text = text.replace(key, ' {} '.format(token))
+text = text.lower()
+text = text.split()
+vocab_to_int, int_to_vocab = create_lookup_tables(text + list(helper.SPECIAL_WORDS.values()))
+int_text = [vocab_to_int[word] for word in text]
+pre_processed = inspector.scripts.path.parent.joinpath('preprocess.pkl')
+with pre_processed.open("wb") as writer:
+    pickle.dump((int_text, vocab_to_int, int_to_vocab, token_dict), writer)
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge1fdaed">
+<h2 id="orge1fdaed">Check Point</h2>
+<div class="outline-text-2" id="text-orge1fdaed">
+<p>This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk.</p>
+<div class="highlight">
+<pre><span></span>pre_processed = inspector.scripts.path.parent.joinpath('preprocess.pkl')
+with pre_processed.open("rb") as reader:
+    int_text, vocab_to_int, int_to_vocab, token_dict = pickle.load(reader)
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5047691">
+<h2 id="org5047691">Build the Neural Network</h2>
+<div class="outline-text-2" id="text-org5047691">
+<p>In this section, you'll build the components necessary to build an RNN by implementing the RNN Module and forward and backpropagation functions.</p>
+</div>
+<div class="outline-3" id="outline-container-org361effd">
+<h3 id="org361effd">Input</h3>
+<div class="outline-text-3" id="text-org361effd">
+<p>Let's start with the preprocessed input data. We'll use <a href="http://pytorch.org/docs/master/data.html#torch.utils.data.TensorDataset">TensorDataset</a> to provide a known format to our dataset; in combination with <a href="http://pytorch.org/docs/master/data.html#torch.utils.data.DataLoader">DataLoader</a>, it will handle batching, shuffling, and other dataset iteration functions.</p>
+<p>You can create data with TensorDataset by passing in feature and target tensors. Then create a DataLoader as usual.</p>
+<div class="highlight">
+<pre><span></span><span class="n">data</span> <span class="o">=</span> <span class="n">TensorDataset</span><span class="p">(</span><span class="n">feature_tensors</span><span class="p">,</span> <span class="n">target_tensors</span><span class="p">)</span>
+<span class="n">data_loader</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> 
+                                          <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgccea3b8">
+<h3 id="orgccea3b8">Batching</h3>
+<div class="outline-text-3" id="text-orgccea3b8">
+<p>Implement the <code>batch_data</code> function to batch <code>words</code> data into chunks of size <code>batch_size</code> using the <code>TensorDataset</code> and <code>DataLoader</code> classes.</p>
+<p>You can batch words using the DataLoader, but it will be up to you to create <code>feature_tensors</code> and <code>target_tensors</code> of the correct size and content for a given <code>sequence_length</code>.</p>
+<p>For example, say we have these as input:</p>
+<div class="highlight">
+<pre><span></span><span class="n">words</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">]</span>
+<span class="n">sequence_length</span> <span class="o">=</span> <span class="mi">4</span>
+</pre></div>
+<p>Your first <code>feature_tensor</code> should contain the values:</p>
+<div class="highlight">
+<pre><span></span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span>
+</pre></div>
+<p>And the corresponding <code>target_tensor</code> should just be the next "word"/tokenized word value:</p>
+<div class="highlight">
+<pre><span></span><span class="mi">5</span>
+</pre></div>
+<p>This should continue with the second <code>feature_tensor</code>, <code>target_tensor</code> being:</p>
+<div class="highlight">
+<pre><span></span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>  <span class="c1"># features</span>
+<span class="mi">6</span>             <span class="c1"># target</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span>def batch_data(words: WordIndices, sequence_length: int, batch_size: int) -&gt; DataLoader:
+    """
+    Batch the neural network data using DataLoader
+
+    Args:
+     - words: The word ids of the TV scripts
+     - sequence_length: The sequence length of each batch
+     - batch_size: The size of each batch; the number of sequences in a batch
+    Returns: 
+     DataLoader with batched data
+    """
+    feature_tensor = torch.Tensor(words[:sequence_length])
+    target_tensor = torch.Tensor(words[sequence_length])
+    return DataLoader()
+</pre></div>
+<p>There is no test for this function, but you are encouraged to create tests of your own.</p>
 <p>test_text = range(50) t_loader = batch_data(test_text, sequence_length=5, batch_size=10)</p>
 <p>data_iter = iter(t_loader) sample_x, sample_y = data_iter.next()</p>
 <p>print(sample_x.shape) print(sample_x) print() print(sample_y.shape) print(sample_y)</p>
@@ -481,6 +833,7 @@ print(tabulate(lines,
 </ul>
 <ul class="pager hidden-print">
 <li class="previous"><a href="../../../more-links/" rel="prev" title="More Links">Previous post</a></li>
+<li class="next"><a href="../../../pytorch/text/chatbot-tutorial/" rel="next" title="Chatbot Tutorial">Next post</a></li>
 </ul>
 </nav>
 </aside>
