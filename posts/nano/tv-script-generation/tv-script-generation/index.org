@@ -33,10 +33,9 @@ import pickle
 from dotenv import load_dotenv
 from tabulate import tabulate
 from torch.utils.data import TensorDataset, DataLoader
-import bokeh.palettes as palettes
+import hvplot.pandas
 import numpy
 import pandas
-import hvplot.pandas
 import torch
 #+END_SRC
 *** This Project
@@ -80,6 +79,7 @@ WordIndices = Collection[int]
 #+END_SRC
 
 * Get the Data
+** Scripts
 #+BEGIN_SRC ipython :session tv :results none
 class Scripts:
     """Seinfeld Scripts
@@ -142,7 +142,7 @@ class Scripts:
                 self._tokens[token] += 1
         return self._tokens
 #+END_SRC
-
+** Script Inspector
 #+BEGIN_SRC ipython :session tv :results none
 class ScriptInspector:
     """gets some basic counts
@@ -310,12 +310,13 @@ There's probably a lot of one word lines ("Yes", "No", etc.).
 
 #+BEGIN_SRC ipython :session tv :results output raw :exports both
 plot = words_per_line.line_counts.hvplot.kde(title="Word Counts Per Line Distribution")
+plot.opts(width=600, height=600)
 Embed(plot, "line_counts.js")()
 #+END_SRC
 
 #+RESULTS:
 #+BEGIN_EXPORT html
-<script src="line_counts.js" id="773c7916-deec-4585-ab46-ea42b196f1dd"></script>
+<script src="line_counts.js" id="b7a6d97e-496a-48cc-a0c7-37fc171e343b"></script>
 #+END_EXPORT
 
 #+BEGIN_SRC ipython :session tv :results output raw :exports both
@@ -325,7 +326,7 @@ Embed(plot, "line_counts_boxplot.js")()
 
 #+RESULTS:
 #+BEGIN_EXPORT html
-<script src="line_counts_boxplot.js" id="f5d1c7e0-a3bf-430d-9b33-e3465f6c2a44"></script>
+<script src="line_counts_boxplot.js" id="fb679b0b-929e-4c23-b984-d37588df5f9c"></script>
 #+END_EXPORT
 
 ** Most Used Words
@@ -359,12 +360,13 @@ top_twenty.columns = ["Word", "Count"]
 layout = top_twenty.hvplot.bar(x="Word", y="Count",
                                title="Twenty Most Used Words",
                                colormap="Category20")
+layout.opts(height=500, width=600)
 Embed(layout, "top_twenty.js")()
 #+END_SRC
 
 #+RESULTS:
 #+BEGIN_EXPORT html
-<script src="top_twenty.js" id="230997c5-e96a-4f55-b027-a3b3904c18a3"></script>
+<script src="top_twenty.js" id="3fad9f02-cc0a-4d9a-8c71-b99d07ae4788"></script>
 #+END_EXPORT
 
 ** The First five Lines
@@ -388,8 +390,8 @@ The first thing to do to any dataset is pre-processing.  Implement the following
 
 ** Lookup Table
    To create a word embedding, you first need to transform the words to ids.  In this function, create two dictionaries:
-    - Dictionary to go from the words to an id, we'll call =vocab_to_int=
-    - Dictionary to go from the id to word, we'll call =int_to_vocab=
+    - Dictionary to go from the /words/ to an /ID/, we'll call it =vocab_to_int=
+    - Dictionary to go from the /ID/ to /word/, we'll call it =int_to_vocab=
 
 Return these dictionaries in the following **tuple** =(vocab_to_int, int_to_vocab)=
 
@@ -513,6 +515,7 @@ data = TensorDataset(feature_tensors, target_tensors)
 data_loader = torch.utils.data.DataLoader(data, 
                                           batch_size=batch_size)
 #+END_SRC
+
 ** Batching
  Implement the =batch_data= function to batch =words= data into chunks of size =batch_size= using the =TensorDataset= and =DataLoader= classes.
 
@@ -541,6 +544,38 @@ This should continue with the second ~feature_tensor~, ~target_tensor~ being:
 #+END_SRC
 
 #+BEGIN_SRC ipython :session tv :results none
+def train_test_split(words: WordIndices, sequence_length: int) -> tuple:
+    """Breaks the words into a training and a test set
+
+    Args:
+     words: the IDs of the TV scripts
+     sequence_length: the sequence length of each training instance
+
+    Returns:
+     list of training tensors, target tensors
+    """
+    training, testing = [], []
+    for start in range(len(words) - sequence_length):
+        training.append(words[start:start+sequence_length])
+        testing.append(words[start + sequence_length])
+    return training, testing
+#+END_SRC
+
+#+BEGIN_SRC ipython :session tv :results none
+words = list(range(1, 8))
+sequence_length = 4
+training, testing = train_test_split(words, sequence_length)
+assert training[0] == [1, 2, 3, 4]
+assert testing[0] == 5
+assert training[1] == [2, 3, 4, 5]
+assert testing[1] == 6
+assert training[2] == [3, 4, 5, 6]
+assert testing[2] == 7
+assert len(training) == 3
+assert len(testing) == 3
+#+END_SRC
+
+#+BEGIN_SRC ipython :session tv :results none
 def batch_data(words: WordIndices, sequence_length: int, batch_size: int) -> DataLoader:
     """
     Batch the neural network data using DataLoader
@@ -560,43 +595,39 @@ def batch_data(words: WordIndices, sequence_length: int, batch_size: int) -> Dat
 There is no test for this function, but you are encouraged to create tests of your own.
 
 
-# ### Test your dataloader 
-# 
-# You'll have to modify this code to test a batching function, but it should look fairly similar.
-# 
-# Below, we're generating some test text data and defining a dataloader using the function you defined, above. Then, we are getting some sample batch of inputs `sample_x` and targets `sample_y` from our dataloader.
-# 
-# Your code should return something like the following (likely in a different order, if you shuffled your data):
-# 
-# ```
-# torch.Size([10, 5])
-# tensor([[ 28,  29,  30,  31,  32],
-#         [ 21,  22,  23,  24,  25],
-#         [ 17,  18,  19,  20,  21],
-#         [ 34,  35,  36,  37,  38],
-#         [ 11,  12,  13,  14,  15],
-#         [ 23,  24,  25,  26,  27],
-#         [  6,   7,   8,   9,  10],
-#         [ 38,  39,  40,  41,  42],
-#         [ 25,  26,  27,  28,  29],
-#         [  7,   8,   9,  10,  11]])
-# 
-# torch.Size([10])
-# tensor([ 33,  26,  22,  39,  16,  28,  11,  43,  30,  12])
-# ```
-# 
-# ### Sizes
-# Your sample_x should be of size `(batch_size, sequence_length)` or (10, 5) in this case and sample_y should just have one dimension: batch_size (10). 
-# 
-# ### Values
-# 
-# You should also notice that the targets, sample_y, are the *next* value in the ordered test_text data. So, for an input sequence `[ 28,  29,  30,  31,  32]` that ends with the value `32`, the corresponding output should be `33`.
+* [#C] Test your dataloader 
 
-# In[ ]:
+You'll have to modify this code to test a batching function, but it should look fairly similar.
 
+ Below, we're generating some test text data and defining a dataloader using the function you defined, above. Then, we are getting some sample batch of inputs `sample_x` and targets `sample_y` from our dataloader.
 
-# test dataloader
+ Your code should return something like the following (likely in a different order, if you shuffled your data):
 
+#+begin_src python
+torch.Size([10, 5])
+tensor([[ 28,  29,  30,  31,  32],
+        [ 21,  22,  23,  24,  25],
+        [ 17,  18,  19,  20,  21],
+        [ 34,  35,  36,  37,  38],
+        [ 11,  12,  13,  14,  15],
+        [ 23,  24,  25,  26,  27],
+        [  6,   7,   8,   9,  10],
+        [ 38,  39,  40,  41,  42],
+        [ 25,  26,  27,  28,  29],
+        [  7,   8,   9,  10,  11]])
+
+torch.Size([10])
+tensor([ 33,  26,  22,  39,  16,  28,  11,  43,  30,  12])
+#+end_src
+
+* Sizes
+Your sample_x should be of size `(batch_size, sequence_length)` or (10, 5) in this case and sample_y should just have one dimension: batch_size (10). 
+
+* Values
+
+ You should also notice that the targets, sample_y, are the *next* value in the ordered test_text data. So, for an input sequence `[ 28,  29,  30,  31,  32]` that ends with the value `32`, the corresponding output should be `33`.
+
+#+BEGIN_SRC ipython :session tv :results output :exports both
 test_text = range(50)
 t_loader = batch_data(test_text, sequence_length=5, batch_size=10)
 
@@ -608,7 +639,7 @@ print(sample_x)
 print()
 print(sample_y.shape)
 print(sample_y)
-
+#+END_SRC
 
 # ---
 # ## Build the Neural Network
