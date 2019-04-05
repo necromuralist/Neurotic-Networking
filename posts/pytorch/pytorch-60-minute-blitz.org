@@ -29,7 +29,7 @@ And we're going to use numpy a little.
 import numpy
 #+END_SRC
 * The Initiation
-** Getting Started
+** What is PyTorch?
 *** Tensors
     In PyTorch, [[https://pytorch.org/docs/stable/tensors.html#torch.Tensor][tensors]] are similar to numpy's [[https://docs.scipy.org/doc/numpy/reference/arrays.ndarray.html][ndarrays]] (n-dimensional arrays). You can create an unitialized one using the =empty= function.
 **** Empty
@@ -313,4 +313,97 @@ x = x.to(device)
 z = x + y
 print(z)
 #+END_SRC
+** Autograd: Automatic Differentiation
+   The [[https://pytorch.org/docs/stable/autograd.html][autograd]] module in pytorch performs automatic differentiation for you. It works using /define-by-run/, meaning that as you run you forward-pass through the network, it tracks your calls so you don't have to explicitly define anything for backpropagation to work. To enable or disable it you set the =requires_grad= attribute of the tensor you want to train.
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+tense = torch.ones(2, 2, requires_grad=True)
+print(tense)
+#+END_SRC
+
+#+RESULTS:
+: tensor([[1., 1.],
+:         [1., 1.]], requires_grad=True)
+
+Now if you do a tensor operation:
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+tensed = tense + 1
+print(tensed)
+#+END_SRC
+
+#+RESULTS:
+: tensor([[2., 2.],
+:         [2., 2.]], grad_fn=<AddBackward0>)
+
+Our new tensor has a gradient function set for it. If you do more operations on =tensed=:
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+tenser = tensed * 5
+print(tenser)
+#+END_SRC
+
+#+RESULTS:
+: tensor([[10., 10.],
+:         [10., 10.]], grad_fn=<MulBackward0>)
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+a = torch.ones(5, requires_grad=False)
+b = a * 5
+a.requires_grad_(True)
+c = a * 6
+print(b)
+print(c)
+#+END_SRC
+
+#+RESULTS:
+: tensor([5., 5., 5., 5., 5.])
+: tensor([6., 6., 6., 6., 6.], grad_fn=<MulBackward0>)
+
+Two things to note, one is that the gradient function is only set while the =requires_grad= attribute is true, the other is that this only works on the leafs in the graph - you can set it on =a= and =b= but not =c= - because since I set =requires_grad= to True on =a=, when I created =c= by multiplying =a= by 6, =c= became part of =a='s graph... I think. Anyway, you can't set it on tensors that are part of the backpropagation path.
+*** Backpropagation
+    You run back-propagation by calling the [[https://pytorch.org/docs/stable/autograd.html#torch.Tensor.backward][=backward=]] method on the last tensor in the graph. In our case the last tensor we have (=tenser=) doesn't output numbers so we need to create a final tensor that does for back-propagation to work.
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+output = tenser.mean()
+output.backward()
+print(tense.grad)
+#+END_SRC
+
+#+RESULTS:
+: tensor([[1.2500, 1.2500],
+:         [1.2500, 1.2500]])
+
+After one pass through the network (and back) our root-node tensor has some gradients.
+
+*** Context Manager
+    If you need to temporarily turn the gradient tracking on or off you can use a context manager.
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+print((tense*2).requires_grad)
+with torch.no_grad():
+    print((tense* 2).requires_grad)
+print((tense * 2).requires_grad)
+#+END_SRC
+
+#+RESULTS:
+: True
+: False
+: True
+
+Note that the root-will still have =require_grad= as true, it's the output of operations working with it that don't get the gradient set.
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+print(tense.requires_grad)
+with torch.no_grad():
+    print(tense.requires_grad)
+print(tense.requires_grad)
+#+END_SRC
+
+#+RESULTS:
+: True
+: True
+: True
+
+** Neural Networks
+** Training a Classifier
+** Data Parallelism
 * The Return
