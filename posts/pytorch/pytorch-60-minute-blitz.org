@@ -22,6 +22,8 @@
     Although the project is called PyTorch, the package is named =torch=.
 #+BEGIN_SRC ipython :session blitz :results none
 import torch
+import torch.nn as neural_network
+import torch.nn.functional as functional
 #+END_SRC
 
 And we're going to use numpy a little.
@@ -404,6 +406,151 @@ print(tense.requires_grad)
 : True
 
 ** Neural Networks
+*** A Typical Model Training Procedure
+    1. Define the neural network
+    2. Iterate over a dataset of inputs
+    3. Process each input through the network
+    4. Compute the loss (how much error there is)
+    5. Update the weights of the network
+
+The most common way to update the weights is to use a simple formula.
+\[
+weight = weight - textit{learning rate} \times gradient
+\]
+*** Defining the Network
+This will be a network with five layers - two [[https://en.wikipedia.org/wiki/Convolutional_neural_network#Convolutional_layer][convolutional layers]] followed by three [[https://en.wikipedia.org/wiki/Convolutional_neural_network#Fully_connected_layer][fully-connected layers]]. For the convolutional layers we're going to use [[https://en.wikipedia.org/wiki/Convolutional_neural_network#Pooling_layer][Max-Pooling]] and for the fully-connected layers we'll use [[https://en.wikipedia.org/wiki/Convolutional_neural_network#ReLU_layer][ReLU]] activation.
+
+**** The Layers
+     You can just create the layers in the constructor, but since I'm trying to re-learn what's going on I'm going to peel it apart a little more.
+
+The first layer is the input layer, so the =inputs= have to match whatever data you are going to get. In our case we are going to look at a black and white image so it has one input-channel. The three required arguments to the 
+[[https://pytorch.org/docs/stable/nn.html#convolution-layers][Conv2d]] constructor are:
+
+ - =in_channels=
+ - =out_channels=
+ - =kernel_size=
+
+#+BEGIN_SRC ipython :session blitz :results none
+class LayerOne:
+    inputs = 1
+    outputs = 6
+    convolution_size = 5
+    layer = neural_network.Conv2d(inputs, outputs, convolution_size)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session blitz :results none
+class LayerTwo:
+    inputs = LayerOne.outputs
+    outputs = 16
+    convolution_size = 5
+    layer = neural_network.Conv2d(inputs, outputs, convolution_size)
+#+END_SRC
+
+
+Layer Three is the first [[https://pytorch.org/docs/stable/nn.html#linear][Linear]] layer. Linear layers do a linear transformation on the inputs.
+
+\[
+y = x W^T + b
+\]
+
+Where /x/ is the input, /W/ is the weight matrix and /b/ is a bias constant.
+
+#+BEGIN_SRC ipython :session blitz :results none
+class LayerThree:
+    inputs = (LayerTwo.outputs * LayerOne.convolution_size 
+              ,* LayerTwo.convolution_size)
+    outputs = 120
+    layer = neural_network.Linear(inputs, outputs)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session blitz :results none
+class LayerFour:
+    inputs = LayerThree.outputs
+    outputs = 84
+    layer = neural_network.Linear(inputs, outputs)
+#+END_SRC
+
+This is the last layer so the outputs are the outputs for the model as a whole.
+
+#+BEGIN_SRC ipython :session blitz :results none
+class LayerFive:
+    inputs = LayerFour.outputs
+    outputs = 10
+    layer = neural_network.Linear(inputs, outputs)
+#+END_SRC
+
+For the forward-pass our convolutional layers will have their output pooled using [[https://pytorch.org/docs/stable/nn.html#torch.nn.functional.max_pool2d][max_pool2d]] and all the layers (except for the output layers) will use [[https://pytorch.org/docs/stable/nn.html#torch.nn.functional.relu][relu]] as the activation function to keep the model from being linear.
+#+BEGIN_SRC ipython :session blitz :results none
+class NeuralNetwork(neural_network.Module):
+    """A five-layer Convolutional Neural Network"""
+    def __init__(self):
+        super().__init__()
+        self.layer_one = LayerOne.layer
+        self.layer_two = LayerTwo.layer
+        self.layer_three = LayerThree.layer
+        self.layer_four = LayerFour.layer
+        self.layer_five = LayerFive.layer
+        return
+
+    def flattened_features_counts(self, x):
+        sizes = x.size()[1:]
+        features = 1
+        for size in sizes:
+            features *= size
+        return features
+
+    def forward(self, x):
+        """One forward pass through the network
+
+        Args:
+         x: a one-channel image
+        
+        Returns:
+         a ten-output linear layer
+        """
+        x = functional.max_pool2d(functional.relu(self.layer_one(x)), (2, 2))
+        x = functional.max_pool2d(functional.relu(self.layer_two(x)), 2)
+        x = x.view(-1, self.flattened_features_counts(x))
+        x = functional.relu(self.layer_three(x))
+        x = functional.relu(self.layer_four(x))
+        return self.layer_five(x)
+#+END_SRC
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+model = NeuralNetwork()
+print(model)
+#+END_SRC
+
+#+RESULTS:
+: NeuralNetwork(
+:   (layer_one): Conv2d(1, 6, kernel_size=(5, 5), stride=(1, 1))
+:   (layer_two): Conv2d(6, 16, kernel_size=(5, 5), stride=(1, 1))
+:   (layer_three): Linear(in_features=400, out_features=120, bias=True)
+:   (layer_four): Linear(in_features=120, out_features=84, bias=True)
+:   (layer_five): Linear(in_features=84, out_features=10, bias=True)
+: )
+
+The output shows the parameters for each layer in our model.
+
+A sample output.
+
+#+BEGIN_SRC ipython :session blitz :results output :exports both
+INPUT_SIZE = 32
+mock_image = torch.randn(1, 1, INPUT_SIZE, INPUT_SIZE)
+output = model(mock_image)
+print(output)
+#+END_SRC
+
+#+RESULTS:
+: tensor([[ 0.1163,  0.0882,  0.0529,  0.0546, -0.0196, -0.1215, -0.1736,  0.0659,
+:           0.0762, -0.0093]], grad_fn=<AddmmBackward>)
+
+This is the output after one forward pass. Unfortunately we didn't want to train it on fake data so we should reset it.
+
+#+BEGIN_SRC ipython :session blitz :results none
+model.zero_grad()
+output.backward(torch.randn(1, 10))
+#+END_SRC
 ** Training a Classifier
 ** Data Parallelism
 * The Return
