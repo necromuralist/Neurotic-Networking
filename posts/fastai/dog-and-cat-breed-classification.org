@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+OPTIONS: H:5
 #+TOC: headlines 2
-#+BEGIN_SRC ipython :session fastai :results none :exports none
+#+BEGIN_SRC python :session fastai :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
@@ -23,7 +23,7 @@ The goal is to train a neural network to identify the breeds of cats and dogs ba
 ** Imports
 *** Python
     Other than the [[https://docs.python.org/3.4/library/re.html][=re=]] none of the python imports were part of the original lesson. I'm importing [[https://docs.python.org/3/library/gc.html][gc]] to do garbage collection because the lesson starts with a smaller network and then changes to a larger one which caused my machine to run out of memory on the GPU. The rest of the imports are for settings and setup.
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 from argparse import Namespace
 from functools import partial
 from pathlib import Path
@@ -36,7 +36,7 @@ import re
 
 I'll keep the =fast.ai= stuff separate to maybe make it easier to reference what comes from where.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 from fastai.datasets import untar_data, URLs
 from fastai.metrics import accuracy, error_rate
 from fastai.train import ClassificationInterpretation
@@ -50,7 +50,7 @@ from fastai.vision.transform import get_transforms
 #+end_src
 
 And the rest... 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 from dotenv import load_dotenv
 from ipyexperiments import IPyExperimentsPytorch
 from tabulate import tabulate
@@ -63,7 +63,7 @@ import torch
 #+end_src
 *** My Stuff
     This is just some convenience stuff wrapped around other people's code (my lite-version of opinionated code).
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 from graeae.tables import CountPercentage
 from graeae.timers import Timer
 from graeae.visualization import EmbedHoloview
@@ -71,7 +71,7 @@ from graeae.visualization import EmbedHoloview
 ** Some Setup
 *** Some Constants
     There's a lot of values scattered all over the place and I just wanted one place to keep track of them and maybe change them if needed.
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 Net = Namespace(
     random_seed=2,
     batch_size=64,
@@ -80,19 +80,19 @@ Net = Namespace(
 #+end_src
 *** The Random Seed
     To make this reproducible I'll set the random seed in numpy.
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 numpy.random.seed(Net.random_seed)
 #+end_src
 *** The Path
     This loads where I put the image data-set.
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 load_dotenv(".env", override=True)
 DATA_PATH = Path(os.environ.get("OXFORD_PET_DATASET")).expanduser()
 #+end_src
 *** Plotting
     Although I'd prefer to plot things in HoloViews/bokeh, some of their stuff is too tightly bundled to make it easy (and the image plots maybe don't need to be interactive) so this sets up some formatting for the matplotlib plots.
 **** Matplotlib
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 get_ipython().run_line_magic('matplotlib', 'inline')
 get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
 seaborn.set(style="whitegrid",
@@ -105,7 +105,7 @@ seaborn.set(style="whitegrid",
 
 **** The Bokeh
      This sets up some stuff for the javascript-based plotting.
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 holoviews.extension("bokeh")
 SLUG = "dog-and-cat-breed-classification"
 OUTPUT_FOLDER = Path("../../files/posts/fastai/")/SLUG
@@ -113,7 +113,7 @@ Embed = partial(EmbedHoloview, folder_path=OUTPUT_FOLDER)
 #+END_SRC
 
 This is where I'm going to put the settings for the javascript-based plotting.
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 Plot = Namespace(
     width = 1000,
     height = 800,
@@ -122,12 +122,12 @@ Plot = Namespace(
 *** The Timer
     This times how long things take so I can estimate how long it will take if I re-run cells. It also speaks a message so I can do something else and will know that the code is done running without having to watch the messages.
 
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 TIMER = Timer()
 #+END_SRC
 *** Tabulate
     This is to format tables in the org-mode format (since I'm running this in emacs org-babel).
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 ORG_TABLE = partial(tabulate, headers="keys", 
                     showindex=False, 
                     tablefmt="orgtbl")
@@ -139,20 +139,20 @@ As I mentioned before, the data will be the [[http://www.robots.ox.ac.uk/~vgg/da
 
 The original lesson uses the [[https://docs.fast.ai/datasets.html#untar_data][untar_data]] function to download the data-set.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 help(untar_data)
 #+end_src
 
 #+RESULTS:
 : Help on function untar_data in module fastai.datasets:
 : 
-: untar_data(url:str, fname:Union[pathlib.Path, str]=None, dest:Union[pathlib.Path, str]=None, data=True, force_download=False) -> pathlib.Path
+: untar_data(url: str, fname: Union[pathlib.Path, str] = None, dest: Union[pathlib.Path, str] = None, data=True, force_download=False) -> pathlib.Path
 :     Download `url` to `fname` if it doesn't exist, and un-tgz to folder `dest`.
 : 
 
 This data set is 774 Megabytes and given my over-priced yet still incredibly slow CenturyLink speeds I found downloading it directly from the [[https://course.fast.ai/datasets#image-classification][fastai datasets page]] a little more satisfactory, since the progress widget that runs during the download  when =untar_data= downloads the dataset doesn't show up in emacs.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 assert DATA_PATH.is_dir()
 print(DATA_PATH)
 #+end_src
@@ -162,7 +162,7 @@ print(DATA_PATH)
 
 I didn't know it, but =Paths= have an =ls= method (so far as I could see this isn't in [[https://docs.python.org/3/library/pathlib.html][python's documentation]]) which I mention because I found out because it was in the original lesson. This is nice because, well, it's easy to remember, but the way I'm using it =iterdir= makes more sense.
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 for path in DATA_PATH.iterdir():
     print(f" - {path}")
 #+end_src
@@ -176,7 +176,7 @@ for path in DATA_PATH.iterdir():
 
 Here's another trick I didn't know about, but learned from the lesson - instead of using the =joinpath= method you can just use a forward-slash.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 path_to_annotations = DATA_PATH/'annotations'
 path_to_images = DATA_PATH/'images'
 #+end_src
@@ -187,7 +187,7 @@ path_to_images = DATA_PATH/'images'
 
 Before we get to that, though, we can take a look at some file names using [[https://docs.fast.ai/vision.data.html#get_image_files][get_image_files]].
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 file_names = get_image_files(path_to_images)
 for path in file_names[:5]:
     print(f" - {path.name}")
@@ -200,9 +200,9 @@ for path in file_names[:5]:
  - English_Cocker_Spaniel_43.jpg
  - Pug_51.jpg
 
-So it looks like the format is =<breed>_<index>.jpg=. Later on we're going to use the labels when we inspect the model so next I'm going to make the standardize the file-name cases to be title-cased.
+So it looks like the format is =<breed>_<index>.jpg=. Later on we're going to use the labels when we inspect the model so next I'm going to make the standardize the file-name cases to be title-cased. 
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 UNDERSCORE, SPACE = "_", " "
 for path in file_names:
     name, extension = os.path.splitext(path.name)
@@ -222,7 +222,7 @@ for path in file_names[:2]:
 
 Now I'll construct the pattern to match the file-name.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 is_not_a = "^"
 end_of_line = "$"
 one_or_more = "+"
@@ -246,21 +246,21 @@ The reason for the forward slash at the beginning of the expression is that we'r
 
 Now on to the =ImageDataBunch=. Here's the arguments we need to pass in.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(help(ImageDataBunch.from_name_re))
 #+end_src
 
 #+RESULTS:
 : Help on method from_name_re in module fastai.vision.data:
 : 
-: from_name_re(path:Union[pathlib.Path, str], fnames:Collection[pathlib.Path], pat:str, valid_pct:float=0.2, **kwargs) method of builtins.type instance
+: from_name_re(path: Union[pathlib.Path, str], fnames: Collection[pathlib.Path], pat: str, valid_pct: float = 0.2, **kwargs) method of builtins.type instance
 :     Create from list of `fnames` in `path` with re expression `pat`.
 : 
 : None
 
 Okay, so let's get the labels.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 data = ImageDataBunch.from_name_re(path_to_images, 
                                    file_names, 
                                    expression, 
@@ -272,7 +272,7 @@ data = ImageDataBunch.from_name_re(path_to_images,
 
 One of the arguments we passed in (=ds_tfms=?) isn't particularly obviously named, unless you already know about applying transforms to images, but here's what we passed to it.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(help(get_transforms))
 #+end_src
 
@@ -291,7 +291,7 @@ We also added a call to [[https://docs.fast.ai/vision.data.html#normalize][norma
 *** Looking at Some of the Images
 The [[https://docs.fast.ai/basic_data.html#DataBunch.show_batch][show_batch]] method will plot some of the images in matplotlib. It retrieves them randomly so calling the method repeatedly will pull up different images. Unfortunately you can't pass in a figure or axes so it isn't easily configurable.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 help(data.show_batch)
 #+end_src
 
@@ -302,7 +302,7 @@ help(data.show_batch)
 :     Show a batch of data in `ds_type` on a few `rows`.
 : 
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/show_batch.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/show_batch.png
 data.show_batch(rows=3, figsize=(7,6))
 #+end_src
 
@@ -316,7 +316,7 @@ data.show_batch(rows=3, figsize=(7,6))
 
 I'm guessing that the reason why so many images look "off" is because the of the data-transforms being added, and not that the photographers were horrible (or drunk). Why don't we look at the representation of the data bunch?
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(data)
 #+end_src
 
@@ -349,11 +349,36 @@ So it looks like the =ImageDataBunch= created a training and a validation set an
 
 I'll use =fast.ai's= [[https://docs.fast.ai/vision.learner.html#cnn_learner][cnn_learner]] to load the data, pre-trained model (=resnet34=), and the metric to use when training ([[https://docs.fast.ai/metrics.html#error_rate][error_rate]]). If you look at the [[https://github.com/fastai/fastai/blob/master/fastai/vision/models/__init__.py][fast ai code]] they are importing the =resnet34= model from [[https://pytorch.org/docs/stable/torchvision/models.html#id3][pytorch's torchvision]].
 
-#+begin_src ipython :session fastai :results output :exports both
+This next block sets up the [[https://github.com/stas00/ipyexperiments/blob/master/docs/ipyexperiments.md][IPyExperiments]] which will delete all the variables that were created after it was created when it is deleted. This is to free up memory because the =resnet= architecture takes up a lot of memory on the GPU.
+
+#+begin_src python :session fastai :results output raw :exports both
+experiment = IPyExperimentsPytorch()
+#+end_src
+
+#+RESULTS:
+*** Experiment started with the Pytorch backend
+Device: ID 0, GeForce GTX 1060 6GB (6069 RAM)
+
+
+*** Current state:
+RAM:    Used    Free   Total       Util
+CPU:   2,375  58,710  64,336 MB   3.69% 
+GPU:     916   5,153   6,069 MB  15.10% 
+
+
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.000
+･ CPU:          0          0      2,375 MB |
+･ GPU:          0          0        916 MB |
+
+
+#+begin_src python :session fastai :results output :exports both
 learn = cnn_learner(data, resnet34, metrics=error_rate)
 #+end_src
 
 #+RESULTS:
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:01.758
+: ･ CPU:          0          0      2,551 MB |
+: ･ GPU:        114          0      1,030 MB |
 
 #+begin_example
 Downloading: "https://download.pytorch.org/models/resnet34-333f7ec4.pth" to /home/athena/.torch/models/resnet34-333f7ec4.pth
@@ -362,7 +387,7 @@ Downloading: "https://download.pytorch.org/models/resnet34-333f7ec4.pth" to /hom
 
 As you can see, it downloaded the stored model parameters from pytorch. This is because I've never downloaded this particular model before - if you run it again it shouldn't need to re-download it. Since this is a [[https://pytorch.org][pytorch]] model we can look at it's represetantion to see the architecture of the network.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(learn.model)
 #+end_src
 
@@ -528,33 +553,41 @@ That's a pretty big network, but the main thing to notice is the last layer, whi
 
 Now we need to train it using the [[https://docs.fast.ai/train.html#fit_one_cycle][fit_one_cycle]] method. At first I thought 'one cycle' meant just one pass through the batches but according to the [[https://docs.fast.ai/callbacks.one_cycle.html][documentation]], this is a reference to a training method called the [[https://sgugger.github.io/the-1cycle-policy.html][1Cycle Policy]] proposed by [[https://arxiv.org/abs/1803.09820][Leslie N. Smith]] that changes the hyperparameters to make the model train faster.
 
-#+BEGIN_SRC ipython :session fastai :results output :exports both
+#+BEGIN_SRC python :session fastai :results output :exports both
 TIMER.mesasge = "Finished fitting the ResNet 34 Model."
 with TIMER:
     learn.fit_one_cycle(4)
 #+END_SRC
 
 #+RESULTS:
-: Started: 2019-04-21 10:14:47.320973
-: Ended: 2019-04-21 10:16:47.401891
-: Elapsed: 0:02:00.080918
+: Started: 2019-04-21 18:18:45.894630
+: Ended: 2019-04-21 18:22:09.988508
+: Elapsed: 0:03:24.093878
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:03:24.095
+: ･ CPU:          0          0      2,999 MB |
+: ･ GPU:        151      3,322      1,182 MB |
 
-Depending on how busy the computer is this takes two to three minutes when I run it. Next let's store the parameters for the trained model.
+Depending on how busy the computer is this takes two to three minutes when I run it. Next let's store the parameters for the trained model to disk.
 
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results output :exports both
 learn.save('stage-1')
 #+END_SRC
+
+#+RESULTS:
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.145
+: ･ CPU:          0          0      3,000 MB |
+: ･ GPU:         -1          0      1,181 MB |
 
 ** Results
    Let's look at how the model did. If I was running this in a jupyter notebook there would be a table output of the accuracy, but I'm not, and I can't find any documentation on how to get that myself, so, tough luck, then. We can look at some things after the fact, though - the [[https://docs.fast.ai/train.html#ClassificationInterpretation][ClassificationInterpretation]] class contains methods to help look at how the model did.
 
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 interpreter = ClassificationInterpretation.from_learner(learn)
 #+END_SRC
 
 The [[https://docs.fast.ai/vision.learner.html#ClassificationInterpretation.top_losses][top_losses]] method returns a tuple of the highest losses along with the indices of the data that gave those losses. By default it actually gives all the losses sorted from largest to smallest, but you could pass in an integer to limit how much it returns.
 
-#+BEGIN_SRC ipython :session fastai :results output :exports both
+#+BEGIN_SRC python :session fastai :results output :exports both
 losses, indexes = interpreter.top_losses()
 print(losses)
 print(indexes)
@@ -562,11 +595,14 @@ assert len(data.valid_ds)==len(losses)==len(indexes)
 #+END_SRC
 
 #+RESULTS:
-: tensor([8.1526e+00, 7.2411e+00, 5.3177e+00,  ..., 1.9073e-06, 1.9073e-06,
-:         -0.0000e+00])
-: tensor([1298, 1418,  131,  ...,  314,  735,  404])
+: tensor([7.1777e+00, 6.8882e+00, 5.8577e+00,  ..., 3.8147e-06, 3.8147e-06,
+:         1.9073e-06])
+: tensor([1298, 1418,  166,  ...,  735,  404,  291])
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.002
+: ･ CPU:          0          0      3,000 MB |
+: ･ GPU:          0          0      1,181 MB |
 
-#+BEGIN_SRC ipython :session fastai :results output raw :exports both
+#+BEGIN_SRC python :session fastai :results output raw :exports both
 plot = holoviews.Distribution(losses).opts(title="Loss Distribution", 
                                            xlabel="Loss", 
                                            width=Plot.width, 
@@ -583,18 +619,21 @@ Embed(plot=plot, file_name="loss_distribution")()
 
 Although it looks like there are negative losses, that's just the way the distribution works out, it looks like most of the losses are around zero.
 
-#+BEGIN_SRC ipython :session fastai :results output :exports both
+#+BEGIN_SRC python :session fastai :results output :exports both
 print(losses.max())
 print(losses.min())
 #+END_SRC
 
 #+RESULTS:
-: tensor(8.1526)
-: tensor(-0.)
+: tensor(7.1777)
+: tensor(1.9073e-06)
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.001
+: ･ CPU:          0          0      3,000 MB |
+: ･ GPU:          7          0      1,188 MB |
 
 Here's a count of the losses when they are broken up into ten bins.
 
-#+BEGIN_SRC ipython :session fastai :results output raw :exports both
+#+BEGIN_SRC python :session fastai :results output raw :exports both
 bins = pandas.cut(losses.tolist(), bins=10).value_counts().reset_index()
 total = bins[0].sum()
 percentage = 100 * bins[0]/total
@@ -605,28 +644,28 @@ print(ORG_TABLE(bins, headers="Range Count Percent(%)".split()))
 #+RESULTS:
 | Range             | Count | Percent(%) |
 |-------------------+-------+------------|
-| (-0.00815, 0.815] |  1355 |    91.6779 |
-| (0.815, 1.631]    |    58 |    3.92422 |
-| (1.631, 2.446]    |    31 |    2.09743 |
-| (2.446, 3.261]    |    20 |    1.35318 |
-| (3.261, 4.076]    |     6 |   0.405954 |
-| (4.076, 4.892]    |     2 |   0.135318 |
-| (4.892, 5.707]    |     4 |   0.270636 |
-| (5.707, 6.522]    |     0 |          0 |
-| (6.522, 7.337]    |     1 |   0.067659 |
-| (7.337, 8.153]    |     1 |   0.067659 |
+| (-0.00718, 0.718] |  1349 |     91.272 |
+| (0.718, 1.436]    |    61 |     4.1272 |
+| (1.436, 2.153]    |    31 |    2.09743 |
+| (2.153, 2.871]    |    14 |   0.947226 |
+| (2.871, 3.589]    |    15 |    1.01488 |
+| (3.589, 4.307]    |     3 |   0.202977 |
+| (4.307, 5.024]    |     2 |   0.135318 |
+| (5.024, 5.742]    |     0 |          0 |
+| (5.742, 6.46]     |     1 |   0.067659 |
+| (6.46, 7.178]     |     2 |   0.135318 |
 
 It's not entirely clear to me how to interpret the losses - what does a loss of seven mean, exactly? -0.00744? But, anyway, it looks like the vast majority are less than one.
 
 Another thing we can do is plot the images that had the highest losses.
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/top_losses.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/top_losses.png
 interpreter.plot_top_losses(9, figsize=(15,11))
 #+END_SRC
 
 #+RESULTS:
 :results:
-# Out[36]:
+# Out[35]:
 [[file:../../files/posts/fastai/dog-and-cat-breed-classification/top_losses.png]]
 :end:
 
@@ -634,7 +673,7 @@ interpreter.plot_top_losses(9, figsize=(15,11))
 
 It looks like the ones that had the most loss had some kind of weird flare effect applied to the image. Now that we've used it, maybe we can see how we're supposed to call =plot_top_losses=.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(help(interpreter.plot_top_losses))
 #+END_SRC
 
@@ -650,13 +689,13 @@ print(help(interpreter.plot_top_losses))
 
 Next let's look at the [[https://www.wikiwand.com/en/Confusion_matrix][confusion matrix]].
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/confusion_matrix.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/confusion_matrix.png
 interpreter.plot_confusion_matrix(figsize=(12,12), dpi=60)
 #+END_SRC
 
 #+RESULTS:
 :results:
-# Out[38]:
+# Out[36]:
 [[file:../../files/posts/fastai/dog-and-cat-breed-classification/confusion_matrix.png]]
 :end:
 
@@ -668,7 +707,7 @@ If you compare the images with the worst losses to the confusion matrix you'll n
 
 Here's the breeds that were the hardest for the model to predict.
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 print(ORG_TABLE(interpreter.most_confused(min_val=3), 
                 headers="Actual Predicted Count".split()))
 #+END_SRC
@@ -676,67 +715,70 @@ print(ORG_TABLE(interpreter.most_confused(min_val=3),
 #+RESULTS:
 | Actual                     | Predicted                  | Count |
 |----------------------------+----------------------------+-------|
-| American_Pit_Bull_Terrier  | Staffordshire_Bull_Terrier |     6 |
-| Miniature_Pinscher         | Chihuahua                  |     6 |
-| Staffordshire_Bull_Terrier | American_Pit_Bull_Terrier  |     6 |
-| American_Bulldog           | American_Pit_Bull_Terrier  |     4 |
+| American_Pit_Bull_Terrier  | Staffordshire_Bull_Terrier |    10 |
+| Staffordshire_Bull_Terrier | American_Pit_Bull_Terrier  |     5 |
+| American_Bulldog           | Staffordshire_Bull_Terrier |     4 |
 | Bengal                     | Egyptian_Mau               |     4 |
-| Birman                     | Ragdoll                    |     4 |
-| American_Bulldog           | Staffordshire_Bull_Terrier |     3 |
-| Egyptian_Mau               | Bengal                     |     3 |
-| Maine_Coon                 | Bengal                     |     3 |
-| Persian                    | Maine_Coon                 |     3 |
+| American_Pit_Bull_Terrier  | American_Bulldog           |     3 |
+| Miniature_Pinscher         | Chihuahua                  |     3 |
+| Ragdoll                    | Birman                     |     3 |
 | Samoyed                    | Great_Pyrenees             |     3 |
 
 It doesn't look too bad, actually, other that the first few entries, maybe.
 ** Unfreezing, fine-tuning, and learning rates
 
-So, this is what we get with a straight off-the-shelf setup from =fast.ai=, but we want more, don't we? Let's [[https://docs.fast.ai/basic_train.html#Learner.unfreeze][*unfreeze*]] the model and train some more.
+So, this is what we get with a straight off-the-shelf setup from =fast.ai=, but we want more, don't we? Let's [[https://docs.fast.ai/basic_train.html#Learner.unfreeze][*unfreeze*]] the model (allow the entire model's weights to be trained) and train some more.
 
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 learn.unfreeze()
 #+END_SRC
 
 Since we are using a pre-trained model we normally freeze all but the last layer to do transfer learning, by unfreezing the mode we'll train all the layers to our dataset.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 TIMER.message = "Finished training the unfrozen model."
 with TIMER:
     learn.fit_one_cycle(1)
 #+END_SRC
 
 #+RESULTS:
-: Started: 2019-04-21 10:17:06.333188
-: Ended: 2019-04-21 10:17:46.477064
-: Elapsed: 0:00:40.143876
+: Started: 2019-04-21 18:29:47.149628
+: Ended: 2019-04-21 18:30:28.689325
+: Elapsed: 0:00:41.539697
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:41.541
+: ･ CPU:          0          0      3,010 MB |
+: ･ GPU:        694      1,923      1,883 MB |
 
-Now we save it again.
+Now we save the parameters to disk again.
 
-#+BEGIN_SRC ipython :session fastai :results none
+#+BEGIN_SRC python :session fastai :results none
 learn.save('stage-1');
 #+END_SRC
 
 Now we're going to use the [[https://docs.fast.ai/callbacks.lr_finder.html][lr_find]] method to find the best learning rate.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 TIMER.message = "Finished finding the best learning rate."
 with TIMER:
     learn.lr_find()
 #+END_SRC
 
 #+RESULTS:
-: Started: 2019-04-21 10:17:53.331284
+: Started: 2019-04-21 18:31:02.961941
 : LR Finder is complete, type {learner_name}.recorder.plot() to see the graph.
-: Ended: 2019-04-21 10:18:19.846068
-: Elapsed: 0:00:26.514784
+: Ended: 2019-04-21 18:31:29.892324
+: Elapsed: 0:00:26.930383
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:26.931
+: ･ CPU:          0          0      3,010 MB |
+: ･ GPU:        339      1,646      2,218 MB |
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/learning.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/learning.png
 learn.recorder.plot()
 #+END_SRC
 
 #+RESULTS:
 :results:
-# Out[44]:
+# Out[43]:
 [[file:../../files/posts/fastai/dog-and-cat-breed-classification/learning.png]]
 :end:
 
@@ -747,35 +789,82 @@ So, it's kind of hard to see the exact number, but you can see that somewhere ar
 
 So next we're going to re-train it using an interval that hopefully gives us the best loss.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 learn.unfreeze()
 with TIMER:
     print(learn.fit_one_cycle(2, max_lr=slice(1e-6,1e-4)))
 #+END_SRC
 
 #+RESULTS:
-: Started: 2019-04-21 10:18:22.962826
+: Started: 2019-04-21 18:34:11.748741
 : None
-: Ended: 2019-04-21 10:19:42.766774
-: Elapsed: 0:01:19.803948
+: Ended: 2019-04-21 18:35:34.827655
+: Elapsed: 0:01:23.078914
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:01:23.083
+: ･ CPU:          0          0      3,011 MB |
+: ･ GPU:          9      1,634      2,231 MB |
+
+Now the experiment is over so let's free up some memory.
+
+#+begin_src python :session fastai :results output raw :exports both
+del experiment
+#+end_src
+
+#+RESULTS:
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.000
+･ CPU:          0          0      3,011 MB |
+･ GPU:        -17          0      2,214 MB |
+
+IPyExperimentsPytorch: Finishing
+
+*** Experiment finished in 00:20:22 (elapsed wallclock time)
+
+*** Newly defined local variables:
+Deleted: bins, codecs, indexes, interpreter, learn, losses, percentage, total
+
+*** Circular ref objects gc collected during the experiment:
+cleared 12 objects (only temporary leakage)
+
+*** Experiment memory:
+RAM: Consumed       Reclaimed
+CPU:      636        0 MB (  0.00%)
+GPU:    1,297    1,308 MB (100.82%)
+
+*** Current state:
+RAM:    Used    Free   Total       Util
+CPU:   3,011  57,984  64,336 MB   4.68% 
+GPU:     906   5,163   6,069 MB  14.93% 
 
 ** Training: resnet50
 
-Okay, so we trained the =resnet34= model, and although I haven't figured out how to tell exactly how well it's doing, it seems to be doing pretty well. Now it's time to try the =resnet50= model, which has pretty much the same architecture but more layers. This means it should do better, but it also takes up a lot more memory, so step one is to delete the old model.
-#+begin_src ipython :session fastai :results none
-del learn
-gc.collect()
-torch.cuda.empty_cache()
+Okay, so we trained the =resnet34= model, and although I haven't figured out how to tell exactly how well it's doing, it seems to be doing pretty well. Now it's time to try the =resnet50= model, which has pretty much the same architecture but more layers. This means it should do better, but it also takes up a lot more memory.
+
+
+Even after deleting the old model I still run out of memory so I'm going to have to fall back to a smaller batch-size. 
+
+#+begin_src python :session fastai :results output :exports both
+experiment = IPyExperimentsPytorch()
 #+end_src
 
+#+RESULTS:
+#+begin_example
 
-Even after deleting the old model I still run out of memory so I'm going to have to fall back to a smaller batch-size. I'm going to try running it in an [[https://github.com/stas00/ipyexperiments/blob/master/docs/ipyexperiments.md][IPyExperiments]] block to help with cleaning up the memory.
+,*** Experiment started with the Pytorch backend
+Device: ID 0, GeForce GTX 1060 6GB (6069 RAM)
 
-#+begin_src ipython :session fastai :results output :exports both
-resnet_experiment = IPyExperimentsPytorch()
-#+end_src
 
-#+begin_src ipython :session fastai :results none
+,*** Current state:
+RAM:    Used    Free   Total       Util
+CPU:   3,011  57,984  64,336 MB   4.68% 
+GPU:     906   5,163   6,069 MB  14.93% 
+
+
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.000
+･ CPU:          0          0      3,011 MB |
+･ GPU:          0          0        906 MB |
+#+end_example
+
+#+begin_src python :session fastai :results none
 data = ImageDataBunch.from_name_re(
     path_to_images, 
     file_names, 
@@ -786,18 +875,18 @@ data = ImageDataBunch.from_name_re(
 #+end_src
 
 Now I'll re-build the learner with the new pre-trained model.
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 learn = cnn_learner(data, resnet50, metrics=error_rate)
 #+end_src
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/learning_50.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/learning_50.png
 learn.lr_find()
 learn.recorder.plot()
 #+end_src
 
 #+RESULTS:
 :results:
-# Out[49]:
+# Out[50]:
 [[file:../../files/posts/fastai/dog-and-cat-breed-classification/learning_50.png]]
 :end:
 
@@ -805,47 +894,66 @@ learn.recorder.plot()
 
 So with this learner we can see that there's a rapd drop in loss followed by a sudden spike in loss.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 TIMER.message = "Done fitting resnet 50"
 with TIMER:
     learn.fit_one_cycle(8)
 #+end_src
 
 #+RESULTS:
-: Started: 2019-04-21 10:20:15.994403
-: Ended: 2019-04-21 10:35:40.336790
-: Elapsed: 0:15:24.342387
+: Started: 2019-04-21 18:42:03.987300
+: Ended: 2019-04-21 18:57:43.628598
+: Elapsed: 0:15:39.641298
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:15:39.643
+: ･ CPU:          0          0      3,067 MB |
+: ･ GPU:         17      4,474      1,117 MB |
 
-Now we can save it.
+Okay, so save the parameters again.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 learn.save('stage-1-50')
 #+end_src
 
 Now we can try and unfreeze and re-train it.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 TIMER.message = "Finished training resnet 50 with the optimal learning rate."
 learn.unfreeze()
 with TIMER:
     learn.fit_one_cycle(3, max_lr=slice(1e-6,1e-4))
 #+end_src
 
-#+begin_src ipython :session fastai :results output :exports both
+#+RESULTS:
+: Started: 2019-04-21 18:58:22.070603
+: Ended: 2019-04-21 19:06:24.471347
+: Elapsed: 0:08:02.400744
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:08:02.406
+: ･ CPU:          0          0      3,069 MB |
+: ･ GPU:        259      4,586      1,376 MB |
+
+#+begin_src python :session fastai :results output :exports both
 with TIMER:
     metrics = learn.validate()
 #+end_src
 
-#+begin_src ipython :session fastai :results output :exports both
+#+RESULTS:
+: Started: 2019-04-21 19:08:37.971400
+: Ended: 2019-04-21 19:08:49.648814
+: Elapsed: 0:00:11.677414
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:11.679
+: ･ CPU:          0          0      3,069 MB |
+: ･ GPU:         22        410      1,398 MB |
+
+#+begin_src python :session fastai :results output :exports both
 print(f"Error Rate: {metrics[0]:.2f}")
 #+end_src
 
 #+RESULTS:
-: Error Rate: 0.16
+: Error Rate: 0.15
 
 Since it didn't improve let's go back to the previous model.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 learn.load('stage-1-50');
 with TIMER:
     metrics = learn.validate()
@@ -853,18 +961,21 @@ print(f"Error Rate: {metrics[0]:.2f}")
 #+end_src
 
 #+RESULTS:
-: Started: 2019-04-21 13:02:34.428794
-: Ended: 2019-04-21 13:02:45.533831
-: Elapsed: 0:00:11.105037
+: Started: 2019-04-21 19:09:19.655769
+: Ended: 2019-04-21 19:09:30.841289
+: Elapsed: 0:00:11.185520
 : Error Rate: 0.16
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:16.011
+: ･ CPU:          1          1      3,069 MB |
+: ･ GPU:        308        612      1,706 MB |
 
 *** Interpreting the Result
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results output :exports both
 interpreter = ClassificationInterpretation.from_learner(learn)
 #+end_src
 **** The Most Confusing Breeds
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 print(ORG_TABLE(interpreter.most_confused(min_val=3),
                 headers="Actual Predicted Count".split()))
 #+end_src
@@ -880,15 +991,46 @@ print(ORG_TABLE(interpreter.most_confused(min_val=3),
 
 It got fewer breeds with more than two wrong than the =resnet34= model did, but both of them seem to have trouble telling an American Pit Bull Terrier from a Staffordshire Bull Terrier.
 
-#+begin_src ipython :session fastai :results output :exports both
-del resnet_experiment
+#+begin_src python :session fastai :results output :exports both
+del experiment
 #+end_src
+
+#+RESULTS:
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.000
+: ･ CPU:          0          0      3,070 MB |
+: ･ GPU:          0          0      1,706 MB |
+
 ** Other Data Formats
    This is a look at other data sets.
 *** MNIST
     This is a set of handwritten digits. The originals are hosted on [[http://yann.lecun.com/exdb/mnist/][yann.lecun.com]] but the [[https://course.fast.ai/datasets#image-classification][fast.ai datasets page]] has the images converted from the original IDX format to the PNG format.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
+experiment = IPyExperimentsPytorch()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+,*** Experiment started with the Pytorch backend
+Device: ID 0, GeForce GTX 1060 6GB (6069 RAM)
+
+
+,*** Current state:
+RAM:    Used    Free   Total       Util
+CPU:   3,070  57,254  64,336 MB   4.77% 
+GPU:   1,706   4,363   6,069 MB  28.11% 
+
+
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.097
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.043
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
+#+end_example
+
+#+begin_src python :session fastai :results output :exports both
 mnist_path_original = Path(os.environ.get("MNIST")).expanduser()
 assert mnist_path_original.is_dir()
 print(mnist_path_original)
@@ -896,10 +1038,16 @@ print(mnist_path_original)
 
 #+RESULTS:
 : /home/athena/data/datasets/images/mnist_png
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.001
+: ･ CPU:          0          0      3,070 MB |
+: ･ GPU:          0          0      1,706 MB |
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.046
+: ･ CPU:          0          0      3,070 MB |
+: ･ GPU:          0          0      1,706 MB |
 
 Now that we know it's there we can create a data bunch for it... Actually I tried it and found out that this is the wrong set (it throws an error for some reason), let's try it their way.
 
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 print(URLs.MNIST_SAMPLE)
 mnist_path = untar_data(URLs.MNIST_SAMPLE)
 print(mnist_path)
@@ -907,12 +1055,17 @@ print(mnist_path)
 
 #+RESULTS:
 : http://files.fast.ai/data/examples/mnist_sample
-: Downloading http://files.fast.ai/data/examples/mnist_sample
 : /home/athena/.fastai/data/mnist_sample
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.309
+: ･ CPU:          0          1      3,070 MB |
+: ･ GPU:          0          0      1,706 MB |
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.379
+: ･ CPU:          0          0      3,070 MB |
+: ･ GPU:          0          0      1,706 MB |
 
 Let's look at the difference. Here's what I downloaded.
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 for path in mnist_path_original.iterdir():
     print(f" - {path}")
 #+end_src
@@ -921,9 +1074,15 @@ for path in mnist_path_original.iterdir():
  - /home/athena/data/datasets/images/mnist_png/testing
  - /home/athena/data/datasets/images/mnist_png/README.org
  - /home/athena/data/datasets/images/mnist_png/training
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.026
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.071
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
 
 And here's what they downloaded.
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 for path in mnist_path.iterdir():
     print(f" - {path}")
 #+end_src
@@ -932,138 +1091,107 @@ for path in mnist_path.iterdir():
  - /home/athena/.fastai/data/mnist_sample/labels.csv
  - /home/athena/.fastai/data/mnist_sample/train
  - /home/athena/.fastai/data/mnist_sample/valid
+ - /home/athena/.fastai/data/mnist_sample/models
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.043
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
+･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.090
+･ CPU:          0          0      3,070 MB |
+･ GPU:          0          0      1,706 MB |
 
 Maybe you need a =labels.csv= file... I guess that's the point of this being in the "other formats" section.
 
-#+begin_src ipython :session fastai :results none
+#+begin_src python :session fastai :results none
 transforms = get_transforms(do_flip=False)
 data = ImageDataBunch.from_folder(mnist_path, ds_tfms=transforms, size=26)
 #+end_src
 
 I don't know why the size is 26 in this case.
 
-#+begin_src ipython :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/mnist_batch.png
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/mnist_batch.png
 data.show_batch(rows=3, figsize=(5,5))
 #+end_src
 
 #+RESULTS:
 :results:
-# Out[94]:
+# Out[66]:
 [[file:../../files/posts/fastai/dog-and-cat-breed-classification/mnist_batch.png]]
 :end:
 
 [[file:mnist_batch.png]]
 
-Now to fit the model. This uses a smaller version of the resnet (18 layers) and the =accuracy= metric. This isn't as important here, I don't think, but I'm also going to try using [[https://github.com/stas00/ipyexperiments/blob/master/docs/ipyexperiments.md][ipyexperiments]] to clean up after I'm done.
+Now to fit the model. This uses a smaller version of the resnet (18 layers) and the =accuracy= metric. 
 
-#+begin_src ipython :session fastai :results output :exports both
-mnist_experiment = IPyExperimentsPytorch()
-#+end_src
-
-#+RESULTS:
-#+begin_example
-
-,*** Experiment started with the Pytorch backend
-Device: ID 0, GeForce GTX 1060 6GB (6075 RAM)
-
-
-,*** Current state:
-RAM:    Used    Free   Total       Util
-CPU:   2,997  58,069  64,338 MB   4.66% 
-GPU:   2,814   3,261   6,075 MB  46.32% 
-
-
-･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.000
-･ CPU:          0          0      2,997 MB |
-･ GPU:          0          0      2,814 MB |
-#+end_example
-
-#+begin_src ipython :session fastai :results output :exports both
+#+begin_src python :session fastai :results output :exports both
 with TIMER:
     learn = cnn_learner(data, resnet18, metrics=accuracy)
     learn.fit(2)
 #+end_src
 
 #+RESULTS:
-: Started: 2019-04-21 13:53:41.263752
-: Downloading: "https://download.pytorch.org/models/resnet18-5c106cde.pth" to /home/athena/.torch/models/resnet18-5c106cde.pth
-: 0it [00:00, ?it/s]73728it [00:00, 725526.76it/s]368640it [00:00, 827339.78it/s]925696it [00:00, 1075476.01it/s]1646592it [00:00, 1431950.37it/s]2170880it [00:00, 1829027.02it/s]2531328it [00:00, 1989428.41it/s]3022848it [00:00, 2421229.74it/s]3399680it [00:01, 2395239.65it/s]3735552it [00:01, 2351325.63it/s]4038656it [00:01, 2058110.27it/s]4562944it [00:01, 2483975.43it/s]4939776it [00:01, 2751418.89it/s]5283840it [00:01, 2908457.22it/s]5627904it [00:01, 2997208.47it/s]5971968it [00:01, 3109360.97it/s]6307840it [00:02, 2860484.79it/s]6619136it [00:02, 2810949.37it/s]6922240it [00:02, 2668912.74it/s]7217152it [00:02, 2745508.43it/s]7503872it [00:02, 2616768.19it/s]7856128it [00:02, 2829412.96it/s]8249344it [00:02, 3075780.41it/s]8577024it [00:02, 2595823.89it/s]8863744it [00:03, 2563337.89it/s]9142272it [00:03, 2389726.68it/s]9445376it [00:03, 2533156.31it/s]9740288it [00:03, 2625679.84it/s]10051584it [00:03, 2743271.55it/s]10338304it [00:03, 2671464.50it/s]10616832it [00:03, 2573900.31it/s]10887168it [00:03, 2566152.56it/s]11149312it [00:03, 2525190.01it/s]11411456it [00:04, 2399950.63it/s]11673600it [00:04, 2458715.28it/s]11927552it [00:04, 2426511.03it/s]12173312it [00:04, 2316454.73it/s]12410880it [00:04, 2249218.90it/s]12664832it [00:04, 2271792.53it/s]12894208it [00:04, 2249666.17it/s]13164544it [00:04, 2361228.35it/s]13484032it [00:04, 2530932.04it/s]13746176it [00:05, 2317696.87it/s]13991936it [00:05, 2143474.76it/s]14221312it [00:05, 2041603.63it/s]14483456it [00:05, 2171279.71it/s]14761984it [00:05, 2274377.89it/s]15024128it [00:05, 2307338.94it/s]15261696it [00:05, 2161165.34it/s]15482880it [00:05, 2026423.62it/s]15712256it [00:06, 2084740.44it/s]15925248it [00:06, 2083500.76it/s]16138240it [00:06, 2082440.17it/s]16351232it [00:06, 1931048.33it/s]16556032it [00:06, 1959926.54it/s]16777216it [00:06, 2028747.59it/s]17039360it [00:06, 2147547.84it/s]17301504it [00:06, 2247417.40it/s]17612800it [00:06, 2435157.66it/s]17924096it [00:06, 2517474.43it/s]18186240it [00:07, 2526808.43it/s]18448384it [00:07, 2377124.31it/s]18694144it [00:07, 2265049.52it/s]19005440it [00:07, 2439032.62it/s]19267584it [00:07, 2367105.89it/s]19562496it [00:07, 2459129.00it/s]19824640it [00:07, 2442731.24it/s]20078592it [00:07, 2435059.27it/s]20332544it [00:07, 2345118.63it/s]20570112it [00:08, 2287762.10it/s]20807680it [00:08, 2163482.81it/s]21028864it [00:08, 2173605.03it/s]21250048it [00:08, 2179101.32it/s]21471232it [00:08, 2136233.67it/s]21692416it [00:08, 2033549.25it/s]21905408it [00:08, 1877250.44it/s]22134784it [00:08, 1975934.10it/s]22364160it [00:08, 2040434.24it/s]22593536it [00:09, 2020842.58it/s]22798336it [00:09, 1987084.74it/s]23003136it [00:09, 1899343.86it/s]23232512it [00:09, 2000384.93it/s]23478272it [00:09, 2056716.34it/s]23707648it [00:09, 2072500.57it/s]23937024it [00:09, 2122842.34it/s]24158208it [00:09, 2045558.63it/s]24371200it [00:09, 1991428.60it/s]24576000it [00:10, 1933693.34it/s]24772608it [00:10, 1842875.97it/s]24961024it [00:10, 1788033.02it/s]25149440it [00:10, 1758578.87it/s]25346048it [00:10, 1793667.49it/s]25559040it [00:10, 1871854.92it/s]25804800it [00:10, 1999975.62it/s]26009600it [00:10, 2003900.31it/s]26214400it [00:10, 1903360.35it/s]26411008it [00:11, 1766198.44it/s]26599424it [00:11, 1773765.13it/s]26820608it [00:11, 1839875.87it/s]27017216it [00:11, 1807363.63it/s]27213824it [00:11, 1837186.56it/s]27402240it [00:11, 1793950.11it/s]27590656it [00:11, 1771863.10it/s]27770880it [00:11, 1764213.76it/s]27951104it [00:11, 1741149.65it/s]28131328it [00:12, 1731472.18it/s]28311552it [00:12, 1645444.16it/s]28508160it [00:12, 1699698.71it/s]28680192it [00:12, 1676292.17it/s]28852224it [00:12, 1669324.05it/s]29065216it [00:12, 1772956.23it/s]29278208it [00:12, 1819439.84it/s]29466624it [00:13, 901272.64it/s] 29622272it [00:13, 1028153.86it/s]29769728it [00:13, 1088442.33it/s]29933568it [00:13, 1196266.82it/s]30113792it [00:13, 1308037.90it/s]30294016it [00:13, 1406272.70it/s]30474240it [00:13, 1456577.76it/s]30638080it [00:13, 1505761.99it/s]30801920it [00:14, 1517894.88it/s]30982144it [00:14, 1547829.15it/s]31145984it [00:14, 1567747.38it/s]31309824it [00:14, 1547037.66it/s]31473664it [00:14, 1449719.61it/s]31637504it [00:14, 1490939.68it/s]31801344it [00:14, 1510336.08it/s]31965184it [00:14, 1519595.64it/s]32129024it [00:14, 1531571.72it/s]32292864it [00:15, 1561197.10it/s]32456704it [00:15, 1554073.77it/s]32620544it [00:15, 1510435.36it/s]32776192it [00:15, 1403128.79it/s]32923648it [00:15, 1370238.06it/s]33062912it [00:15, 1352377.44it/s]33210368it [00:15, 1319257.40it/s]33349632it [00:15, 1305078.77it/s]33488896it [00:15, 1297809.10it/s]33619968it [00:16, 1253334.66it/s]33751040it [00:16, 1224818.81it/s]33882112it [00:16, 1239102.33it/s]34054144it [00:16, 1270029.74it/s]34234368it [00:16, 1379538.00it/s]34430976it [00:16, 1503677.06it/s]34594816it [00:16, 1493223.61it/s]34840576it [00:16, 1687066.30it/s]35102720it [00:16, 1860189.51it/s]35307520it [00:17, 1752418.88it/s]35495936it [00:17, 1772561.53it/s]35725312it [00:17, 1841262.45it/s]35938304it [00:17, 1878408.39it/s]36167680it [00:17, 1976241.15it/s]36372480it [00:17, 1905109.56it/s]36569088it [00:17, 1857017.19it/s]36773888it [00:17, 1888273.01it/s]36970496it [00:17, 1899287.66it/s]37175296it [00:17, 1940529.70it/s]37371904it [00:18, 1924204.16it/s]37593088it [00:18, 1950481.48it/s]37789696it [00:18, 1926550.96it/s]37986304it [00:18, 1885650.29it/s]38191104it [00:18, 1929892.14it/s]38387712it [00:18, 1939425.39it/s]38592512it [00:18, 1922571.08it/s]38805504it [00:18, 1965296.76it/s]39034880it [00:18, 2050873.15it/s]39247872it [00:19, 2053833.01it/s]39460864it [00:19, 1905598.06it/s]39657472it [00:19, 1892455.91it/s]39886848it [00:19, 1973887.32it/s]40099840it [00:19, 1987415.05it/s]40312832it [00:19, 2012275.34it/s]40517632it [00:19, 1961565.08it/s]40722432it [00:19, 1880399.66it/s]40935424it [00:19, 1938369.83it/s]41164800it [00:20, 1963201.00it/s]41394176it [00:20, 2042169.47it/s]41607168it [00:20, 1816365.79it/s]41820160it [00:20, 1868156.69it/s]42065920it [00:20, 1757183.98it/s]42295296it [00:20, 1887642.66it/s]42491904it [00:20, 1807002.45it/s]42852352it [00:20, 2118495.30it/s]43089920it [00:20, 2124642.42it/s]43327488it [00:21, 1791850.06it/s]43671552it [00:21, 2089889.99it/s]43917312it [00:21, 1895360.21it/s]44195840it [00:21, 2095600.80it/s]44433408it [00:21, 2051285.04it/s]44802048it [00:21, 2156334.01it/s]45129728it [00:21, 2388851.12it/s]45391872it [00:22, 2274356.91it/s]45670400it [00:22, 2375766.59it/s]45924352it [00:22, 2380764.46it/s]46170112it [00:22, 2035584.94it/s]46522368it [00:22, 2301284.85it/s]46784512it [00:22, 2370949.11it/s]46827520it [00:22, 2068526.39it/s]
-: Ended: 2019-04-21 13:54:15.787787
-: Elapsed: 0:00:34.524035
-: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:38.431
-: ･ CPU:          0          0      2,998 MB |
-: ･ GPU:          0      1,362      2,814 MB |
+: Started: 2019-04-21 19:15:13.568995
+: Ended: 2019-04-21 19:15:44.806330
+: Elapsed: 0:00:31.237335
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:31.239
+: ･ CPU:          0          0      3,075 MB |
+: ･ GPU:         46      1,379      1,733 MB |
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:31.297
+: ･ CPU:          0          0      3,075 MB |
+: ･ GPU:         46      1,379      1,733 MB |
 
 
-#+begin_src ipython :session fastai :results output :exports both
-del mnist_experiment
-#+end_src
+So, since the labels are so important, maybe we should look at them.
 
-#+begin_src ipython :session fastai :results output raw :exports both
+#+begin_src python :session fastai :results output raw :exports both
 labels = pandas.read_csv(mnist_path/'labels.csv')
 print(ORG_TABLE(labels.iloc[:5]))
 #+end_src
 
-# In[ ]:
+#+RESULTS:
+| name              | label |
+|-------------------+-------|
+| train/3/7463.png  |     0 |
+| train/3/21102.png |     0 |
+| train/3/31559.png |     0 |
+| train/3/46882.png |     0 |
+| train/3/26209.png |     0 |
 
+Well, that's not realy revelatory.
 
-data = ImageDataBunch.from_csv(path, ds_tfms=tfms, size=28)
+#+begin_src python :session fastai :results none
+data = ImageDataBunch.from_csv(mnist_path, ds_tfms=transforms, size=28)
+#+end_src
 
-
-# In[ ]:
-
-
+#+begin_src python :session fastai :results raw drawer :ipyfile ../../files/posts/fastai/dog-and-cat-breed-classification/mnist_batch.png
 data.show_batch(rows=3, figsize=(5,5))
-data.classes
+#+end_src
+
+#+RESULTS:
+:results:
+# Out[73]:
+[[file:../../files/posts/fastai/dog-and-cat-breed-classification/mnist_batch.png]]
+:end:
+
+#+begin_src python :session fastai :results output :exports both
+print(data.classes)
+#+end_src
+
+#+RESULTS:
+: [0, 1]
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.001
+: ･ CPU:          0          0      3,080 MB |
+: ･ GPU:          0          0      1,733 MB |
+: ･ RAM:  △Consumed    △Peaked    Used Total | Exec time 0:00:00.047
+: ･ CPU:          0          0      3,080 MB |
+: ･ GPU:          0          0      1,733 MB |
 
 
-# In[ ]:
+So there are only two classes, presumably meaning that they are =3= and =7=.
 
-
-data = ImageDataBunch.from_df(path, df, ds_tfms=tfms, size=24)
-data.classes
-
-
-# In[ ]:
-
-
-fn_paths = [path/name for name in df['name']]; fn_paths[:2]
-
-
-# In[ ]:
-
-
-pat = r"/(\d)/\d+\.png$"
-data = ImageDataBunch.from_name_re(path, fn_paths, pat=pat, ds_tfms=tfms, size=24)
-data.classes
-
-
-# In[ ]:
-
-
-data = ImageDataBunch.from_name_func(path, fn_paths, ds_tfms=tfms, size=24,
-        label_func = lambda x: '3' if '/3/' in str(x) else '7')
-data.classes
-
-
-# In[ ]:
-
-
-labels = [('3' if '/3/' in str(x) else '7') for x in fn_paths]
-labels[:5]
-
-
-# In[ ]:
-
-
-data = ImageDataBunch.from_lists(path, fn_paths, labels=labels, ds_tfms=tfms, size=24)
-data.classes
-
-
-# In[ ]:
+There's more examples of... something in the notebook, but they don't explain anything and the whole project is pretty poorly documented so I'm just going to skip over the rest of it.
 
 * Return
-#+BEGIN_SRC ipython :session fastai :results output :exports both
+#+BEGIN_SRC python :session fastai :results output :exports both
 TIMER.message = "The Dog and cat breed classification buffer is done. Come check it out."
 with TIMER:
     pass
