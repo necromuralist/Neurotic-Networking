@@ -1,0 +1,489 @@
+#+BEGIN_COMMENT
+.. title: Beyond Hello
+.. slug: beyond-hello
+.. date: 2019-06-27 11:52:14 UTC-07:00
+.. tags: keras,deep learning
+.. category: Keras
+.. link: 
+.. description: A follow-up to the Keras "hello world".
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+BEGIN_SRC ipython :session hello :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is going to use [[https://keras.io/][Keras]] (and [[https://www.tensorflow.org/][tensorflow]]) to learn to categorize images in the [[https://research.zalando.com/welcome/mission/research-projects/fashion-mnist/][Fashion MNIST]] dataset.
+** Imports
+*** Python
+#+begin_src ipython :session hello :results none
+from argparse import Namespace
+from functools import partial
+
+import random
+#+end_src
+*** PyPi
+#+begin_src ipython :session hello :results none
+import holoviews
+import tensorflow
+#+end_src
+*** My Stuff
+#+begin_src ipython :session hello :results none
+from graeae.visualization.embed import EmbedHoloview
+#+end_src
+** The Plotting
+#+begin_src ipython :session hello :results none
+Embed = partial(EmbedHoloview, folder_path="../../files/posts/keras/beyond-hello/")
+Plot = Namespace(
+    height=1000,
+    width=800,
+)
+holoviews.extension("bokeh")
+#+end_src
+** The Data Set
+   Keras includes the Fashion MNIST dataset and can be retrieved using the [[https://keras.io/datasets/#fashion-mnist-database-of-fashion-articles][datasets.fashion_mnist]] property.
+#+begin_src ipython :session hello :results none
+(x_train, y_train), (x_test, y_test) = tensorflow.keras.datasets.fashion_mnist.load_data()
+#+end_src
+
+Unfortunately the function doesn't let you pass in the path to where you're going to store the files (it's stored in =~/.keras/datasets/fashion-mnist/=).
+
+* Middle
+** Looking at the Dataset
+*** The Labels
+    There are 10 categories of images encoded as integers in the label sets. The keras site lists them as these:
+
+    | Label | Description |
+    |-------+-------------|
+    |     0 | T-shirt/top |
+    |     1 | Trouser     |
+    |     2 | Pullover    |
+    |     3 | Dress       |
+    |     4 | Coat        |
+    |     5 | Sandal      |
+    |     6 | Shirt       |
+    |     7 | Sneaker     |
+    |     8 | Bag         |
+    |     9 | Ankle Boot  |
+
+#+begin_src ipython :session hello :results none
+labels = {
+    0: "T-shirt/top",
+    1: "Trouser",
+    2: "Pullover",
+    3: "Dress",
+    4: "Coat",
+    5: "Sandal",
+    6: "Shirt",
+    7 : "Sneaker",
+    8: "Bag",
+    9 : "Ankle Boot"
+    }
+#+end_src
+*** The Number of images
+#+begin_src ipython :session hello :results output :exports both
+print(type(x_train))
+rows, width, height = x_train.shape
+print(f"Rows: {rows:,} Image: {width} x {height}")
+rows, width, height = x_test.shape
+print(f"Rows: {rows:,} Image: {width} x {height}")
+#+end_src
+
+#+RESULTS:
+: <class 'numpy.ndarray'>
+: Rows: 60,000 Image: 28 x 28
+: Rows: 10,000 Image: 28 x 28
+
+So we have 60,000 grayscale 28 by 28 pixel images to use for training and 10,000 grayscale 28 by 28 pixel images to use for testing.
+
+*** A Sample Image
+#+begin_src ipython :session hello :results output raw :exports both
+index = random.randrange(len(x_train))
+image = x_train[index]
+plot = holoviews.Image(
+    image,
+).opts(
+    tools=["hover"],
+    title=f"Label {y_train[index]} ({labels[y_train[index]]})"
+    )
+Embed(plot=plot, file_name="sample_image")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="sample_image.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Although it looks like it's a color image that's because holoviews adds artificial coloring to it.
+
+*** Normalizing the Data
+   The pixel values are from 0 (black) to 255 (white) so we need to normalize them to values from 0 to 1 to work with a neural network.
+
+#+begin_src ipython :session hello :results output :exports both
+print(f"Minimum value: {x_train.min()} Maximum Value: {x_train.max()}")
+x_train_normalized = x_train/255
+y_train_normalized = y_train/255
+x_test_normalized = x_test/255
+y_test_normalized = y_test/255
+print(f"Minimum value: {x_train_normalized.min()} Maximum Value: {x_train_normalized.max()}")
+#+end_src
+
+#+RESULTS:
+: Minimum value: 0 Maximum Value: 255
+: Minimum value: 0.0 Maximum Value: 1.0
+** Define the Model
+   Once again the network will be a [[https://www.tensorflow.org/api_docs/python/tf/keras/Sequential][Sequential]] one - a linear stack of layers, and there will be three layers, a [[https://www.tensorflow.org/api_docs/python/tf/layers/Flatten][Flatten]] layer to flatten our image into a vector with 784 cells (instead of a 28 x 28 matrix), followed by two [[https://www.tensorflow.org/api_docs/python/tf/layers/Dense][Dense]], or fully-connected, layers.
+
+Each of the Dense layers will get an activation function, the first gets a [[https://www.tensorflow.org/api_docs/python/tf/nn/relu][ReLU]] ([[https://www.wikiwand.com/en/Rectifier_(neural_networks)][Rectified Linear Unit]]) which makes it non-linear (by returning the input only if greater than 0, otherwise it returns 0), and the second gets a [[https://www.tensorflow.org/api_docs/python/tf/nn/softmax][SoftMax]] to find the biggest value (and thus our most likely label for the input).
+
+#+begin_src ipython :session hello :results none
+model = tensorflow.keras.models.Sequential()
+model.add(tensorflow.keras.layers.Flatten())
+model.add(tensorflow.keras.layers.Dense(128, activation=tensorflow.nn.relu))
+model.add(tensorflow.keras.layers.Dense(10, activation=tensorflow.nn.softmax))
+#+end_src
+** Compile the Model
+   This time we're going to compile the model using the [[https://www.tensorflow.org/api_docs/python/tf/train/AdamOptimizer][Adam Optimizer]]. Confusingly, there's two of them in TensorFlow, the "regular" one, and a [[https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Adam][Keras]] version. We'll use the non-keras version.
+
+#+begin_src ipython :session hello :results output :exports both
+
+model.compile(optimizer = tf.train.AdamOptimizer(),
+              loss = 'sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+model.fit(training_images, training_labels, epochs=5)
+
+#+end_src
+* End
+** Source
+   This is a re-do of the [[https://github.com/lmoroney/dlaicourse/blob/master/Course%201%20-%20Part%204%20-%20Lesson%202%20-%20Notebook.ipynb][Beyond Hello World, A Computer Vision Example]] notebook on github by [[https://github.com/lmoroney][Laurence Moroney]].
+
+# The next thing to do, now the model is defined, is to actually build it. You do this by compiling it with an optimizer and loss function as before -- and then you train it by calling **model.fit ** asking it to fit your training data to your training labels -- i.e. have it figure out the relationship between the training data and its actual labels, so in future if you have data that looks like the training data, then it can make a prediction for what that data would look like. 
+
+# In[9]:
+
+
+
+# Once it's done training -- you should see an accuracy value at the end of the final epoch. It might look something like 0.9098. This tells you that your neural network is about 91% accurate in classifying the training data. I.E., it figured out a pattern match between the image and the labels that worked 91% of the time. Not great, but not bad considering it was only trained for 5 epochs and done quite quickly.
+# 
+# But how would it work with unseen data? That's why we have the test images. We can call model.evaluate, and pass in the two sets, and it will report back the loss for each. Let's give it a try:
+
+# In[10]:
+
+
+model.evaluate(test_images, test_labels)
+
+
+# For me, that returned a accuracy of about .8838, which means it was about 88% accurate. As expected it probably would not do as well with *unseen* data as it did with data it was trained on!  As you go through this course, you'll look at ways to improve this. 
+# 
+# To explore further, try the below exercises:
+# 
+
+# # Exploration Exercises
+
+# ###Exercise 1:
+# For this first exercise run the below code: It creates a set of classifications for each of the test images, and then prints the first entry in the classifications. The output, after you run it is a list of numbers. Why do you think this is, and what do those numbers represent? 
+
+# In[ ]:
+
+
+classifications = model.predict(test_images)
+
+print(classifications[0])
+
+
+# Hint: try running print(test_labels[0]) -- and you'll get a 9. Does that help you understand why this list looks the way it does? 
+
+# In[ ]:
+
+
+print(test_labels[0])
+
+
+# ### What does this list represent?
+# 
+# 
+# 1.   It's 10 random meaningless values
+# 2.   It's the first 10 classifications that the computer made
+# 3.   It's the probability that this item is each of the 10 classes
+# 
+# 
+
+# ####Answer: 
+# The correct answer is (3)
+# 
+# The output of the model is a list of 10 numbers. These numbers are a probability that the value being classified is the corresponding value, i.e. the first value in the list is the probability that the handwriting is of a '0', the next is a '1' etc. Notice that they are all VERY LOW probabilities.
+# 
+# For the 7, the probability was .999+, i.e. the neural network is telling us that it's almost certainly a 7.
+
+# ### How do you know that this list tells you that the item is an ankle boot?
+# 
+# 
+# 1.   There's not enough information to answer that question
+# 2.   The 10th element on the list is the biggest, and the ankle boot is labelled 9
+# 2.   The ankle boot is label 9, and there are 0->9 elements in the list
+# 
+# 
+# 
+
+# ####Answer
+# The correct answer is (2). Both the list and the labels are 0 based, so the ankle boot having label 9 means that it is the 10th of the 10 classes. The list having the 10th element being the highest value means that the Neural Network has predicted that the item it is classifying is most likely an ankle boot
+
+# ##Exercise 2: 
+# Let's now look at the layers in your model. Experiment with different values for the dense layer with 512 neurons. What different results do you get for loss, training time etc? Why do you think that's the case? 
+# 
+# 
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+mnist = tf.keras.datasets.mnist
+
+(training_images, training_labels) ,  (test_images, test_labels) = mnist.load_data()
+
+training_images = training_images/255.0
+test_images = test_images/255.0
+
+model = tf.keras.models.Sequential([tf.keras.layers.Flatten(),
+                                    tf.keras.layers.Dense(1024, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(10, activation=tf.nn.softmax)])
+
+model.compile(optimizer = 'adam',
+              loss = 'sparse_categorical_crossentropy')
+
+model.fit(training_images, training_labels, epochs=5)
+
+model.evaluate(test_images, test_labels)
+
+classifications = model.predict(test_images)
+
+print(classifications[0])
+print(test_labels[0])
+
+
+# ###Question 1. Increase to 1024 Neurons -- What's the impact?
+# 
+# 1. Training takes longer, but is more accurate
+# 2. Training takes longer, but no impact on accuracy
+# 3. Training takes the same time, but is more accurate
+# 
+
+# ####Answer
+# The correct answer is (1) by adding more Neurons we have to do more calculations, slowing down the process, but in this case they have a good impact -- we do get more accurate. That doesn't mean it's always a case of 'more is better', you can hit the law of diminishing returns very quickly!
+
+# ##Exercise 3: 
+# 
+# What would happen if you remove the Flatten() layer. Why do you think that's the case? 
+# 
+# You get an error about the shape of the data. It may seem vague right now, but it reinforces the rule of thumb that the first layer in your network should be the same shape as your data. Right now our data is 28x28 images, and 28 layers of 28 neurons would be infeasible, so it makes more sense to 'flatten' that 28,28 into a 784x1. Instead of wriitng all the code to handle that ourselves, we add the Flatten() layer at the begining, and when the arrays are loaded into the model later, they'll automatically be flattened for us.
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+mnist = tf.keras.datasets.mnist
+
+(training_images, training_labels) ,  (test_images, test_labels) = mnist.load_data()
+
+training_images = training_images/255.0
+test_images = test_images/255.0
+
+model = tf.keras.models.Sequential([#tf.keras.layers.Flatten(),
+                                    tf.keras.layers.Dense(64, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(10, activation=tf.nn.softmax)])
+
+model.compile(optimizer = 'adam',
+              loss = 'sparse_categorical_crossentropy')
+
+model.fit(training_images, training_labels, epochs=5)
+
+model.evaluate(test_images, test_labels)
+
+classifications = model.predict(test_images)
+
+print(classifications[0])
+print(test_labels[0])
+
+
+# ##Exercise 4: 
+# 
+# Consider the final (output) layers. Why are there 10 of them? What would happen if you had a different amount than 10? For example, try training the network with 5
+# 
+# You get an error as soon as it finds an unexpected value. Another rule of thumb -- the number of neurons in the last layer should match the number of classes you are classifying for. In this case it's the digits 0-9, so there are 10 of them, hence you should have 10 neurons in your final layer.
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+mnist = tf.keras.datasets.mnist
+
+(training_images, training_labels) ,  (test_images, test_labels) = mnist.load_data()
+
+training_images = training_images/255.0
+test_images = test_images/255.0
+
+model = tf.keras.models.Sequential([tf.keras.layers.Flatten(),
+                                    tf.keras.layers.Dense(64, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(5, activation=tf.nn.softmax)])
+
+model.compile(optimizer = 'adam',
+              loss = 'sparse_categorical_crossentropy')
+
+model.fit(training_images, training_labels, epochs=5)
+
+model.evaluate(test_images, test_labels)
+
+classifications = model.predict(test_images)
+
+print(classifications[0])
+print(test_labels[0])
+
+
+# ##Exercise 5: 
+# 
+# Consider the effects of additional layers in the network. What will happen if you add another layer between the one with 512 and the final layer with 10. 
+# 
+# Ans: There isn't a significant impact -- because this is relatively simple data. For far more complex data (including color images to be classified as flowers that you'll see in the next lesson), extra layers are often necessary. 
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+mnist = tf.keras.datasets.mnist
+
+(training_images, training_labels) ,  (test_images, test_labels) = mnist.load_data()
+
+training_images = training_images/255.0
+test_images = test_images/255.0
+
+model = tf.keras.models.Sequential([tf.keras.layers.Flatten(),
+                                    tf.keras.layers.Dense(512, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(256, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(5, activation=tf.nn.softmax)])
+
+model.compile(optimizer = 'adam',
+              loss = 'sparse_categorical_crossentropy')
+
+model.fit(training_images, training_labels, epochs=5)
+
+model.evaluate(test_images, test_labels)
+
+classifications = model.predict(test_images)
+
+print(classifications[0])
+print(test_labels[0])
+
+
+# In[ ]:
+
+
+
+
+
+# #Exercise 6: 
+# 
+# Consider the impact of training for more or less epochs. Why do you think that would be the case? 
+# 
+# Try 15 epochs -- you'll probably get a model with a much better loss than the one with 5
+# Try 30 epochs -- you might see the loss value stops decreasing, and sometimes increases. This is a side effect of something called 'overfitting' which you can learn about [somewhere] and it's something you need to keep an eye out for when training neural networks. There's no point in wasting your time training if you aren't improving your loss, right! :)
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+mnist = tf.keras.datasets.mnist
+
+(training_images, training_labels) ,  (test_images, test_labels) = mnist.load_data()
+
+training_images = training_images/255.0
+test_images = test_images/255.0
+
+model = tf.keras.models.Sequential([tf.keras.layers.Flatten(),
+                                    tf.keras.layers.Dense(128, activation=tf.nn.relu),
+                                    tf.keras.layers.Dense(5, activation=tf.nn.softmax)])
+
+model.compile(optimizer = 'adam',
+              loss = 'sparse_categorical_crossentropy')
+
+model.fit(training_images, training_labels, epochs=30)
+
+model.evaluate(test_images, test_labels)
+
+classifications = model.predict(test_images)
+
+print(classifications[34])
+print(test_labels[34])
+
+
+# #Exercise 7: 
+# 
+# Before you trained, you normalized the data, going from values that were 0-255 to values that were 0-1. What would be the impact of removing that? Here's the complete code to give it a try. Why do you think you get different results? 
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+mnist = tf.keras.datasets.mnist
+(training_images, training_labels), (test_images, test_labels) = mnist.load_data()
+training_images=training_images/255.0
+test_images=test_images/255.0
+model = tf.keras.models.Sequential([
+  tf.keras.layers.Flatten(),
+  tf.keras.layers.Dense(512, activation=tf.nn.relu),
+  tf.keras.layers.Dense(10, activation=tf.nn.softmax)
+])
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+model.fit(training_images, training_labels, epochs=5)
+model.evaluate(test_images, test_labels)
+classifications = model.predict(test_images)
+print(classifications[0])
+print(test_labels[0])
+
+
+# #Exercise 8: 
+# 
+# Earlier when you trained for extra epochs you had an issue where your loss might change. It might have taken a bit of time for you to wait for the training to do that, and you might have thought 'wouldn't it be nice if I could stop the training when I reach a desired value?' -- i.e. 95% accuracy might be enough for you, and if you reach that after 3 epochs, why sit around waiting for it to finish a lot more epochs....So how would you fix that? Like any other program...you have callbacks! Let's see them in action...
+
+# In[ ]:
+
+
+import tensorflow as tf
+print(tf.__version__)
+
+class myCallback(tf.keras.callbacks.Callback):
+  def on_epoch_end(self, epoch, logs={}):
+    if(logs.get('loss')<0.4):
+      print("\nReached 60% accuracy so cancelling training!")
+      self.model.stop_training = True
+
+callbacks = myCallback()
+mnist = tf.keras.datasets.fashion_mnist
+(training_images, training_labels), (test_images, test_labels) = mnist.load_data()
+training_images=training_images/255.0
+test_images=test_images/255.0
+model = tf.keras.models.Sequential([
+  tf.keras.layers.Flatten(),
+  tf.keras.layers.Dense(512, activation=tf.nn.relu),
+  tf.keras.layers.Dense(10, activation=tf.nn.softmax)
+])
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+model.fit(training_images, training_labels, epochs=5, callbacks=[callbacks])
+
+
