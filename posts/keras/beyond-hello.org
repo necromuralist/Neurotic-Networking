@@ -1,0 +1,676 @@
+#+BEGIN_COMMENT
+.. title: Beyond Hello
+.. slug: beyond-hello
+.. date: 2019-06-27 11:52:14 UTC-07:00
+.. tags: keras,deep learning
+.. category: Keras
+.. link: 
+.. description: A follow-up to the Keras "hello world".
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+begin_src python :session hello :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+end_src
+* Beginning
+  This is going to use [[https://keras.io/][keras]] (and [[https://www.tensorflow.org/][tensorflow]]) to learn to categorize images in the [[https://research.zalando.com/welcome/mission/research-projects/fashion-mnist/][Fashion MNIST]] dataset.
+** Imports
+*** Python
+#+begin_src python :session hello :results none
+from argparse import Namespace
+from functools import partial
+
+import random
+#+end_src
+*** PyPi
+#+begin_src python :session hello :results none
+from tabulate import tabulate
+import holoviews
+import pandas
+import tensorflow
+#+end_src
+*** My Stuff
+#+begin_src python :session hello :results none
+from graeae.visualization.embed import EmbedHoloview
+from graeae.timers import Timer
+#+end_src
+** The Timer
+#+begin_src python :session hello :results none
+TIMER = Timer()
+#+end_src
+** The Plotting
+#+begin_src python :session hello :results none
+embed = partial(EmbedHoloview, folder_path="../../files/posts/keras/beyond-hello/")
+Plot = Namespace(
+    size=600,
+    height=1000,
+    width=800,
+)
+holoviews.extension("bokeh")
+#+end_src
+** The Data Set
+   Keras includes the fashion mnist dataset and can be retrieved using the [[https://keras.io/datasets/#fashion-mnist-database-of-fashion-articles][datasets.fashion_mnist]] property.
+#+begin_src python :session hello :results none
+(training_images, training_labels), (testing_images, testing_labels) = tensorflow.keras.datasets.fashion_mnist.load_data()
+#+end_src
+
+Unfortunately the function doesn't let you pass in the path to where you're going to store the files (it's stored in =~/.keras/datasets/fashion-mnist/=).
+
+* Middle
+** Looking At The dataset
+*** The Labels
+    There are 10 categories of images encoded as integers in the label sets. The keras site lists them as these:
+
+    | Label | Description |
+    |-------+-------------|
+    |     0 | T-Shirt/Top |
+    |     1 | Trouser     |
+    |     2 | Pullover    |
+    |     3 | Dress       |
+    |     4 | Coat        |
+    |     5 | Sandal      |
+    |     6 | Shirt       |
+    |     7 | Sneaker     |
+    |     8 | Bag         |
+    |     9 | Ankle Boot  |
+
+To make it easier to interpret later on I'll make a secret decoder ring.
+
+#+begin_src python :session hello :results none
+labels = {
+    0: "T-Shirt/Top",
+    1: "Trouser",
+    2: "Pullover",
+    3: "Dress",
+    4: "Coat",
+    5: "Sandal",
+    6: "Shirt",
+    7 : "Sneaker",
+    8: "Bag",
+    9 : "Ankle Boot"
+    }
+#+end_src
+*** The Number Of Images
+#+begin_src python :session hello :results output :exports both
+print(type(training_images))
+rows, width, height = training_images.shape
+print(f"rows: {rows:,} image: {width} x {height}")
+rows, width, height = testing_images.shape
+print(f"rows: {rows:,} image: {width} x {height}")
+#+end_src
+
+#+results:
+: <class 'numpy.ndarray'>
+: rows: 60,000 image: 28 x 28
+: rows: 10,000 image: 28 x 28
+
+We have 60,000 grayscale 28 by 28 pixel images to use for training (it would be 28 x 28 x 3 if the images were RGB) and 10,000 grayscale 28 by 28 pixel images to use for testing.
+
+*** A Sample Image
+#+begin_src python :session hello :results output raw :exports both
+index = random.randrange(len(training_images))
+image = training_images[index]
+plot = holoviews.Image(
+    image,
+).opts(
+    tools=["hover"],
+    title=f"Label {training_labels[index]} ({labels[training_labels[index]]})",
+    width=Plot.size,
+    height=Plot.size,
+    )
+embed(plot=plot, file_name="sample_image")()
+#+end_src
+
+#+results:
+#+begin_export html
+<object type="text/html" data="sample_image.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Although it looks like it's a color image that's because holoviews adds artificial coloring to it. If you hover over the images the =x= and =y= values are the pixel coordinates and the =z= values are the grayscale values (so if you hover over black it should be 0, and if you hover over a white pixel it should be 255).
+
+*** Normalizing The Data
+   Since the pixel values are from 0 (black) to 255 (white) we need to normalize them to values from 0 to 1 to work with a neural network.
+
+#+begin_src python :session hello :results output :exports both
+print(f"minimum value: {training_images.min()} maximum value: {training_images.max()}")
+training_images_normalized = training_images / 255.0
+testing_images_normalized = testing_images / 255.0
+print(f"minimum value: {training_images_normalized.min()} maximum value: {training_images_normalized.max()}")
+#+end_src
+
+#+results:
+: minimum value: 0 maximum value: 255
+: minimum value: 0.0 maximum value: 1.0
+** The Example
+   This is a worked example given in the original notebook.
+*** Define The Model
+    Once again the network will be a [[https://www.tensorflow.org/api_docs/python/tf/keras/sequential][Sequential]] one - a linear stack of layers, and there will be three layers, a [[https://www.tensorflow.org/api_docs/python/tf/layers/flatten][Flatten]] layer to flatten our image into a vector with 784 cells (instead of a 28 x 28 matrix), followed by two [[https://www.tensorflow.org/api_docs/python/tf/layers/dense][dense]], or fully-connected, layers.
+
+ Each of the dense layers will get an activation function. The first dense layer gets a [[Https://www.tensorflow.org/api_docs/python/tf/nn/relu][ReLU]] ([[Https://www.wikiwand.com/en/rectifier_(neural_networks)][Rectified Linear Unit]]) function which makes it non-linear by returning the input only if it is greater than 0, otherwise it returns 0 (so it filters out negative numbers), and the second dense layer gets a [[https://www.tensorflow.org/api_docs/python/tf/nn/softmax][softmax]] function to identify the biggest value (and thus our most likely label for the input).
+
+ #+begin_src python :session hello :results none
+model = tensorflow.keras.models.Sequential()
+model.add(tensorflow.keras.layers.Flatten())
+model.add(tensorflow.keras.layers.Dense(128, activation=tensorflow.nn.relu))
+model.add(tensorflow.keras.layers.Dense(10, activation=tensorflow.nn.softmax))
+ #+end_src
+
+There are 10 labels to predict so the last layer has 10 neurons.
+*** Compile The Model
+    This time we're going to compile the model using the [[https://www.tensorflow.org/api_docs/python/tf/train/adamoptimizer][adam optimizer]]. confusingly, there's two of them in tensorflow, the "regular" one, and a [[https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/adam][keras]] version. we'll use the non-keras version. The loss, however, is the [[https://www.tensorflow.org/api_docs/python/tf/keras/losses/sparsecategoricalcrossentropy][keras version]] as is the [[https://www.tensorflow.org/api_docs/python/tf/keras/metrics/accuracy][accuracy]], which is just the number correct divided by the total count.
+
+ #+begin_src python :session hello :results none
+model.compile(optimizer = "adam",
+              loss = 'sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+ #+end_src
+
+ And now we fit it.
+ #+begin_src python :session hello :results output :exports both
+model.fit(training_images_normalized, training_labels, epochs=5, verbose=2)
+ #+end_src
+
+ #+results:
+ #+begin_example
+ Epoch 1/5
+ 60000/60000 - 2s - loss: 0.5015 - acc: 0.8242
+ Epoch 2/5
+ 60000/60000 - 2s - loss: 0.3796 - acc: 0.8635
+ Epoch 3/5
+ 60000/60000 - 2s - loss: 0.3420 - acc: 0.8754
+ Epoch 4/5
+ 60000/60000 - 2s - loss: 0.3176 - acc: 0.8830
+ Epoch 5/5
+ 60000/60000 - 2s - loss: 0.2975 - acc: 0.8908
+ #+end_example
+
+ At the end of training the model is about 89% accurate.
+*** Check The Model Against The Test-Data
+    The sequential model's [[https://www.tensorflow.org/api_docs/python/tf/keras/sequential#evaluate][evaluate]] method will let us test it against the test set.
+   
+ #+begin_src python :session hello :results output :exports both
+loss, accuracy = model.evaluate(testing_images, 
+                                testing_labels, 
+                                verbose=0)
+outcomes = {128: (loss, accuracy)}
+print(f"loss: {loss:.2f} accuracy: {accuracy:.2f}")
+ #+end_src
+
+ #+results:
+ : loss: 53.34 accuracy: 0.86
+
+ It had an accuracy of about 85%.
+** Exercises
+*** Exercise 1
+    What does the output of the next code-block mean?
+
+#+begin_src python :session hello :results output :exports both
+classifications = model.predict(testing_images)
+print(classifications[0])
+#+end_src
+
+#+results:
+: [0. 0. 0. 0. 0. 0. 0. 0. 0. 1.]
+
+Since we used the softmax method, the output is a vector representing the 10 labels, with a 1 where the predicted label is (so in this case it predicts 9).
+
+#+begin_src python :session hello :results output raw :exports both
+image = testing_images[index]
+plot = holoviews.Image(
+    image,
+).opts(
+    tools=["hover"],
+    title=f"Label {testing_labels[index]} ({labels[testing_labels[index]]})",
+    height=Plot.size,
+    width=Plot.size,
+    )
+embed(plot=plot, file_name="exercise_1_image")()
+#+end_src
+
+#+results:
+#+begin_export html
+<object type="text/html" data="exercise_1_image.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+#+begin_src python :session hello :results output :exports both
+print(f"Expected Label: {testing_labels[0]}, {labels[testing_labels[0]]}")
+print(f"Actual Label: {classifications[0].argmax()}, {labels[classifications[0].argmax()]}")
+#+end_src
+
+#+results:
+: Expected Label: 9, Ankle Boot
+: Actual Label: 9, Ankle Boot
+
+So our model predicts that the first image is an /ankle boot/, which is correct.
+*** Exercise 2
+    Experiment with different values for the number of /units/ in the  **dense** layer.
+
+#+begin_src python :session hello :results none
+def create_and_test_model(units: int, epochs: int=5):
+    """creates, trains and tests the model
+
+    args:
+     units: number of units for the dense layer
+     epochs: number of times to train the model
+    """
+    print(f"building a model with {units} units in the dense layer")
+    model = tensorflow.keras.models.Sequential()
+    # add the matrix -> vector layer
+    model.add(tensorflow.keras.layers.Flatten())
+    
+    # add the layer that does the work
+    model.add(tensorflow.keras.layers.Dense(units=units,
+                                            activation=tensorflow.nn.relu))
+    model.add(tensorflow.keras.layers.Dense(10, 
+                                            activation=tensorflow.nn.softmax))
+    
+    model.compile(optimizer = "adam",
+              loss = 'sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+    TIMER.message = "finished training the model"
+    with TIMER:
+        model.fit(training_images_normalized, training_labels, 
+                  epochs=epochs, verbose=2)
+    print()
+    loss, accuracy = model.evaluate(testing_images, testing_labels, verbose=0)
+    print(f"testing: loss={loss}, accuracy={100 * accuracy}%")
+    classifications = model.predict(testing_images)
+    index = random.randrange(len(classifications))
+    selected = classifications[index]
+    print(selected)
+    
+    print(f"expected label: {testing_labels[index]}, "
+          f"{labels[testing_labels[index]]}")
+    print(f"actual label: {selected.argmax()}, {labels[selected.argmax()]}")
+    return loss, accuracy
+#+end_src
+**** 512 Neurons
+#+begin_src python :session hello :results output :exports both
+units = 512
+loss, accuracy = create_and_test_model(units)
+outcomes[units] = (loss, accuracy)
+#+end_src
+
+#+results:
+#+begin_example
+2019-06-30 11:40:58,135 graeae.timers.timer start: Started: 2019-06-30 11:40:58.135283
+I0630 11:40:58.135326 140129240835904 timer.py:70] Started: 2019-06-30 11:40:58.135283
+building a model with 512 units in the dense layer
+Epoch 1/5
+60000/60000 - 2s - loss: 0.4738 - acc: 0.8316
+Epoch 2/5
+60000/60000 - 2s - loss: 0.3585 - acc: 0.8680
+Epoch 3/5
+60000/60000 - 2s - loss: 0.3218 - acc: 0.8819
+Epoch 4/5
+60000/60000 - 2s - loss: 0.2971 - acc: 0.8904
+Epoch 5/5
+60000/60000 - 2s - loss: 0.2808 - acc: 0.8963
+2019-06-30 11:41:09,089 graeae.timers.timer end: Ended: 2019-06-30 11:41:09.089237
+I0630 11:41:09.089263 140129240835904 timer.py:77] Ended: 2019-06-30 11:41:09.089237
+2019-06-30 11:41:09,089 graeae.timers.timer end: Elapsed: 0:00:10.953954
+I0630 11:41:09.089937 140129240835904 timer.py:78] Elapsed: 0:00:10.953954
+
+testing: loss=65.45295433635712, accuracy=84.96999740600586%
+[0. 0. 0. 0. 0. 0. 0. 0. 1. 0.]
+expected label: 8, Bag
+actual label: 8, Bag
+#+end_example
+
+The model with the 512 neuron layer has less loss and better accuracy when compared to the original model with a 128 neuron layer.
+**** 1020 Neurons
+#+begin_src python :session hello :results output :exports both
+units = 1024
+loss, accuracy = create_and_test_model(units)
+outcomes[units] = (loss, accuracy)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-06-30 11:41:11,857 graeae.timers.timer start: Started: 2019-06-30 11:41:11.857953
+I0630 11:41:11.857974 140129240835904 timer.py:70] Started: 2019-06-30 11:41:11.857953
+building a model with 1024 units in the dense layer
+Epoch 1/5
+60000/60000 - 3s - loss: 0.4707 - acc: 0.8323
+Epoch 2/5
+60000/60000 - 3s - loss: 0.3588 - acc: 0.8696
+Epoch 3/5
+60000/60000 - 2s - loss: 0.3229 - acc: 0.8815
+Epoch 4/5
+60000/60000 - 3s - loss: 0.2973 - acc: 0.8891
+Epoch 5/5
+60000/60000 - 2s - loss: 0.2786 - acc: 0.8957
+2019-06-30 11:41:25,030 graeae.timers.timer end: Ended: 2019-06-30 11:41:25.030862
+I0630 11:41:25.030889 140129240835904 timer.py:77] Ended: 2019-06-30 11:41:25.030862
+2019-06-30 11:41:25,031 graeae.timers.timer end: Elapsed: 0:00:13.172909
+I0630 11:41:25.031725 140129240835904 timer.py:78] Elapsed: 0:00:13.172909
+
+testing: loss=54.632147045129535, accuracy=86.79999709129333%
+[0. 0. 0. 0. 0. 0. 0. 1. 0. 0.]
+expected label: 9, Ankle Boot
+actual label: 7, Sneaker
+#+end_example
+
+The model did slightly better than the original 128 unit model, probably because fewer nodes don't give it enough "knobs" to tune to make an accurate match. Oddly it didn't do as well as the 512 unit model, perhaps because with that many neurons we need more data (or more epochs?). On this run it got the prediction for the single case wrong, although it doesn't usually (it should happen around 13 % of the time if the accuracy holds up).
+#+begin_src python :session hello :results output :exports both
+units = 1024
+loss, accuracy = create_and_test_model(units, epochs=10)
+outcomes[units] = (loss, accuracy)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-06-30 11:41:27,717 graeae.timers.timer start: Started: 2019-06-30 11:41:27.717040
+I0630 11:41:27.717062 140129240835904 timer.py:70] Started: 2019-06-30 11:41:27.717040
+building a model with 1024 units in the dense layer
+Epoch 1/10
+60000/60000 - 3s - loss: 0.4665 - acc: 0.8330
+Epoch 2/10
+60000/60000 - 3s - loss: 0.3593 - acc: 0.8675
+Epoch 3/10
+60000/60000 - 3s - loss: 0.3181 - acc: 0.8830
+Epoch 4/10
+60000/60000 - 3s - loss: 0.2964 - acc: 0.8899
+Epoch 5/10
+60000/60000 - 3s - loss: 0.2763 - acc: 0.8965
+Epoch 6/10
+60000/60000 - 3s - loss: 0.2621 - acc: 0.9021
+Epoch 7/10
+60000/60000 - 2s - loss: 0.2496 - acc: 0.9052
+Epoch 8/10
+60000/60000 - 3s - loss: 0.2384 - acc: 0.9109
+Epoch 9/10
+60000/60000 - 2s - loss: 0.2279 - acc: 0.9149
+Epoch 10/10
+60000/60000 - 2s - loss: 0.2209 - acc: 0.9165
+2019-06-30 11:41:54,160 graeae.timers.timer end: Ended: 2019-06-30 11:41:54.160517
+I0630 11:41:54.160544 140129240835904 timer.py:77] Ended: 2019-06-30 11:41:54.160517
+2019-06-30 11:41:54,161 graeae.timers.timer end: Elapsed: 0:00:26.443477
+I0630 11:41:54.161170 140129240835904 timer.py:78] Elapsed: 0:00:26.443477
+
+testing: loss=64.08433327770233, accuracy=86.41999959945679%
+[1. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+expected label: 0, T-Shirt/Top
+actual label: 0, T-Shirt/Top
+#+end_example
+
+It seems to be overfitting the data, it looks like we'd need more data for this many nodes. According to the original notebook, this should be more accurate, but that's not true of the test-set. Maybe they meant in comparison to the original 128 unit network, not the 512 unit network.
+
+#+begin_src python :session hello :results output raw :exports both
+print("|Units | Loss | Accuracy|")
+print("|-+-+-|")
+for units, (loss, accuracy) in outcomes.items():
+    print(f"|{units}| {loss:.2f}| {accuracy: .2f}|")
+#+end_src
+
+#+RESULTS:
+| Units |  Loss | Accuracy |
+|-------+-------+----------|
+|   128 | 53.34 |     0.86 |
+|   512 | 65.45 |     0.85 |
+|  1024 | 64.08 |     0.86 |
+
+*** Exercise: Another Layer
+    What happens if you add another layer between the 512 unit layer and the output?
+#+begin_src python :session hello :results output :exports both
+print("Adding an extra layer with 256 units")
+model = tensorflow.keras.models.Sequential()
+
+model.add(tensorflow.keras.layers.Flatten())
+    
+model.add(tensorflow.keras.layers.Dense(units=512,
+                                        activation=tensorflow.nn.relu))
+model.add(tensorflow.keras.layers.Dense(units=256,
+                                        activation=tensorflow.nn.relu))
+model.add(tensorflow.keras.layers.Dense(10, activation=tensorflow.nn.softmax))
+    
+model.compile(optimizer = tensorflow.train.AdamOptimizer(),
+              loss = 'sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+model.fit(training_images_normalized, training_labels, epochs=5, verbose=2)
+print()
+loss, accuracy = model.evaluate(testing_images, testing_labels, verbose=0)
+print(f"Testing: loss={loss}, accuracy={100 * accuracy}%")
+classifications = model.predict(testing_images)
+print(classifications[0])
+    
+print(f"Expected Label: {testing_labels[0]}, {labels[testing_labels[0]]}")
+print(f"Actual Label: {classifications.argmax()}, {labels[classifications.argmax()]}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Adding an extra layer with 256 units
+Epoch 1/5
+60000/60000 - 3s - loss: 0.4672 - acc: 0.8305
+Epoch 2/5
+60000/60000 - 3s - loss: 0.3549 - acc: 0.8695
+Epoch 3/5
+60000/60000 - 4s - loss: 0.3202 - acc: 0.8819
+Epoch 4/5
+60000/60000 - 4s - loss: 0.2975 - acc: 0.8904
+Epoch 5/5
+60000/60000 - 4s - loss: 0.2787 - acc: 0.8960
+
+Testing: loss=46.68517806854248, accuracy=87.18000054359436%
+[0. 0. 0. 0. 0. 0. 0. 0. 0. 1.]
+Expected Label: 9, Ankle Boot
+Actual Label: 9, Ankle Boot
+#+end_example
+
+The testing accuracy was slightly lower (pretty much the same) but it improved the loss.
+
+*** Exercise: More Epochs
+    What happens if you train for 15 or 30 epochs?
+**** 15 Epochs
+#+begin_src python :session hello :results output :exports both
+create_and_test_model(512, 15)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-06-30 11:42:17,312 graeae.timers.timer start: Started: 2019-06-30 11:42:17.312462
+I0630 11:42:17.312490 140129240835904 timer.py:70] Started: 2019-06-30 11:42:17.312462
+building a model with 512 units in the dense layer
+Epoch 1/15
+60000/60000 - 4s - loss: 0.4746 - acc: 0.8299
+Epoch 2/15
+60000/60000 - 3s - loss: 0.3558 - acc: 0.8697
+Epoch 3/15
+60000/60000 - 2s - loss: 0.3230 - acc: 0.8804
+Epoch 4/15
+60000/60000 - 2s - loss: 0.2969 - acc: 0.8892
+Epoch 5/15
+60000/60000 - 2s - loss: 0.2804 - acc: 0.8954
+Epoch 6/15
+60000/60000 - 2s - loss: 0.2644 - acc: 0.9022
+Epoch 7/15
+60000/60000 - 2s - loss: 0.2526 - acc: 0.9058
+Epoch 8/15
+60000/60000 - 2s - loss: 0.2427 - acc: 0.9093
+Epoch 9/15
+60000/60000 - 2s - loss: 0.2331 - acc: 0.9122
+Epoch 10/15
+60000/60000 - 2s - loss: 0.2217 - acc: 0.9166
+Epoch 11/15
+60000/60000 - 2s - loss: 0.2136 - acc: 0.9191
+Epoch 12/15
+60000/60000 - 2s - loss: 0.2046 - acc: 0.9232
+Epoch 13/15
+60000/60000 - 2s - loss: 0.1997 - acc: 0.9250
+Epoch 14/15
+60000/60000 - 2s - loss: 0.1919 - acc: 0.9279
+Epoch 15/15
+60000/60000 - 2s - loss: 0.1863 - acc: 0.9294
+2019-06-30 11:42:54,542 graeae.timers.timer end: Ended: 2019-06-30 11:42:54.542345
+I0630 11:42:54.542373 140129240835904 timer.py:77] Ended: 2019-06-30 11:42:54.542345
+2019-06-30 11:42:54,543 graeae.timers.timer end: Elapsed: 0:00:37.229883
+I0630 11:42:54.543807 140129240835904 timer.py:78] Elapsed: 0:00:37.229883
+
+testing: loss=59.34430006275177, accuracy=87.44999766349792%
+[0. 0. 0. 1. 0. 0. 0. 0. 0. 0.]
+expected label: 3, Dress
+actual label: 3, Dress
+#+end_example
+
+The accuracy went up slightly, but the loss went up even more.
+**** 30 Epochs
+#+begin_src python :session hello :results output :exports both
+create_and_test_model(512, 30)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-06-30 11:42:57,431 graeae.timers.timer start: Started: 2019-06-30 11:42:57.431973
+I0630 11:42:57.431994 140129240835904 timer.py:70] Started: 2019-06-30 11:42:57.431973
+building a model with 512 units in the dense layer
+Epoch 1/30
+60000/60000 - 2s - loss: 0.4750 - acc: 0.8312
+Epoch 2/30
+60000/60000 - 2s - loss: 0.3623 - acc: 0.8686
+Epoch 3/30
+60000/60000 - 2s - loss: 0.3226 - acc: 0.8818
+Epoch 4/30
+60000/60000 - 3s - loss: 0.2990 - acc: 0.8901
+Epoch 5/30
+60000/60000 - 2s - loss: 0.2814 - acc: 0.8961
+Epoch 6/30
+60000/60000 - 2s - loss: 0.2644 - acc: 0.9017
+Epoch 7/30
+60000/60000 - 2s - loss: 0.2529 - acc: 0.9061
+Epoch 8/30
+60000/60000 - 2s - loss: 0.2433 - acc: 0.9089
+Epoch 9/30
+60000/60000 - 2s - loss: 0.2305 - acc: 0.9124
+Epoch 10/30
+60000/60000 - 2s - loss: 0.2211 - acc: 0.9164
+Epoch 11/30
+60000/60000 - 2s - loss: 0.2133 - acc: 0.9186
+Epoch 12/30
+60000/60000 - 2s - loss: 0.2065 - acc: 0.9222
+Epoch 13/30
+60000/60000 - 2s - loss: 0.1998 - acc: 0.9243
+Epoch 14/30
+60000/60000 - 2s - loss: 0.1905 - acc: 0.9284
+Epoch 15/30
+60000/60000 - 2s - loss: 0.1828 - acc: 0.9307
+Epoch 16/30
+60000/60000 - 2s - loss: 0.1782 - acc: 0.9322
+Epoch 17/30
+60000/60000 - 2s - loss: 0.1714 - acc: 0.9348
+Epoch 18/30
+60000/60000 - 2s - loss: 0.1672 - acc: 0.9367
+Epoch 19/30
+60000/60000 - 2s - loss: 0.1622 - acc: 0.9390
+Epoch 20/30
+60000/60000 - 2s - loss: 0.1556 - acc: 0.9405
+Epoch 21/30
+60000/60000 - 2s - loss: 0.1518 - acc: 0.9422
+Epoch 22/30
+60000/60000 - 2s - loss: 0.1463 - acc: 0.9445
+Epoch 23/30
+60000/60000 - 2s - loss: 0.1451 - acc: 0.9441
+Epoch 24/30
+60000/60000 - 2s - loss: 0.1408 - acc: 0.9468
+Epoch 25/30
+60000/60000 - 2s - loss: 0.1340 - acc: 0.9499
+Epoch 26/30
+60000/60000 - 2s - loss: 0.1325 - acc: 0.9488
+Epoch 27/30
+60000/60000 - 2s - loss: 0.1271 - acc: 0.9520
+Epoch 28/30
+60000/60000 - 2s - loss: 0.1246 - acc: 0.9532
+Epoch 29/30
+60000/60000 - 2s - loss: 0.1235 - acc: 0.9539
+Epoch 30/30
+60000/60000 - 2s - loss: 0.1199 - acc: 0.9550
+2019-06-30 11:44:03,867 graeae.timers.timer end: Ended: 2019-06-30 11:44:03.867668
+I0630 11:44:03.867694 140129240835904 timer.py:77] Ended: 2019-06-30 11:44:03.867668
+2019-06-30 11:44:03,868 graeae.timers.timer end: Elapsed: 0:01:06.435695
+I0630 11:44:03.868357 140129240835904 timer.py:78] Elapsed: 0:01:06.435695
+
+testing: loss=96.21011676330566, accuracy=87.44999766349792%
+[0. 1. 0. 0. 0. 0. 0. 0. 0. 0.]
+expected label: 1, Trouser
+actual label: 1, Trouser
+#+end_example
+
+The accuracy seems to be around the same, but the loss is getting pretty high.
+*** Early Stopping
+    What if you want to stop when the loss reaches a certain point? In Keras/tensorflow you can set a callback that stops the training (and other things, like plot images or store the values as you progress for later plotting.)
+
+#+begin_src python :session hello :results none
+class Stop(tensorflow.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs={}):
+        if (logs.get("loss") < 0.4):
+            print(f"Stopping point reached at epoch {epoch}")
+            self.model.stop_training = True
+#+end_src
+
+#+begin_src python :session hello :results output :exports both
+callbacks = Stop()
+
+model = tensorflow.keras.models.Sequential([
+  tensorflow.keras.layers.Flatten(),
+  tensorflow.keras.layers.Dense(512, activation=tensorflow.nn.relu),
+  tensorflow.keras.layers.Dense(10, activation=tensorflow.nn.softmax)
+])
+model.compile(optimizer='adam', 
+              loss='sparse_categorical_crossentropy',
+              metrics=["accuracy"])
+model.fit(training_images_normalized, training_labels, epochs=5,
+          callbacks=[callbacks], verbose=2)
+print()
+loss, accuracy = model.evaluate(testing_images, testing_labels, verbose=0)
+outcomes["512 (early stopping)"] = (loss, accuracy)
+print(f"Testing: Loss={loss}, Accuracy: {accuracy}")
+classifications = model.predict(testing_images)
+index = random.randrange(len(classifications))
+selected = classifications[index]
+print(selected)
+
+print(f"expected label: {testing_labels[index]}, {labels[testing_labels[index]]}")
+print(f"actual label: {selected.argmax()}, {labels[selected.argmax()]}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 1/5
+60000/60000 - 2s - loss: 0.4765 - acc: 0.8295
+Epoch 2/5
+Stopping point reached at epoch 1
+60000/60000 - 2s - loss: 0.3597 - acc: 0.8679
+
+Testing: Loss=58.14345246582031, Accuracy: 0.8514999747276306
+[0. 0. 0. 0. 0. 0. 0. 0. 0. 1.]
+expected label: 9, Ankle Boot
+actual label: 9, Ankle Boot
+#+end_example
+
+By setting a threshold for the loss we were able to stop after two epochs instead of going to the full five epochs, which saves on training time, but also sometimes reduces the performance on the testing set slightly (the training that went the full five epochs stopped at a loss of 0.28, not 0.4). I just noticed that the 512 unit network actually didn't do better this time (each time I run this notebook things change slightly) but normally it is the model that performs the best.
+
+#+begin_src python :session hello :results output raw :exports both
+print("|Units | Loss | Accuracy|")
+print("|-+-+-|")
+for units, (loss, accuracy) in outcomes.items():
+    print(f"|{units}| {loss:.2f}| {accuracy: .2f}|")
+#+end_src
+
+#+RESULTS:
+|                Units |  Loss | Accuracy |
+|----------------------+-------+----------|
+|                  128 | 53.34 |     0.86 |
+|                  512 | 65.45 |     0.85 |
+|                 1024 | 64.08 |     0.86 |
+| 512 (early stopping) | 58.14 |     0.85 |
+
+* End
+** Source
+   This is a re-do of the [[https://github.com/lmoroney/dlaicourse/blob/master/Course%201%20-%20Part%204%20-%20Lesson%202%20-%20Notebook.ipynb][Beyond Hello World, A Computer Vision Example]] notebook on github by [[https://github.com/lmoroney][Laurence Moroney]].
