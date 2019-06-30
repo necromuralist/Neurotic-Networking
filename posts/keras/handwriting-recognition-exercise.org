@@ -1,0 +1,229 @@
+#+BEGIN_COMMENT
+.. title: Handwriting Recognition Exercise
+.. slug: handwriting-recognition-exercise
+.. date: 2019-06-30 13:57:26 UTC-07:00
+.. tags: keras,exercise,computer vision
+.. category: Computer Vision
+.. link: 
+.. description: Recognizing handwriting with keras.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+BEGIN_SRC python :session handwriting :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  The goal of this exercise is to train a classifier on the [[http://yann.lecun.com/exdb/mnist/][MNIST]] dataset that reaches 99% during training without using a fixed number of training epochs.
+** Imports
+*** Python
+#+begin_src python :session handwriting :results none
+from argparse import Namespace
+from functools import partial
+import random
+#+end_src
+*** From PyPi
+#+begin_src python :session handwriting :results none
+import holoviews
+import tensorflow
+#+end_src
+*** My Stuff
+#+begin_src python :session handwriting :results none
+from graeae.visualization.embed import EmbedHoloview
+#+end_src
+** The Plotting
+#+begin_src python :session handwriting :results none
+embed = partial(
+    EmbedHoloview, 
+    folder_path="../../files/posts/keras/handwriting-recognition-exercise/")
+Plot = Namespace(
+    size=600,
+)
+holoviews.extension("bokeh")
+#+end_src
+
+** The Dataset
+#+begin_src python :session handwriting :results none
+(training_images, training_labels), (testing_images, testing_labels) = (
+    tensorflow.keras.datasets.mnist.load_data())
+#+end_src
+
+* Middle
+** The Dataset
+*** What do we have here?
+#+begin_src python :session handwriting :results output :exports both
+rows, x, y = training_images.shape
+print(f"Training Images: {rows:,} ({x} x {y})")
+#+end_src
+
+#+RESULTS:
+: Training Images: 60,000 (28 x 28)
+
+The Fashion MNIST dataset that I looked at previously was meant to be a drop-in replacement for this data set so it has the same number of images and the images are the same size.
+
+#+begin_src python :session handwriting :results output raw :exports both
+index = random.randrange(len(training_images))
+image = training_images[index]
+plot = holoviews.Image(
+    image,
+).opts(
+    tools=["hover"],
+    title=f"MNIST Handwritten {training_labels[index]}",
+    width=Plot.size,
+    height=Plot.size,
+    )
+embed(plot=plot, file_name="sample_image")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="sample_image.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+The dataset is a set of hand-written digits (one each image) that we want to be able to classify.
+
+#+begin_src python :session handwriting :results output :exports both
+print(training_images.min())
+print(training_images.max())
+#+end_src
+
+#+RESULTS:
+: 0
+: 255
+
+The images are 28 x 28 matrices of values from 0 (representing black) to 255 (representing white).
+*** Normalizing the Data
+    We want the values to be from 0 to 1 so I'm going to normalize them.
+
+#+begin_src python :session handwriting :results output :exports both
+training_images_normalized = training_images/255
+testing_images_normalized = testing_images/255
+print(training_images_normalized.max())
+print(training_images_normalized.min())
+#+end_src
+
+#+RESULTS:
+: 1.0
+: 0.0
+
+** The Model
+   This is going to be a model with one hidden layer.
+
+#+begin_src python :session handwriting :results none
+def build_model(units: int=128):
+    """Build a sequential model with one hidden layer
+
+    Args:
+     units: number of units in the hidden layer
+    """
+    model = tensorflow.keras.models.Sequential()
+    
+    # flatten the image
+    model.add(tensorflow.keras.layers.Flatten())
+    
+    # the hidden layer
+    model.add(tensorflow.keras.layers.Dense(units=units, 
+                                            activation=tensorflow.nn.relu))
+    model.add(tensorflow.keras.layers.Dense(units=10,
+                                            activation=tensorflow.nn.softmax))
+    return model
+#+end_src
+
+** The Callback
+   To make the training end at 99% accuracy I'll add a callback.
+
+#+begin_src python :session handwriting :results none
+class Stop(tensorflow.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs={}):
+        print(logs)
+        if ("acc" in logs) and  (logs.get("acc") >= 0.99):
+            print(f"Stopping point reached at epoch {epoch}")
+            print(f"Model Accuracy: {logs.get('accuracy')}")
+            self.model.stop_training = True
+#+end_src
+
+#+begin_src python :session handwriting :results none
+def train(units=128):
+    """Build and trains the model
+
+    Args:
+     units: number of neurons in the hidden layer
+    """
+    callbacks = Stop()
+    model = build_model(units)
+    model.compile(
+        optimizer = "adam",
+        loss = "sparse_categorical_crossentropy",
+        metrics=["accuracy"]
+    )
+    model.fit(training_images_normalized, training_labels,
+              epochs=100, callbacks=[callbacks], verbose=2)
+    return model
+#+end_src
+
+#+begin_src python :session handwriting :results none
+def test(model, outcome_key):
+    """tests the model"""
+    loss, accuracy = model.evaluate(testing_images, testing_labels, verbose=0)
+    outcomes[outcome_key] = (loss, accuracy)
+    print(f"Testing: Loss={loss}, Accuracy: {accuracy}")
+    
+    print("\nTesting A Prediction")
+    classifications = model.predict(testing_images)
+    index = random.randrange(len(classifications))
+    selected = classifications[index]
+    print(selected)
+
+    print(f"expected label: {testing_labels[index]}")
+    print(f"actual label: {selected.argmax()}")
+    return
+#+end_src
+** Trying Some Models
+*** 128 Nodes
+#+begin_src python :session handwriting :results output :exports both
+model = train()
+outcomes = {}
+test(model, "128 Nodes")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 1/100
+{'loss': 0.2586968289529284, 'acc': 0.92588335}
+60000/60000 - 2s - loss: 0.2587 - acc: 0.9259
+Epoch 2/100
+{'loss': 0.11452680859503647, 'acc': 0.9655833}
+60000/60000 - 2s - loss: 0.1145 - acc: 0.9656
+Epoch 3/100
+{'loss': 0.0795439642144988, 'acc': 0.97606665}
+60000/60000 - 2s - loss: 0.0795 - acc: 0.9761
+Epoch 4/100
+{'loss': 0.05808031236998116, 'acc': 0.9816667}
+60000/60000 - 2s - loss: 0.0581 - acc: 0.9817
+Epoch 5/100
+{'loss': 0.04466566459426346, 'acc': 0.98588336}
+60000/60000 - 2s - loss: 0.0447 - acc: 0.9859
+Epoch 6/100
+{'loss': 0.03590909656824855, 'acc': 0.9885333}
+60000/60000 - 2s - loss: 0.0359 - acc: 0.9885
+Epoch 7/100
+{'loss': 0.02741284582785641, 'acc': 0.9912}
+Stopping point reached at epoch 6
+Model Accuracy: None
+60000/60000 - 2s - loss: 0.0274 - acc: 0.9912
+Testing: Loss=15.376291691160201, Accuracy: 0.9764000177383423
+
+Testing A Prediction
+[1. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+expected label: 0
+actual label: 0
+#+end_example
+
+Well, here we can see why the Fashion MNIST data set was created, even with this simple network we were able to reach our goal in 7 epochs. Even the testing accuracy and loss was pretty good.
+* End
+** Source
+   - Taken from the [[https://github.com/lmoroney/dlaicourse/tree/master/Exercises/Exercise%202%20-%20Handwriting%20Recognition][Exercise 2 - Handwriting Recognition]] notebook on github
