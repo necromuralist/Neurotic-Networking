@@ -20,9 +20,20 @@
 ** Imports 
 *** PyPi
 #+begin_src ipython :session cnn :results none
+import matlpotlib.pyplot as pyplot
+import seaborn
 import tensorflow
 #+end_src
-** The Data
+*** My Stuff
+#+begin_src ipython :session cnn :results none
+from graeae.timers import Timer
+#+end_src
+** Set Up
+*** The Timer
+#+begin_src ipython :session cnn :results none
+TIMER = Timer()
+#+end_src
+*** The Data
 #+begin_src ipython :session cnn :results none
 (training_images, training_labels), (testing_images, testing_labels) = (
     tensorflow.keras.datasets.fashion_mnist.load_data())
@@ -31,19 +42,20 @@ training_images = training_images / 255
 testing_images = testing_images / 255
 #+end_src
 * Middle
-  
-** A Baseline Model
-   Our baseline that we want to beat is a model with a single dense hidden layer with 512 nodes.
+** Some Exploratory Work  
+*** A Baseline Model
+   Our baseline that we want to beat is a model with a single dense hidden layer with 128 nodes.
 
 #+begin_src ipython :session cnn :results output :exports both
 model = tensorflow.keras.models.Sequential()
 model.add(tensorflow.keras.layers.Flatten())
-model.add(tensorflow.keras.layers.Dense(512, activation=tensorflow.nn.relu))
+model.add(tensorflow.keras.layers.Dense(128, activation=tensorflow.nn.relu))
 model.add(tensorflow.keras.layers.Dense(10, activation=tensorflow.nn.softmax))
 
 model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", 
               metrics=["accuracy"])
-model.fit(training_images, training_labels, epochs=5, verbose=2)
+with TIMER:
+    model.fit(training_images, training_labels, epochs=10, verbose=2)
 loss, accuracy = model.evaluate(testing_images, testing_labels, verbose=0)
 print(f"Testing Loss: {loss:.2f} Testing Accuracy: {accuracy: .2f}")
 #+end_src
@@ -62,21 +74,108 @@ Epoch 5/5
 60000/60000 - 2s - loss: 0.2835 - acc: 0.8943
 Testing Loss: 0.34 Testing Accuracy:  0.88
 #+end_example
-** A Convolutional Neural Network
+*** A Convolutional Neural Network
    The convolutional layer expects a single tensor instead of a feed of many of them so you need to reshape the input to make it work.
 #+begin_src ipython :session cnn :results none
 training_images = training_images.reshape(60000, 28, 28, 1)
 testing_images = testing_images.reshape(10000, 28, 28, 1)
 #+end_src
 
+Our model starts with a [[https://www.tensorflow.org/api_docs/python/tf/keras/layers/Conv2D][Conv2D layer]]. The arguments we're using are:
+
+ - =filters=: the dimensionality of the output space (the number of output filters in the convolution)
+ - =kerner_size=: The height and width of the convolution window
+ - =activation=:  The activation function for the output
+ - =input_shape=: If this is the first layer in the model you have to tell it what the input shape is
+
+The output of the convolutional layers go to a [[https://www.tensorflow.org/api_docs/python/tf/keras/layers/MaxPool2D][MaxPool2D]] layer. The only argument we're passing in is =pool_size=, the factors by which to downsize the input. Using =(2, 2)= will reduce the size in half. After the convolutions and pooling are applied, the output is sent through a version of the fully-connected network that we were using before (see the baseline model above).
+**** A Model Builder
+     Something to make it a little easier to re-use things. Note that in the original notebook the first example has 64 filters in the CNN, but later it says that it's better to start with 32 (and the exercises expect that you used 32) so I'm using that as the default value.
+
 #+begin_src ipython :session cnn :results none
-def create_model():
+class ModelBuilder:
+    """Builds, trains, and tests our model
+
+    Args:
+     training_images: images to train on
+     training_labels: labels for the training data
+     testing_images: images to test the trained model with
+     testing_labels: labels for the testing data
+     additional_convolutions: convolutions besides the input convolution
+     epochs: number of times to repeat training
+     filters: number of filters in the output of the convolutional layers
+     callbacks: something to stop training
+    """
+    def __init__(self, additional_convolutions=1, epochs=10, filters=32,
+                 callbacks=None) -> None:
+        self.additional_convolutions = additional_convolutions
+        self.epochs = epochs
+        self.filters = filters
+        self.callbacks = callbacks
+        self.model = None
+        return
+
+    @property
+    def model(self) -> tensorflow.keras.models.Sequential:
+        """Our CNN Model"""
+        if self._model is None:
+            self._model = = tensorflow.keras.models.Sequential()
+            self._model.add(tensorflow.keras.layers.Conv2D(
+                self.filters, (3, 3), 
+                activation="relu", 
+                input_shape=(28, 28, 1)))
+            self._model.add(tensorflow.keras.layers.MaxPooling2D(2, 2))
+            
+            for convolution in range(self.additional_convolutions):
+                self._model.add(tensorflow.keras.layers.Conv2D(self.filters, (3, 3), 
+                                                               activation="relu"))
+                self._model.add(tensorflow.keras.layers.MaxPooling2D(2, 2))
+            self._model.add(tensorflow.keras.layers.Flatten())
+            self._model.add(tensorflow.keras.layers.Dense(128, activation="relu"))
+            self._model.add(tensorflow.keras.layers.Dense(10, activation="softmax"))
+            self._model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", 
+                                metrics=["accuracy"])
+        return self._model
+    
+    def print_summary(self):
+        """Print out the summary for the model"""
+        print(self.model.summary)
+        return
+    
+    def fit(self):
+        """
+        Fit the model to the training data
+        """
+        callbacks = [self.callbacks] if self.callbacks is not None else []
+        self.model.fit(self.training_images, self.training_labels, 
+                       epochs=self.epochs, verbose=2, 
+                       callbacks=callbacks)
+        return
+
+    def test(self) -> tuple:
+        """Check the loss and accuracy of the model against the testing set
+
+        Returns:
+         (loss, accuracy): the output of the evaluation of the testing data
+        """
+        return model.evaluate(self.testing_images, self.testing_labels, verbose=0)
+    
+    def __call__(self):
+        """Builds and tests the model"""
+        self.model.fit()
+        loss, accuracy = self.test()
+        print(f"Testing Loss: {loss:.2f}  Testing Accuracy: {accuracy:.2f}")
+        return
+#+end_src
+
+
+#+begin_src ipython :session cnn :results none
+def create_model(filters=64):
     model = tensorflow.keras.models.Sequential()
     model.add(tensorflow.keras.layers.Conv2D(64, (3, 3), activation="relu", 
                                              input_shape=(28, 28, 1)))
     model.add(tensorflow.keras.layers.MaxPooling2D(2, 2))
-    model.add(tensorflow.keras.layers.Conv2D(64, (3, 3), activation="relu", 
-                                             input_shape=(28, 28, 1)))
+    model.add(tensorflow.keras.layers.Conv2D(64, (3, 3), activation="relu"))
     model.add(tensorflow.keras.layers.MaxPooling2D(2, 2))
     model.add(tensorflow.keras.layers.Flatten())
     model.add(tensorflow.keras.layers.Dense(128, activation="relu"))
@@ -87,8 +186,9 @@ def create_model():
 #+end_src
 
 #+begin_src ipython :session cnn :results output :exports both
-model = create_model()
-print(model.summary())
+# model = create_model()
+builder = ModelBuilder()
+bulider.print_summary()
 #+end_src
 
 #+RESULTS:
@@ -120,17 +220,28 @@ None
 
 *** Layer By Layer
     - Our input is a set of 28 x 28 images.
-    - The convolutional layer
+    - Because we didn't pad the images, the convolutional layer "trims" off one row and column on each side (the center cell can't reach the outermost cells) so we get a 26 x 26 grid with 64 filters (which is what we set up in the definition).
+    - The Max Pooling layer the halves the image so we have 13 x 13 grid with 64 filters
+    - The next convolution layer once again trims off one row on each side so we have a 11 x 11 grid with 64 filters
+    - Then the Max Pooling halves the grid once again so we have a 5 x 5 grid with 64 filters
+    - The Flatten layer outputs a vector with 1,600 cells (/5 x 5 x 64 = 1,600/).
+    - The first Dense layer has 128 neurons in it so that's the size of the output
+    - And the final Dense layer converts it to 10 outputs to match the number of labels we have
 
 #+begin_src ipython :session cnn :results none
-def fit_model(model, epochs=5):
-    model.fit(training_images, training_labels, epochs=epochs, verbose=2)
+def fit_model(model, epochs=5, callbacks=None):
+    callbacks = [callbacks] if callbacks is not None else []
+    model.fit(training_images, training_labels, epochs=epochs, verbose=2, 
+              callbacks=callbacks)
     return model.evaluate(testing_images, testing_labels, verbose=0)
 #+end_src
 
 #+begin_src ipython :session cnn :results output :exports both
-test_loss = fit_model(model)
-print(test_loss)
+# test_loss = fit_model(model)
+builder.fit()
+
+loss, accuracy = builder.test()
+print(f"Test Loss: {loss:.2f} Test Accuracy: {accuracy:.2f}")
 #+end_src
 
 #+results:
@@ -148,9 +259,10 @@ epoch 5/5
 [0.25359962485432624, 0.9082]
 #+end_example
 
-we've gone from 88% to 91% accuracy
+Using the Convolutional Neural Network we've gone from 88% to 91% accuracy.
 
-** 10 epochs
+** 10 Epochs
+   Using five epochs it appears that the loss is still going down while the accuracy is going up. What happens with ten epochs?
 #+begin_src ipython :session cnn :results output :exports both
 print(fit_model(model, epochs=10))
 #+end_src
@@ -180,6 +292,8 @@ epoch 10/10
 [0.4223233294188976, 0.9062]
 #+end_example
 
+It looks like it's still learning.
+** 20 Epochs
 #+begin_src ipython :session cnn :results output :exports both
 print(fit_model(model, epochs=20))
 #+end_src
@@ -229,87 +343,33 @@ epoch 20/20
 [0.762037175056804, 0.9086]
 #+end_example
 
-the accuracy didn't get much better, but the loss got much worse, suggesting it's overfitting.
-* end
-** source
-   - this is a redo of the [[https://github.com/lmoroney/dlaicourse/blob/master/course%201%20-%20part%206%20-%20lesson%202%20-%20notebook.ipynb][improving computer vision accuracy using convolutions]].
-* raw
-# 
-# ```
-# model = tf.keras.models.Sequential([
-#   tf.keras.layers.Conv2D(32, (3,3), activation='relu', input_shape=(28, 28, 1)),
-#   tf.keras.layers.MaxPooling2D(2, 2),
-# ```
-# 
-# 
+It looks like it is still improving.
+** Try a Loss Callback
+#+begin_src ipython :session cnn :results none
+class Stop(tensorflow.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs={}):
+        if (logs.get("loss") < 0.02:
+            print(f"Stopping point reached at epoch {epoch}")
+            self.model.stop_training = True
+#+end_src
 
-# Add another convolution
-# 
-# 
-# 
-# ```
-#   tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-#   tf.keras.layers.MaxPooling2D(2,2)
-# ```
-# 
-# 
-
-# Now flatten the output. After this you'll just have the same DNN structure as the non convolutional version
-# 
-# ```
-#   tf.keras.layers.Flatten(),
-# ```
-# 
-# 
-
-# The same 128 dense layers, and 10 output layers as in the pre-convolution example:
-# 
-# 
-# 
-# ```
-#   tf.keras.layers.Dense(128, activation='relu'),
-#   tf.keras.layers.Dense(10, activation='softmax')
-# ])
-# ```
-# 
-# 
-
-# Now compile the model, call the fit method to do the training, and evaluate the loss and accuracy from the test set.
-# 
-# 
-# 
-# ```
-# model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-# model.fit(training_images, training_labels, epochs=5)
-# test_loss, test_acc = model.evaluate(test_images, test_labels)
-# print(test_acc)
-# ```
-# 
-# 
-# 
-
-# # Visualizing the Convolutions and Pooling
-# 
-# This code will show us the convolutions graphically. The print (test_labels[;100]) shows us the first 100 labels in the test set, and you can see that the ones at index 0, index 23 and index 28 are all the same value (9). They're all shoes. Let's take a look at the result of running the convolution on each, and you'll begin to see common features between them emerge. Now, when the DNN is training on that data, it's working with a lot less, and it's perhaps finding a commonality between shoes based on this convolution/pooling combination.
-
-# In[ ]:
-
-
+Rather than continuously incrementing the epochs, maybe we can just go for a good loss.
+** Visualizing the Convolutions and Pooling
+#+begin_src ipython :session cnn : results output :exports both
 print(test_labels[:100])
+#+end_src
 
-
-# In[ ]:
-
-
-import matplotlib.pyplot as plt
-f, axarr = plt.subplots(3,4)
+#+begin_src ipython :session cnn : results output raw :exports both
+f, axarr = pyplot.subplots(3,4)
 FIRST_IMAGE=0
 SECOND_IMAGE=7
 THIRD_IMAGE=26
 CONVOLUTION_NUMBER = 1
-from tensorflow.keras import models
+
 layer_outputs = [layer.output for layer in model.layers]
-activation_model = tf.keras.models.Model(inputs = model.input, outputs = layer_outputs)
+
+activation_model = tensorflow.keras.models.Model(inputs = model.input, outputs = layer_outputs)
+
 for x in range(0,4):
   f1 = activation_model.predict(test_images[FIRST_IMAGE].reshape(1, 28, 28, 1))[x]
   axarr[0,x].imshow(f1[0, : , :, CONVOLUTION_NUMBER], cmap='inferno')
@@ -320,40 +380,45 @@ for x in range(0,4):
   f3 = activation_model.predict(test_images[THIRD_IMAGE].reshape(1, 28, 28, 1))[x]
   axarr[2,x].imshow(f3[0, : , :, CONVOLUTION_NUMBER], cmap='inferno')
   axarr[2,x].grid(False)
+#+end_src
 
 
-# EXERCISES
-# 
-# 1. Try editing the convolutions. Change the 32s to either 16 or 64. What impact will this have on accuracy and/or training time.
-# 
-# 2. Remove the final Convolution. What impact will this have on accuracy or training time?
-# 
-# 3. How about adding more Convolutions? What impact do you think this will have? Experiment with it.
-# 
-# 4. Remove all Convolutions but the first. What impact do you think this will have? Experiment with it. 
-# 
-# 5. In the previous lesson you implemented a callback to check on the loss function and to cancel training once it hit a certain amount. See if you can implement that here!
+** Exercises
+ 
+*** 1. Try editing the convolutions. Change the 32s to either 16 or 64. What impact will this have on accuracy and/or training time.
+#+begin_src ipython :session cnn : results output :exports both
+builder = ModelBuilder(filters=16)
+with TIMER:
+    builder()
+#+end_src
 
-# In[7]:
+#+begin_src ipython :session cnn : results output :exports both
+builder = ModelBuilder(filters=64)
+with TIMER:
+    builder()
+#+end_src
+ 
+*** 2. Remove the final Convolution. What impact will this have on accuracy or training time?
 
+#+begin_src ipython :session cnn : results output :exports both
+builder = ModelBuilder(additional_convolutions=0)
+with TIMER:
+    builder()
+#+end_src
+ 
+*** 3. How about adding more Convolutions? What impact do you think this will have? Experiment with it.
 
-import tensorflow as tf
-print(tf.__version__)
-mnist = tf.keras.datasets.mnist
-(training_images, training_labels), (test_images, test_labels) = mnist.load_data()
-training_images=training_images.reshape(60000, 28, 28, 1)
-training_images=training_images / 255.0
-test_images = test_images.reshape(10000, 28, 28, 1)
-test_images=test_images/255.0
-model = tf.keras.models.Sequential([
-  tf.keras.layers.Conv2D(32, (3,3), activation='relu', input_shape=(28, 28, 1)),
-  tf.keras.layers.MaxPooling2D(2, 2),
-  tf.keras.layers.Flatten(),
-  tf.keras.layers.Dense(128, activation='relu'),
-  tf.keras.layers.Dense(10, activation='softmax')
-])
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-model.fit(training_images, training_labels, epochs=10)
-test_loss, test_acc = model.evaluate(test_images, test_labels)
-print(test_acc)
+#+begin_src ipython :session cnn : results output :exports both
+builder = ModelBuilder(additional_convolutions = 2)
+with TIMER:
+    builder()
+#+end_src
+  
+*** 4. In the previous lesson you implemented a callback to check on the loss function and to cancel training once it hit a certain amount. See if you can implement that here!
+#+begin_src ipython :session cnn : results output :exports both
+builder = ModelBuilder(callbacks=Stop, epochs=100)
+#+end_src
+* End
+** Source
+   - This is a redo of the [[https://github.com/lmoroney/dlaicourse/blob/master/course%201%20-%20part%206%20-%20lesson%202%20-%20notebook.ipynb][Improving Computer Vision Accuracy Using Convolutions]] notebook.
 
