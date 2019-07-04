@@ -1,0 +1,276 @@
+#+BEGIN_COMMENT
+.. title: Convolution Exploration
+.. slug: convolution-exploration
+.. date: 2019-07-03 22:03:25 UTC-07:00
+.. tags: cnn,exploration
+.. category: CNN
+.. link: 
+.. description: Exploring Convolutional Neural Networks.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+begin_src python :session cnn :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+end_src
+* Beginning
+** Imports
+*** Python
+#+begin_src python :session cnn :results none
+from argparse import Namespace
+from functools import partial
+#+end_src
+*** PyPi
+#+begin_src python :session cnn :results none
+import cv2
+import holoviews
+import numpy
+from scipy import misc
+#+end_src
+*** My Stuff
+#+begin_src python :session cnn :results none
+from graeae import EmbedHoloviews
+#+end_src
+** Some Setup
+*** The Plotting
+#+begin_src python :session cnn :results none
+holoviews.extension("bokeh")
+Embed = partial(EmbedHoloviews,
+               folder_path="../../files/posts/keras/convolution-exploration/")
+Plot = Namespace(
+    width=700,
+    height=700,
+)
+#+end_src
+* Middle
+** The Ascent  
+   This is an exploration of how convolutions work that uses a grayscale image provided by scipy called [[https://docs.scipy.org/doc/scipy/reference/generated/scipy.misc.ascent.html#scipy.misc.ascent][ascent]].
+#+begin_src python :session cnn :results none
+image = misc.ascent()
+#+end_src
+
+#+begin_src python :session cnn :results output raw :exports both
+plot = holoviews.Image(image).opts(
+    title="Ascent",
+    height=Plot.height,
+    width=Plot.width,
+    tools=["hover"],
+)
+Embed(plot=plot, file_name="ascent")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="ascent.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Note that, as I mentioned before, this is a grayscale image - Holoviews artificially tints it.
+
+Now we're going to make a copy of the image and get its dimensions.
+#+begin_src python :session cnn :results output :exports both
+transformed_image = numpy.copy(image)
+rows, columns = transformed_image.shape
+print(f"Rows: {rows}, Columns: {columns}")
+#+end_src
+
+#+RESULTS:
+: Rows: 512, Columns: 512
+
+** Creating Filters
+*** A First Filter
+   Our filter is going to be a 3 x 3 array. The original lesson said that it is an edge-detector, but I don't think that that's the case.
+
+#+begin_src python :session cnn :results output :exports both
+filter_1 = numpy.array([[-1, -2, -1], 
+                        [0, 0, 0], 
+                        [1, 2, 1]])
+print(filter_1.sum())
+#+end_src
+
+#+RESULTS:
+: 0
+
+**** Applying the Filter
+    To apply the filter we need to traverse the cells and multiply the filter by the values of the image that match the current location of the filter. Since the filter is a 3 x 3 array, there is a 1-pixel "padding" around the center so when we do the traversals we start and end one row and column away from the each edge. After multiplying the filter by the section of the image that it overlays, we sum it and then make sure that it stays within the 0 - 255 range that's valid for images. Finally, the value our filter created is stored back into our =transformed_image=.
+
+#+begin_src python :session cnn :results none
+class Convolver:
+    """Applies a convolution to an image
+    
+    Args:
+     image: the source image to convolve
+     image_filter: the filter to apply
+     identifier: something to identify the filter
+    """
+    def __init__(self, image: numpy.ndarray, image_filter: numpy.ndarray,
+                 identifier: str):
+        self.image = image
+        self.identifier = identifier
+        self._image_filter = None
+        self.image_filter = image_filter
+        self._transformed_image = None
+        self._rows = None
+        self._columns = None
+        return
+    
+    @property
+    def image_filter(self) -> numpy.ndarray:
+        """The filter to apply to the image"""
+        return self._image_filter
+    
+    @image_filter.setter
+    def image_filter(self, new_filter: numpy.ndarray) -> None:
+        """Stores the filter normalized to zero or one"""
+        if new_filter.sum() != 0:
+            new_filter = new_filter/new_filter.sum()
+            print(f"Filter sum: {new_filter.sum()}")
+        self._image_filter = new_filter
+        return
+    
+    @property
+    def rows(self) -> int:
+        """the number of rows in the image"""
+        if self._rows is None:
+            self._rows, self._columns = self.image.shape
+        return self._rows
+    
+    @property
+    def columns(self) -> int:
+        """number of columns in the image"""
+        if self._columns is None:
+            self._rows, self._columns = self.image.shape
+        return self._rows
+    
+    @property
+    def transformed_image(self) -> numpy.ndarray:
+        """The image to transform"""
+        if self._transformed_image is None:
+            self._transformed_image = self.image.copy()
+            for row in range(1, self.rows - 1):
+                for column in range(1, self.columns - 1):
+                    convolution = (
+                        self._transformed_image[
+                            row - 1: row + 2, 
+                            column-1: column + 2] * self.image_filter).sum()
+                    convolution = max(0, convolution)
+                    convolution = min(255, convolution)
+                    self._transformed_image[row, column] = convolution
+        return self._transformed_image
+    
+    def plot(self) -> None:
+        """Plots the transformed image
+        """
+        height = width = Plot.height - 200
+        image_1 = holoviews.Image(self.transformed_image).opts(
+            height=height,
+            width=width,
+        )
+        image_2 = holoviews.Image(self.image).opts(
+            height=height,
+            width=width,
+        )
+        plot = (image_2 + image_1).opts(
+            title=f"Ascent Transformed ({self.identifier})"
+        )
+        Embed(plot=plot, file_name=self.identifier, 
+              height_in_pixels=height + 100)()
+#+end_src
+
+**** Looking at the Convolution's Output
+
+#+begin_src python :session cnn :results output raw :exports both
+convolver = Convolver(image, filter_1, "filter_1")
+convolver.plot()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="filter_1.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+This looks like it might be a contrast filter.
+*** Try Another Filter
+#+begin_src python :session cnn :results none
+filter_2 = numpy.array([
+    [0, 1, 0], 
+    [1, -4, 1], 
+    [0, 1, 0]])
+#+end_src
+
+#+begin_src python :session cnn :results output raw :exports both
+convolver = Convolver(image, filter_2, "filter_2")
+convolver.plot()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="filter_2.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+I'm not sure what that filter is. It seems to find the darkest parts of the image.
+*** Filter 3
+
+#+begin_src python :session cnn :results output raw :exports both
+filter_3 = numpy.array([
+    [-1, 0, 1], 
+    [-2, 0, 2], 
+    [-1, 0, 1]])
+convolver = Convolver(image, filter_3, "filter_3")
+convolver.plot()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="filter_3.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+I'm not sure exactly what that's doing. Based on what the filter looks like I would guess that it's finding vertical and horizontal lines.
+** Pooling
+   Now we'll look at what happens when you apply a halving (2, 2) pooling to an image. This iterates over every other pixel, looking at the current pixel, the pixel to the right, below and diagonally below and to the right and keeping the highest value in those four pixels.
+
+#+begin_src python :session cnn :results output :exports both
+output = numpy.zeros((int(rows/2), int(columns/2)))
+stride = 2
+for row in range(0, rows, stride):
+    for column in range(0, columns, stride):
+        pixel = image[row: row+2, column: column+2].max()
+        output[int(row/2), int(column/2)] = pixel
+
+print(f"Original Shape: {image.shape}")
+print(f"Pooled Shape: {output.shape}")
+#+end_src
+
+#+RESULTS:
+: Original Shape: (512, 512)
+: Pooled Shape: (256, 256)
+
+#+begin_src python :session cnn :results output raw :exports both
+plot = holoviews.Image(output).opts(
+    height=Plot.height,
+    width=Plot.width,
+    title="Ascent With Pooling",
+)
+Embed(plot=plot, file_name="pooling")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="pooling.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+The thing to note here is that, even though the image is half the size, you can still make out the features (although there is some loss of resolution).
+* End
+** Source
+   - [[https://github.com/lmoroney/dlaicourse/blob/master/Course%201%20-%20Part%206%20-%20Lesson%203%20-%20Notebook.ipynb][Course 1 - Part 6 - Lesson 3]]
