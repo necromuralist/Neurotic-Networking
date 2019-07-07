@@ -11,30 +11,32 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+begin_src python :session horses :results none :exports none
+#+begin_src ipython :session horses :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+end_src
 * Beginning
 ** Imports
 *** Python
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 from functools import partial
 from pathlib import Path
 import random
 import zipfile
 #+end_src
 *** PyPi
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 from expects import (
     be_true,
     expect,
 )
-import cv2
+from holoviews.operation.datashader import datashade
+from keras import backend
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import RMSprop
-from tensorflow.keras.preprocessing.image import (ImageDataGenerator, 
+from tensorflow.keras.preprocessing.image import (ImageDataGenerator,
                                                   img_to_array, load_img)
+import cv2
 import holoviews
 import matplotlib.pyplot as pyplot
 import numpy
@@ -42,7 +44,7 @@ import requests
 import tensorflow
 #+end_src
 *** My Stuff
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 from graeae import EmbedHoloviews
 Embed = partial(EmbedHoloviews, 
                 folder_path="../../files/posts/keras/horses-and-humans/")
@@ -50,8 +52,8 @@ holoviews.extension("bokeh")
 #+end_src
 * Middle
 ** The Data Set
-#+begin_src python :session horses :results output :exports both
-OUTPUT = "~/data/datasets/images/horse-or-human"
+#+begin_src ipython :session horses :results output :exports both
+OUTPUT = "~/data/datasets/images/horse-or-human/training/"
 output_path = Path(OUTPUT).expanduser()
 if not output_path.is_dir():
     print("Downloading the images")
@@ -75,15 +77,15 @@ data_path = output_path
 
 #+RESULTS:
 : Files exist, not downloading
-: /home/athena/data/datasets/images/horse-or-human/horses
-: /home/athena/data/datasets/images/horse-or-human/humans
+: /home/athena/data/datasets/images/horse-or-human/training/horses
+: /home/athena/data/datasets/images/horse-or-human/training/humans
 
 The convention for training models for computer vision appears to be that you use the folder names to label the contents of the images within them. In this case we have =horses= and =humans=.
 
 
 Here's what some of the files themselves are named.
 
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 horses_path = output_path/"horses"
 humans_path = output_path/"humans"
 
@@ -126,7 +128,7 @@ File: human10-05.png
 
 So, in this case you can tell what they are from the file-names as well. How many images are there?
 
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 horse_files = list(horses_path.iterdir())
 human_files = list(humans_path.iterdir())
 print(f"Horse Images: {len(horse_files)}")
@@ -141,16 +143,16 @@ print(f"Image Shape: {pyplot.imread(str(horse_files[0])).shape}")
 
 This is sort of a small data-set, and it's odd that there are more humans than horses. Let's see what some of them look like. I'm assuming all the files have the same shape. In this case it looks like they are 300 x 300 with four channels (RGB and alpha?).
 
-#+begin_src python :session horses :results output raw :exports both
+#+begin_src ipython :session horses :results output raw :exports both
 height = width = 300
 count = 4
 columns = 2
-horse_plots = [holoviews.RGB.load_image(str(horse)).opts(
+horse_plots = [datashade(holoviews.RGB.load_image(str(horse)).opts(
     height=height,
     width=width,
-)
+))
                for horse in horse_files[:count]]
-human_plots = [holoviews.RGB.load_image(str(human)).opts(
+human_plots = [datashade(holoviews.RGB.load_image(str(human))).opts(
     height=height,
     width=width,
 )
@@ -175,13 +177,13 @@ As you can see, the people in the images aren't really humans (and it may not be
 
    Also, in this case we are doing a binary classification (it's either a human or a horse, so instead of the softmax activation function on the output layer we're using a [[https://en.wikipedia.org/wiki/Sigmoid_function?oldformat=true][Sigmoid function]] ([[https://www.tensorflow.org/api_docs/python/tf/keras/activations/sigmoid][documentation link]]).
 
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model = tensorflow.keras.models.Sequential()
 #+end_src
 
 *** The Input Layer
     The input layer is a Convolutional layer with 16 layers and a 3 x 3 filter (all the convolutions use the same filter shape). All the convolutional layers are also followed by a max-pooling layer that halves their size.
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model.add(tensorflow.keras.layers.Conv2D(16, (3,3), 
                                          activation='relu', 
                                          input_shape=(300, 300, 3)))
@@ -190,7 +192,7 @@ model.add(tensorflow.keras.layers.MaxPooling2D(2, 2))
 
 *** The Rest Of The Convolutional Layers
     The remaining convolutional layers increase the depth by doubling until they reach 64.
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 # The second convolution
 model.add(tensorflow.keras.layers.Conv2D(32, (3,3), 
                                          activation='relu'))
@@ -216,59 +218,59 @@ model.add(tensorflow.keras.layers.MaxPooling2D(2,2))
     Once we have the convolved version of our image, we feed it into the fully-connected layer to get a classification.
 
 First we flatten the input into a vector.
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model.add(tensorflow.keras.layers.Flatten())
 #+end_src
 
 Then we feed the input into a 512 neuron fully-connected layer.
 
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model.add(tensorflow.keras.layers.Dense(512, activation='relu'))
 #+end_src
 
 And now we get to our output layer which makes the prediction of whether the image is a human or a horse.
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model.add(tensorflow.keras.layers.Dense(1, activation='sigmoid'))
 #+end_src
 
 One thing that's not so obvious is what the output means - is it predicting that it's a human or that it's a horse? There isn't really anything to indicate which is which. Presumably, like the case with the MNIST and Fashion MNIST, the alphabetical ordering of the folders is what determines what we're predicting.
 
 *** A Summary of the Model.
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 print(model.summary())
 #+end_src
 
 #+RESULTS:
 #+begin_example
-Model: "sequential_1"
+Model: "sequential_2"
 _________________________________________________________________
 Layer (type)                 Output Shape              Param #   
 =================================================================
-conv2d_5 (Conv2D)            (None, 298, 298, 16)      448       
+conv2d_10 (Conv2D)           (None, 298, 298, 16)      448       
 _________________________________________________________________
-max_pooling2d_5 (MaxPooling2 (None, 149, 149, 16)      0         
+max_pooling2d_10 (MaxPooling (None, 149, 149, 16)      0         
 _________________________________________________________________
-conv2d_6 (Conv2D)            (None, 147, 147, 32)      4640      
+conv2d_11 (Conv2D)           (None, 147, 147, 32)      4640      
 _________________________________________________________________
-max_pooling2d_6 (MaxPooling2 (None, 73, 73, 32)        0         
+max_pooling2d_11 (MaxPooling (None, 73, 73, 32)        0         
 _________________________________________________________________
-conv2d_7 (Conv2D)            (None, 71, 71, 64)        18496     
+conv2d_12 (Conv2D)           (None, 71, 71, 64)        18496     
 _________________________________________________________________
-max_pooling2d_7 (MaxPooling2 (None, 35, 35, 64)        0         
+max_pooling2d_12 (MaxPooling (None, 35, 35, 64)        0         
 _________________________________________________________________
-conv2d_8 (Conv2D)            (None, 33, 33, 64)        36928     
+conv2d_13 (Conv2D)           (None, 33, 33, 64)        36928     
 _________________________________________________________________
-max_pooling2d_8 (MaxPooling2 (None, 16, 16, 64)        0         
+max_pooling2d_13 (MaxPooling (None, 16, 16, 64)        0         
 _________________________________________________________________
-conv2d_9 (Conv2D)            (None, 14, 14, 64)        36928     
+conv2d_14 (Conv2D)           (None, 14, 14, 64)        36928     
 _________________________________________________________________
-max_pooling2d_9 (MaxPooling2 (None, 7, 7, 64)          0         
+max_pooling2d_14 (MaxPooling (None, 7, 7, 64)          0         
 _________________________________________________________________
-flatten_1 (Flatten)          (None, 3136)              0         
+flatten_2 (Flatten)          (None, 3136)              0         
 _________________________________________________________________
-dense_2 (Dense)              (None, 512)               1606144   
+dense_5 (Dense)              (None, 512)               1606144   
 _________________________________________________________________
-dense_3 (Dense)              (None, 1)                 513       
+dense_6 (Dense)              (None, 1)                 513       
 =================================================================
 Total params: 1,704,097
 Trainable params: 1,704,097
@@ -279,7 +281,7 @@ None
 
 That's a lot of parameters... It's interesting to note that by the time the data gets fed into the =Flatten= layer it has been reduced to a 7 x 7 x 64 matrix.
 
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 print(f"300 x 300 x 3 = {300 * 300 * 3:,}")
 #+end_src
 
@@ -289,7 +291,7 @@ print(f"300 x 300 x 3 = {300 * 300 * 3:,}")
 So the original input has been reduced form 270,000 pixels to 3,136 when it gets to the fully-connected layer.
 ** Compile the Model
    The optimizer we're going to use is the [[https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/RMSprop][RMSprop]] optimizer, which, unlike  SGD, tunes the learning rate as it progresses. Also, since we only have two categories, the loss function will be [[https://www.tensorflow.org/api_docs/python/tf/keras/backend/binary_crossentropy][binary crossentropy]]. Our metric will once again be /accuracy/.
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 model.compile(loss='binary_crossentropy',
               optimizer=RMSprop(lr=0.001),
               metrics=['acc'])
@@ -297,13 +299,13 @@ model.compile(loss='binary_crossentropy',
 ** Transform the Data
    We're going to use the [[https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing/image/ImageDataGenerator][ImageDataGenerator]] to preprocess the images to get them to normalized and batched. This class also supports transforming the images to create more variety in the training set.
 
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 training_data_generator = ImageDataGenerator(rescale=1/255)
 #+end_src
 
 The [[https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing/image/ImageDataGenerator#flow_from_directory][flow_from_directory]] method takes a path to the directory of images and generates batches of augmented data.
 
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 training_batches = training_data_generator.flow_from_directory(
     data_path, 
     target_size=(300, 300),
@@ -314,7 +316,7 @@ training_batches = training_data_generator.flow_from_directory(
 #+results:
 : Found 1027 images belonging to 2 classes.
 ** Training the Model
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 history = model.fit_generator(
     training_batches,
     steps_per_epoch=8,  
@@ -325,48 +327,48 @@ history = model.fit_generator(
 #+RESULTS:
 #+begin_example
 Epoch 1/15
-8/8 - 4s - loss: 0.0390 - acc: 0.9855
+8/8 - 5s - loss: 0.7879 - acc: 0.5732
 Epoch 2/15
-8/8 - 4s - loss: 0.0233 - acc: 0.9911
+8/8 - 4s - loss: 0.7427 - acc: 0.6615
 Epoch 3/15
-8/8 - 4s - loss: 0.0063 - acc: 1.0000
+8/8 - 4s - loss: 0.8984 - acc: 0.6897
 Epoch 4/15
-8/8 - 4s - loss: 0.0030 - acc: 1.0000
+8/8 - 4s - loss: 0.3973 - acc: 0.8165
 Epoch 5/15
-8/8 - 4s - loss: 1.0214 - acc: 0.8954
+8/8 - 4s - loss: 0.2011 - acc: 0.9188
 Epoch 6/15
-8/8 - 4s - loss: 0.0769 - acc: 0.9744
+8/8 - 5s - loss: 1.2254 - acc: 0.7373
 Epoch 7/15
-8/8 - 5s - loss: 0.0668 - acc: 0.9863
+8/8 - 4s - loss: 0.2228 - acc: 0.8902
 Epoch 8/15
-8/8 - 4s - loss: 0.0046 - acc: 1.0000
+8/8 - 4s - loss: 0.1798 - acc: 0.9333
 Epoch 9/15
-8/8 - 4s - loss: 0.0019 - acc: 1.0000
+8/8 - 5s - loss: 0.2079 - acc: 0.9287
 Epoch 10/15
-8/8 - 4s - loss: 0.0013 - acc: 1.0000
+8/8 - 4s - loss: 0.3128 - acc: 0.8999
 Epoch 11/15
-8/8 - 4s - loss: 6.0544e-04 - acc: 1.0000
+8/8 - 4s - loss: 0.0782 - acc: 0.9722
 Epoch 12/15
-8/8 - 4s - loss: 0.2689 - acc: 0.9811
+8/8 - 4s - loss: 0.0683 - acc: 0.9711
 Epoch 13/15
-8/8 - 5s - loss: 0.0216 - acc: 0.9922
+8/8 - 4s - loss: 0.1263 - acc: 0.9789
 Epoch 14/15
-8/8 - 4s - loss: 0.0019 - acc: 1.0000
+8/8 - 5s - loss: 0.6828 - acc: 0.8574
 Epoch 15/15
-8/8 - 5s - loss: 0.0018 - acc: 1.0000
+8/8 - 4s - loss: 0.0453 - acc: 0.9855
 #+end_example
 
 The training loss is very low and we seem to have reached 100% accuracy. 
 ** Looking At Some Predictions
 
-#+begin_src python :session horses :results none
+#+begin_src ipython :session horses :results none
 test_path = Path("~/test_images/").expanduser()
 #+end_src
 
 
-#+begin_src python :session horses :results output raw :exports both
+#+begin_src ipython :session horses :results output raw :exports both
 height = width = 400
-plots = [holoviews.RGB.load_image(str(path)).opts(
+plots = [datashade(holoviews.RGB.load_image(str(path))).opts(
     title=f"{path.name}",
     height=height,
     width=width
@@ -381,8 +383,24 @@ Embed(plot=plot, file_name="test_images", height_in_pixels=900)()
   <p>Figure Missing</p>
 </object>
 #+end_export
+/home/athena/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/numba/compiler.py:588: NumbaPerformanceWarning: [1m
+The keyword argument 'parallel=True' was specified but no transformation for parallel execution was possible.
+
+To find out why, try turning on parallel diagnostics, see http://numba.pydata.org/numba-doc/latest/user/parallel.html#diagnostics for help.
+[1m
+File "../../../../.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/datashader/resampling.py", line 235:[0m
+[1m@ngjit_parallel
+[1mdef _get_dimensions(src, out):
+[0m[1m^[0m[0m
+[0m
+  self.func_ir.loc))
+#+begin_export html
+<object type="text/html" data="test_images.html" style="width:100%" height=900>
+  <p>Figure Missing</p>
+</object>
+#+end_export
 *** Horse
-#+begin_src python :session horses :results output :exports both
+#+begin_src ipython :session horses :results output :exports both
 target_size = (300, 300)
 
 images = (("horse.jpg", "Horse"), 
@@ -406,7 +424,7 @@ for filename, label in images:
 
 Strangely, the model predicted the woman was a horse.
 ** Visualizing The Layer Outputs
-#+begin_src python :session horses :results raw drawer :ipyfile ../../files/posts/keras/horses-and-humans/layer_visualization.png
+#+begin_src ipython :session horses :results raw drawer :ipyfile ../../files/posts/keras/horses-and-humans/layer_visualization.png
 outputs = [layer.output for layer in model.layers[1:]]
 new_model = Model(inputs=model.input, outputs=outputs)
 image_path = random.choice(horse_files + human_files)
@@ -446,7 +464,7 @@ for layer_name, feature_map in zip(layer_names, predictions):
 
 #+RESULTS:
 :results:
-# Out[125]:
+# Out[64]:
 [[file:../../files/posts/keras/horses-and-humans/layer_visualization.png]]
 :end:
 

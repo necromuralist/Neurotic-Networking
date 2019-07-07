@@ -11,19 +11,20 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+begin_src python :session validation :results none :exports none
+#+begin_src ipython :session validation :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+end_src
 * Beginning
 ** Imports
 *** Python
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 from functools import partial
 from pathlib import Path
 #+end_src
 *** PyPi
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
+from holoviews.operation.datashader import datashade
 from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import cv2
@@ -32,19 +33,19 @@ import numpy
 import tensorflow
 #+end_src
 *** Graeae
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 from graeae import EmbedHoloviews, ZipDownloader
 #+end_src
 ** Set Up
 *** The Plotting
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 Embed = partial(
     EmbedHoloviews, 
     folder_path="../../files/posts/keras/adding-automatic-validation/")
 holoviews.extension("bokeh")
 #+end_src
 *** The Training Images
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 URL = ("https://storage.googleapis.com/"
 	"laurencemoroney-blog.appspot.com/"
        "horse-or-human.zip")
@@ -58,7 +59,7 @@ training_path = download.target
 #+RESULTS:
 : Files exist, not downloading
 *** The Validation Images
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 URL = (
     "https://storage.googleapis.com/"
     "laurencemoroney-blog.appspot.com/"
@@ -76,7 +77,7 @@ validation_path = download.target
 ** Examining the Data
    The training set is the same one that I used before to train a model to recognize whether a picture contained a human or a horse, but the validation set is new.
 
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 print("Training")
 for path in training_path.iterdir():
     print(path.name)
@@ -97,7 +98,7 @@ for path in validation_path.iterdir():
 
 How many images do we have?
 
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 print("Training")
 for path in training_path.iterdir():
     print(f"{len(list(path.iterdir())):,} images in {path.name}")
@@ -118,7 +119,7 @@ for path in validation_path.iterdir():
 
 *** Looking At A Few Images
     As I noted, the training set is the same one I looked at before, but still, it never hurts to look.
-#+begin_src python :session validation :results output raw :exports both
+#+begin_src ipython :session validation :results output raw :exports both
 height = width = 300
 human_files = list((training_path/"humans").iterdir())
 horse_files = list((training_path/"horses").iterdir())
@@ -148,7 +149,7 @@ Embed(plot=plot, file_name="training_images", height_in_pixels=700)()
 *** Preprocessing the Data
     When we train the model we'll use a batch generator. This next bit of code is just a convenience class to bundle the code together.
 
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 class Data:
     """creates the data generator
 
@@ -178,7 +179,7 @@ class Data:
 
 ** The Model
    This bundles together the different parts needed to train and use the model.
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 class Model:
     """A CNN Builder
     
@@ -294,7 +295,7 @@ class Model:
         return "human" if classes[0] else "horse"
 #+end_src
 ** Training The Model
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model = Model(str(training_path), str(validation_path))
 model.train()
 #+end_src
@@ -336,7 +337,7 @@ Epoch 15/15
 #+end_example
 
 It looks like the accuracy for both the training and the validation sets are going up. Maybe a little more training will help.
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model.epochs = 5
 model.train()
 #+end_src
@@ -357,7 +358,7 @@ Epoch 5/5
 
 Everything is still improving. Try a little more.
 
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model.epochs = 10
 model.train()
 #+end_src
@@ -390,14 +391,14 @@ The training loss and accuracy keeps getting better but it looks like it might b
 
 I'll try making a callback that stops whene the validation accuracy reaches 90 %.
 
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 class Stop(tensorflow.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs={}):
         if (logs.get("val_acc") >= 0.9):
             print(f"Stopping point reached at epoch {epoch}")
             self.model.stop_training = True
 #+end_src
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 callback = Stop()
 model = Model(str(training_path), str(validation_path), 
               epochs=30,
@@ -472,7 +473,7 @@ Epoch 30/30
 #+end_example
 
 So this time it never reached 90 % accuracy the way it did previously so the callback didn't work. Maybe I'll just set it to use 21 epochs.
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model = Model(str(training_path), str(validation_path), epochs=21)
 model.train()
 #+end_src
@@ -528,13 +529,13 @@ Epoch 21/21
 It looks like the 90 % validation accuracy was a fluke.
 *** Looking At Some Predictions
     These are the same images I tested previously. The architecture of the model is the same, but I didn't train it for as many epochs on the current pass through this data set.
-#+begin_src python :session validation :results none
+#+begin_src ipython :session validation :results none
 test_path = Path("~/test_images/").expanduser()
 #+end_src
 
-#+begin_src python :session validation :results output raw :exports both
+#+begin_src ipython :session validation :results output raw :exports both
 height = width = 400
-plots = [holoviews.RGB.load_image(str(path)).opts(
+plots = [datashade(holoviews.RGB.load_image(str(path))).opts(
     title=f"{path.name}",
     height=height,
     width=width
@@ -550,7 +551,7 @@ Embed(plot=plot, file_name="test_images", height_in_pixels=900)()
 </object>
 #+end_export
 
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 target_size = (300, 300)
 
 images = (("horse.jpg", "Horse"), 
@@ -573,7 +574,7 @@ for filename, label in images:
 
 Well, now it got the horse right and the woman wrong. Peculiar. 
 ** A re-try with smaller images.
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model = Model(str(training_path), str(validation_path), 
               image_size=150, 
               epochs=21)
@@ -628,7 +629,7 @@ Epoch 21/21
 8/8 - 6s - loss: 0.0046 - acc: 1.0000 - val_loss: 1.1267 - val_acc: 0.8633
 #+end_example
 
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 target_size = (150, 150)
 
 images = (("horse.jpg", "Horse"), 
@@ -652,7 +653,7 @@ for filename, label in images:
 Although it looked like it did about the same except getting to high accuracy, it now appears to predict everything is a horse.
 
 ** A re-try with smaller images.
-#+begin_src python :session validation :results output :exports both
+#+begin_src ipython :session validation :results output :exports both
 model = Model(str(training_path), str(validation_path), 
               image_size=150, 
               epochs=21)
