@@ -17,18 +17,260 @@
 #+end_src
 * Beginning
 ** Imports
+*** Python
+#+begin_src ipython :session cnn :results none
+from pathlib import Path
+#+end_src
 *** PyPi
 #+begin_src ipython :session cnn :results none
 from tensorflow.keras import layers
 import tensorflow
 import tensorflow_hub
 #+end_src
-** Setup
-   This is the tensorflow version 1.x model. There is [[https://tfhub.dev/google/tf2-preview/inception_v3/feature_vector/4][a different one]] for tensorflow 2.0.
+*** My Stuff
+#+begin_src ipython :session cnn :results none
+from graeae import SubPathLoader, EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** Paths
+#+begin_src ipython :session cnn :results none
+MODELS = Path("~/models/dogs-vs-cats/").expanduser()
+#+end_src
+*** The Datasets
+#+begin_src ipython :session cnn :results output :exports both
+environment = SubPathLoader("DATASETS")
+base_path = Path(environment["DOGS_VS_CATS"]).expanduser()
+for item in base_path.iterdir():
+    print(item)
+#+end_src
+
+#+RESULTS:
+: I0801 15:14:11.707943 140287413491520 environment.py:35] Environment Path: /home/brunhilde/.env
+: I0801 15:14:11.709249 140287413491520 environment.py:90] Environment Path: /home/brunhilde/.datasets
+: /home/brunhilde/data/datasets/images/dogs-vs-cats/test
+: /home/brunhilde/data/datasets/images/dogs-vs-cats/train
+
+#+begin_src ipython :session cnn :results output :exports both
+training_path = base_path/"train"
+testing_path = base_path/"test"
+for item in training_path.iterdir():
+    print(item)
+#+end_src
+
+#+RESULTS:
+: /home/brunhilde/data/datasets/images/dogs-vs-cats/train/cat
+: /home/brunhilde/data/datasets/images/dogs-vs-cats/train/dog
+
+**Note:** The download from kaggle has all the training files in one folder with the files labeled with either cat or dog, I made the subfolders and moved the files to make it work better with the Data Generator.
+
+* Middle
+** The Pre-built Model
+   This is going to use the [[https://www.tensorflow.org/tutorials/images/hub_with_keras][Keras version of tensorflow hub]] and the tensorflow version 1.x model (the URL determines which model we're using). There is [[https://tfhub.dev/google/tf2-preview/inception_v3/feature_vector/4][a different one]] for tensorflow 2.0. First create an extraction layer from the prebuilt one and make it untrainable.
 #+begin_src ipython :session cnn :results none
 model_url = "https://tfhub.dev/google/imagenet/inception_v3/feature_vector/3"
+input_shape = (150, 150, 3)
+feature_extraction_layer = tensorflow_hub.KerasLayer(model_url, 
+                                                     trainable=False,
+                                                     tags={"train"},
+                                                     input_shape=input_shape)
 #+end_src
-* Middle
+
+Now build the model compbining the pre-built layer with a Dense layer (that we're going to train). Since we only have two classes the activation function is the /sigmoid/.
+#+begin_src ipython :session cnn :results output :exports both
+number_of_classes = 2
+activation_function = "sigmoid"
+model = tensorflow.keras.Sequential(
+    feature_extraction_layer,
+    layers.Dense(number_of_classes, activation=activation_function)
+)
+print(model.summary())
+#+end_src
+** Train the Model
+*** A Model Saver
+#+begin_src ipython :session cnn :results none
+checkpoint = tensorflow.keras.callbacks.ModelCheckpoint(
+    str(MODELS/"inception_transfer.hdf5"), monitor="val_acc", verbose=1, 
+    save_best_only=True)
+#+end_src
+*** A Data Generator
+    This bundles up the steps to build the data generator.
+
+#+begin_src python :session cnn :results none
+class Data:
+    """creates the data generators
+
+    Args:
+     path: path to the images
+     validation_split: fraction that goes to the validation set
+     batch_size: size for the batches in the epochs
+    """
+    def __init__(self, path: str, validation_split: float=0.2,
+                 batch_size: int=20) -> None:
+        self.path = path
+        self.validation_split = validation_split
+        self.batch_size = batch_size
+        self._data_generator = None
+        self._testing_data_generator = None
+        self._training_generator = None
+        self._validation_generator = None
+        return
+    
+    @property
+    def data_generator(self) -> ImageDataGenerator:
+        """The data generator for training and validation"""
+        if self._data_generator is None:
+            self._data_generator = ImageDataGenerator(
+                rescale=1/255,
+                rotation_range=40,
+                width_shift_range=0.2,
+                height_shift_range=0.2,
+                horizontal_flip=True,
+                shear_range=0.2,
+                zoom_range=0.2,
+                fill_mode="nearest",
+                validation_split=self.validation_split)
+        return self._data_generator
+    
+    @property
+    def training_generator(self):
+        """The training data generator"""
+        if self._training_generator is None:
+            self._training_generator = (self.data_generator
+                                        .flow_from_directory)(
+                                            self.path,
+                                            batch_size=self.batch_size,
+                                            class_mode="binary",
+                                            target_size=(150, 150),
+                                            subset="training",
+            )
+        return self._training_generator
+    
+    @property
+    def validation_generator(self):
+        """the validation data generator"""
+        if self._validation_generator is None:
+            self._validation_generator = (self.data_generator
+                                          .flow_from_directory)(
+                                              self.path,
+                                              batch_size=self.batch_size,
+                                              class_mode="binary",
+                                              target_size = (150, 150),
+                                              subset="validation",
+            )
+        return self._validation_generator
+    
+    def __str__(self) -> str:
+        return (f"(Data) - Path: {self.path}, "
+                f"Validation Split: {self.validation_split},"
+                f"Batch Size: {self.batch_size}")
+#+end_src
+
+*** A Model Builder
+#+begin_src python :session cnn :results none
+class Network:
+    """The model to categorize the images
+
+    Args:
+     path: path to the training data
+     epochs: number of epochs to train
+     batch_size: size of the batches for each epoch
+     convolution_layers: layers of cnn/max-pooling
+     callbacks: things to stop the training
+     set_steps: whether to set the training steps-per-epoch
+    """
+    def __init__(self, path: str, epochs: int=15,
+                 batch_size: int=128, convolution_layers: int=3,
+                 set_steps: bool=True,
+                 callbacks: list=None) -> None:
+        self.path = path
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.convolution_layers = convolution_layers
+        self.set_steps = set_steps
+        self.callbacks = callbacks
+        self._data = None
+        self._model = None
+        self.history = None
+        return
+    
+    @property
+    def data(self) -> Data:
+        """The data generator builder"""
+        if self._data is None:
+            self._data = Data(self.path, batch_size=self.batch_size)
+        return self._data
+
+    @property
+    def model(self) -> tensorflow.keras.models.Sequential:
+        """The neural network"""
+        if self._model is None:
+            self._model = tensorflow.keras.models.Sequential([
+                tensorflow.keras.layers.Conv2D(
+                    32, (3,3), activation='relu', 
+                    input_shape=(150, 150, 3)),
+                tensorflow.keras.layers.MaxPooling2D(2,2)])
+            self._model.add(
+                tensorflow.keras.layers.Conv2D(
+                    64, (3,3), activation='relu'))
+            self._model.add(
+                tensorflow.keras.layers.MaxPooling2D(2,2))
+            
+            for layer in range(self.convolution_layers - 2):
+                self._model.add(tensorflow.keras.layers.Conv2D(
+                    128, (3,3), activation='relu'))
+                self._model.add(tensorflow.keras.layers.MaxPooling2D(2,2))
+            for layer in [
+                    tensorflow.keras.layers.Flatten(), 
+                    tensorflow.keras.layers.Dense(512, activation='relu'), 
+                    tensorflow.keras.layers.Dense(1, activation='sigmoid')]:
+                self._model.add(layer)
+
+            self._model.compile(optimizer=RMSprop(lr=0.001),
+                               loss='binary_crossentropy',
+                               metrics = ['acc'])
+        return self._model
+
+    def summary(self) -> None:
+        """Prints the model summary"""
+        print(self.model.summary())
+        return
+
+    def train(self) -> None:
+        """Trains the model"""
+        callbacks = self.callbacks if self.callbacks else []
+        arguments = dict(
+            generator=self.data.training_generator,
+            validation_data=self.data.validation_generator,
+            epochs = self.epochs,
+            callbacks = callbacks,
+            verbose=2,
+        )
+        if self.set_steps:
+            arguments["steps_per_epoch"] = int(
+                self.data.training_generator.samples/self.batch_size)
+            arguments["validation_steps"] = int(
+                self.data.validation_generator.samples/self.batch_size)
+            
+        self.history = self.model.fit_generator(**arguments)
+        return
+    
+    def __str__(self) -> str:
+        return (f"(Network) - \nPath: {self.path}\n Epochs: {self.epochs}\n "
+                f"Batch Size: {self.batch_size}\n Callbacks: {self.callbacks}\n"
+                f"Data: {self.data}\n"
+                f"Callbacks: {self.callbacks}")
+#+end_src
+** Train It
+#+begin_src ipython :session cnn :results output :exports both
+network = Network(str(training_path), 
+                  set_steps = True,
+                  epochs = 10,
+                  callbacks=[checkpoint],
+                  batch_size=1)
+network._model = model
+with TIMER:
+    network.train()
+#+end_src
 * End
 * Raw
 #+begin_comment
