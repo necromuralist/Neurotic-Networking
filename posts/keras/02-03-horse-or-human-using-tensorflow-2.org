@@ -1,0 +1,264 @@
+#+BEGIN_COMMENT
+.. title: Horse Or Human Using TensorFlow 2.0
+.. slug: horse-or-human-using-tensorflow-20
+.. date: 2019-08-05 12:37:31 UTC-07:00
+.. tags: cnn,transfer learning,tensorflow
+.. category: Transfer Learning
+.. link: 
+.. description: Using transfer learning with TensorFlow 2.0 (beta) to classify horses and humans.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+begin_src ipython :session cnn :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+end_src
+* Beginning
+** Imports
+*** PyPi
+#+begin_src ipython :session cnn :results none
+import tensorflow_datasets
+#+end_src
+* Middle
+** The Data Set
+   I'm going to use the Horses Vs Humans dataset again, but this time I'm going to use TensorFlow Datasets to grab it.
+#+begin_src ipython :session cnn :results output :exports both
+data, metadata = tensorflow_datasets.load("horses_or_humans", 
+                                          with_info=True, 
+                                          as_supervised=True, 
+                                          split=["train", "test"])
+#+end_src
+#+begin_src ipython :session cnn :results output :exports both
+print(data)
+#+end_src
+
+* End
+** Sources
+   - [[https://github.com/tensorflow/datasets/blob/master/docs/datasets.md#horses_or_humans][Horses Or Humans Dataset]]. Moroney Laurence. Feb 2019. url: http://laurencemoroney.com/horses-or-humans-dataset
+* Raw
+#+begin_comment
+import os
+import tensorflow as tf
+from tensorflow.keras import layers
+from tensorflow.keras import Model
+
+
+# In[ ]:
+
+
+# Download the inception v3 weights
+get_ipython().system('wget --no-check-certificate     https://storage.googleapis.com/mledu-datasets/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5     -O /tmp/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5')
+
+# Import the inception model  
+from tensorflow.keras.applications.inception_v3 import InceptionV3
+
+# Create an instance of the inception model from the local pre-trained weights
+local_weights_file = '/tmp/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5'
+
+pre_trained_model = # Your Code Here
+
+pre_trained_model.load_weights(local_weights_file)
+
+# Make all the layers in the pre-trained model non-trainable
+for layer in pre_trained_model.layers:
+  # Your Code Here
+  
+# Print the model summary
+pre_trained_model.summary()
+
+# Expected Output is extremely large, but should end with:
+
+#batch_normalization_v1_281 (Bat (None, 3, 3, 192)    576         conv2d_281[0][0]                 
+#__________________________________________________________________________________________________
+#activation_273 (Activation)     (None, 3, 3, 320)    0           batch_normalization_v1_273[0][0] 
+#__________________________________________________________________________________________________
+#mixed9_1 (Concatenate)          (None, 3, 3, 768)    0           activation_275[0][0]             
+#                                                                 activation_276[0][0]             
+#__________________________________________________________________________________________________
+#concatenate_5 (Concatenate)     (None, 3, 3, 768)    0           activation_279[0][0]             
+#                                                                 activation_280[0][0]             
+#__________________________________________________________________________________________________
+#activation_281 (Activation)     (None, 3, 3, 192)    0           batch_normalization_v1_281[0][0] 
+#__________________________________________________________________________________________________
+#mixed10 (Concatenate)           (None, 3, 3, 2048)   0           activation_273[0][0]             
+#                                                                 mixed9_1[0][0]                   
+#                                                                 concatenate_5[0][0]              
+#                                                                 activation_281[0][0]             
+#==================================================================================================
+#Total params: 21,802,784
+#Trainable params: 0
+#Non-trainable params: 21,802,784
+
+
+# In[ ]:
+
+
+last_layer = pre_trained_model.get_layer(# Your Code Here)
+print('last layer output shape: ', last_layer.output_shape)
+last_output = # Your Code Here
+
+# Expected Output:
+# ('last layer output shape: ', (None, 7, 7, 768))
+
+
+# In[ ]:
+
+
+# Define a Callback class that stops training once accuracy reaches 99.9%
+class myCallback(tf.keras.callbacks.Callback):
+  def on_epoch_end(self, epoch, logs={}):
+    if(logs.get('acc')>0.999):
+      print("\nReached 99.9% accuracy so cancelling training!")
+      self.model.stop_training = True
+
+      
+
+
+# In[ ]:
+
+
+from tensorflow.keras.optimizers import RMSprop
+
+# Flatten the output layer to 1 dimension
+x = layers.Flatten()(last_output)
+# Add a fully connected layer with 1,024 hidden units and ReLU activation
+x = layers.Dense(# Your Code Here)(x)
+# Add a dropout rate of 0.2
+x = layers.Dropout(# Your Code Here)(x)                  
+# Add a final sigmoid layer for classification
+x = layers.Dense  (# Your Code Here)(x)           
+
+model = Model( # Your Code Here, x) 
+
+model.compile(optimizer = RMSprop(lr=0.0001), 
+              loss = # Your Code Here, 
+              metrics = # Your Code Here)
+
+model.summary()
+
+# Expected output will be large. Last few lines should be:
+
+# mixed7 (Concatenate)            (None, 7, 7, 768)    0           activation_248[0][0]             
+#                                                                  activation_251[0][0]             
+#                                                                  activation_256[0][0]             
+#                                                                  activation_257[0][0]             
+# __________________________________________________________________________________________________
+# flatten_4 (Flatten)             (None, 37632)        0           mixed7[0][0]                     
+# __________________________________________________________________________________________________
+# dense_8 (Dense)                 (None, 1024)         38536192    flatten_4[0][0]                  
+# __________________________________________________________________________________________________
+# dropout_4 (Dropout)             (None, 1024)         0           dense_8[0][0]                    
+# __________________________________________________________________________________________________
+# dense_9 (Dense)                 (None, 1)            1025        dropout_4[0][0]                  
+# ==================================================================================================
+# Total params: 47,512,481
+# Trainable params: 38,537,217
+# Non-trainable params: 8,975,264
+
+
+# In[ ]:
+
+
+# Get the Horse or Human dataset
+get_ipython().system('wget --no-check-certificate https://storage.googleapis.com/laurencemoroney-blog.appspot.com/horse-or-human.zip -O /tmp/horse-or-human.zip')
+
+# Get the Horse or Human Validation dataset
+get_ipython().system('wget --no-check-certificate https://storage.googleapis.com/laurencemoroney-blog.appspot.com/validation-horse-or-human.zip -O /tmp/validation-horse-or-human.zip ')
+  
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+import os
+import zipfile
+
+local_zip = '//tmp/horse-or-human.zip'
+zip_ref = zipfile.ZipFile(local_zip, 'r')
+zip_ref.extractall('/tmp/training')
+zip_ref.close()
+
+local_zip = '//tmp/validation-horse-or-human.zip'
+zip_ref = zipfile.ZipFile(local_zip, 'r')
+zip_ref.extractall('/tmp/validation')
+zip_ref.close()
+
+
+# In[ ]:
+
+
+train_horses_dir = # Your Code Here
+train_humans_dir = # Your Code Here
+validation_horses_dir = # Your Code Here
+validation_humans_dir = # Your Code Here
+
+train_horses_fnames = # Your Code Here
+train_humans_fnames = # Your Code Here
+validation_horses_fnames = # Your Code Here
+validation_humans_fnames = # Your Code Here
+print(# Your Code Here)
+print(# Your Code Here)
+print(# Your Code Here)
+print(# Your Code Here)
+
+# Expected Output:
+# 500
+# 527
+# 128
+# 128
+
+
+# In[ ]:
+
+
+# Define our example directories and files
+train_dir = '/tmp/training'
+validation_dir = '/tmp/validation'
+
+# Add our data-augmentation parameters to ImageDataGenerator
+train_datagen = ImageDataGenerator(# Your Code Here)
+
+# Note that the validation data should not be augmented!
+test_datagen = ImageDataGenerator(# Your Code Here )
+
+# Flow training images in batches of 20 using train_datagen generator
+train_generator = train_datagen.flow_from_directory(# Your Code Here)     
+
+# Flow validation images in batches of 20 using test_datagen generator
+validation_generator =  test_datagen.flow_from_directory( # Your Code Here)
+
+# Expected Output:
+# Found 1027 images belonging to 2 classes.
+# Found 256 images belonging to 2 classes.
+
+
+# In[ ]:
+
+
+# Run this and see how many epochs it should take before the callback
+# fires, and stops training at 99.9% accuracy
+# (It should take less than 100 epochs)
+
+callbacks = # Your Code Here
+history = model.fit_generator(# Your Code Here)
+
+
+# In[ ]:
+
+
+import matplotlib.pyplot as plt
+acc = history.history['acc']
+val_acc = history.history['val_acc']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+epochs = range(len(acc))
+
+plt.plot(epochs, acc, 'r', label='Training accuracy')
+plt.plot(epochs, val_acc, 'b', label='Validation accuracy')
+plt.title('Training and validation accuracy')
+plt.legend(loc=0)
+plt.figure()
+
+
+plt.show()
+#+end_comment
