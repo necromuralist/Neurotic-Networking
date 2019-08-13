@@ -11,27 +11,101 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+begin_src ipython :session cnn :results none :exports none
+#+begin_src jupyter-python :session cnn :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+end_src
 * Beginning
 ** Imports
 *** PyPi
-#+begin_src ipython :session cnn :results none
+#+begin_src jupyter-python :session cnn :results none
+import matplotlib.pyplot as pyplot
+import tensorflow
 import tensorflow_datasets
 #+end_src
+
 * Middle
 ** The Data Set
    I'm going to use the Horses Vs Humans dataset again, but this time I'm going to use TensorFlow Datasets to grab it.
-#+begin_src ipython :session cnn :results output :exports both
-data, metadata = tensorflow_datasets.load("horses_or_humans", 
-                                          with_info=True, 
-                                          as_supervised=True, 
-                                          split=["train", "test"])
+#+begin_src jupyter-python :session cnn :results none
+SPLIT_WEIGHTS = (8, 1, 1)
+splits = tensorflow_datasets.Split.TRAIN.subsplit(weighted=SPLIT_WEIGHTS)
+train, metadata = tensorflow_datasets.load("horses_or_humans", 
+                                           with_info=True,
+                                           as_supervised=True,
+                                           split=tensorflow_datasets.ReadInstruction(
+                                               "train", to=80, unit="%"
+                                           ))
+                                           
+validation = tensorflow_datasets.load("horses_or_humans", 
+                                      as_supervised=True,
+                                      split=tensorflow_datasets.ReadInstruction(
+                                          "train", from_=-80, unit="%"
+                                      ))
+
+test = tensorflow_datasets.load("horses_or_humans",
+                                as_supervised=True,
+                                split=tensorflow_datasets.ReadInstruction(
+                                    "test"
+                                ))
 #+end_src
-#+begin_src ipython :session cnn :results output :exports both
-print(data)
+
+#+begin_src jupyter-python :session cnn :results output :exports both
+print(train)
+#+end_src
+
+#+RESULTS:
+: <DatasetV1Adapter shapes: ((?, ?, 3), ()), types: (tf.uint8, tf.int64)>
+
+#+begin_src jupyter-python :session cnn :results output :exports both
+print(metadata)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+tfds.core.DatasetInfo(
+    name='horses_or_humans',
+    version=1.0.0,
+    description='A large set of images of horses and humans.',
+    urls=['http://laurencemoroney.com/horses-or-humans-dataset'],
+    features=FeaturesDict({
+        'image': Image(shape=(None, None, 3), dtype=tf.uint8),
+        'label': ClassLabel(shape=(), dtype=tf.int64, num_classes=2),
+    }),
+    total_num_examples=1283,
+    splits={
+        'test': 256,
+        'train': 1027,
+    },
+    supervised_keys=('image', 'label'),
+    citation="""@ONLINE {horses_or_humans,
+    author = "Laurence Moroney",
+    title = "Horses or Humans Dataset",
+    month = "feb",
+    year = "2019",
+    url = "http://laurencemoroney.com/horses-or-humans-dataset"
+    }""",
+    redistribution_info=,
+)
+#+end_example
+
+#+begin_src jupyter-python :session cnn :results none
+raw_train = (train
+             .shuffle(metadata.splits["train"].num_examples)
+             .batch(32)
+             .prefetch(tensorflow.data.experimental.AUTOTUNE))
+#+end_src
+
+=prefetch= lets the dataset grab a batch of images in the background while the model is training. For very large datasets (that won't fit in memory) you can use a shuffle size that's smaller than the dataset but this one isn't so big so I set it to be the size of the dataset so it is thoroughly shuffled.
+
+** Look At Some Images
+
+#+begin_src jupyter-python :session cnn :results raw drawer :exports both :ipyfile ../../files/posts/kerals/horse-or-human-using-tensorflow-2/samples.png
+get_label_name = metadata.features["label"].int2str
+for image, label in raw_train.take(2):
+    pyplot.figure()
+    pyplot.imshow(image)
+    #pyplot.title(get_label_name(label))
 #+end_src
 
 * End
