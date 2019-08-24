@@ -14,26 +14,40 @@
 %load_ext autoreload
 %autoreload 2
 #+end_src
+
+#+RESULTS:
+
 * Beginning
 ** Imports
 *** Python
 #+begin_src ipython :session cnn :results none
+from functools import partial
 from pathlib import Path
+import hvplot.pandas
+import numpy
+import pandas
 import random
 #+end_src
 *** PyPi
 #+begin_src ipython :session cnn :results none
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.preprocessing import image
+import holoviews
 import matplotlib.pyplot as pyplot
 import matplotlib.image as matplotlib_image
 import seaborn
+import tensorflow
 #+end_src
+
+#+RESULTS:
+
 *** graeae
 #+begin_src ipython :session cnn :results none
-from graeae import SubPathLoader, Timer, ZipDownloader
+from graeae import EmbedHoloviews, SubPathLoader, Timer, ZipDownloader
 #+end_src
 ** Set Up
 *** Plotting
-#+BEGIN_SRC python :session cnn :results none
+#+BEGIN_SRC ipython :session cnn :results none
 get_ipython().run_line_magic('matplotlib', 'inline')
 get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
 seaborn.set(style="whitegrid",
@@ -43,6 +57,10 @@ seaborn.set(style="whitegrid",
                 "figure.figsize": (8, 6)},
             font_scale=1)
 FIGURE_SIZE = (12, 10)
+
+Embed = partial(EmbedHoloviews,
+                folder_path="../../files/posts/keras/rock-paper-scissors/")
+holoviews.extension("bokeh")
 #+END_SRC
 
 *** The Timer
@@ -67,16 +85,18 @@ download_test()
 #+end_src
 
 #+RESULTS:
+: I0824 15:11:34.302747 139626236733248 environment.py:35] Environment Path: /home/athena/.env
+: I0824 15:11:34.303720 139626236733248 environment.py:90] Environment Path: /home/athena/.config/datasets/env
 : Files exist, not downloading
 : Files exist, not downloading
 
 The data structure for the folders is fairly deep, so I'll make some shortcuts.
 
 #+begin_src ipython :session cnn :results none
-training = OUT_PATH/"train/rps"
-rocks = training/"rock"
-papers = training/"paper"
-scissors = training/"scissors"
+TRAINING = OUT_PATH/"train/rps"
+rocks = TRAINING/"rock"
+papers = TRAINING/"paper"
+scissors = TRAINING/"scissors"
 assert papers.is_dir()
 assert rocks.is_dir()
 assert scissors.is_dir()
@@ -98,6 +118,7 @@ print(f"Scissors: {len(scissors_images):,}")
 
 *** Some Examples
 #+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/rock.png
+count=1
 rock_sample = random.choice(rock_images[:count])
 
 image = matplotlib_image.imread(str(rock_sample))
@@ -109,9 +130,11 @@ pyplot.show()
 
 #+RESULTS:
 :results:
-# Out[19]:
+# Out[29]:
 [[file:../../files/posts/keras/rock-paper-scissors/rock.png]]
 :end:
+
+[[file:rock.png]]
 
 #+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/paper.png
 paper_sample = random.choice(paper_images)
@@ -124,9 +147,11 @@ pyplot.show()
 
 #+RESULTS:
 :results:
-# Out[20]:
+# Out[30]:
 [[file:../../files/posts/keras/rock-paper-scissors/paper.png]]
 :end:
+
+[[file:paper.png]]
 
 #+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/scissors.png
 scissors_sample = random.choice(scissors_images)
@@ -139,12 +164,24 @@ pyplot.show()
 
 #+RESULTS:
 :results:
-# Out[21]:
+# Out[31]:
 [[file:../../files/posts/keras/rock-paper-scissors/scissors.png]]
 :end:
+
+[[file:scissors.png]]
 *** Data Generators
 
-#+begin_src ipython :session cnn :results none
+*Note:* I was originally using =keras_preprocessing.image.ImageDataGenerator= and getting 
+
+#+begin_src python
+AttributeError: 'DirectoryIterator' object has no attribute 'shape'
+#+end_src
+
+Make sure to use =tensorflow.keras.preprocessing.image.ImageDataGenerator= instead.
+
+
+#+begin_src ipython :session cnn :results output :exports both
+VALIDATION = OUT_PATH/"test/rps-test-set"
 training_data_generator = ImageDataGenerator(
       rescale = 1./255,
 	  rotation_range=40,
@@ -157,24 +194,31 @@ training_data_generator = ImageDataGenerator(
 
 validation_data_generator = ImageDataGenerator(rescale = 1./255)
 
-train_generator = training_datagen.flow_from_directory(
-	TRAINING_DIR,
+train_generator = training_data_generator.flow_from_directory(
+	TRAINING,
 	target_size=(150,150),
 	class_mode='categorical'
 )
 
-validation_generator = validation_datagen.flow_from_directory(
-	VALIDATION_DIR,
+validation_generator = validation_data_generator.flow_from_directory(
+	VALIDATION,
 	target_size=(150,150),
 	class_mode='categorical'
 )
 
 #+end_src
+
+#+RESULTS:
+: Found 2520 images belonging to 3 classes.
+: Found 372 images belonging to 3 classes.
+
 ** A Four-CNN Model
+*** Definition
+   This is a hand-crafted, relatively shallow Convolutional Neural Network. The input shape matches our =target_size= arguments for the data-generators. There are four convolutional layers with a filter size of 3 x 3 each follewd by a max-pooling layer. The first two layers have 64 nodes while the two following those have 128 nodes. The convolution layers are followed by a layer to flatten the input and add dropout before reaching our fully connected and output layer which uses softmax to predict the most likely category. Since we have three categories (rock, paper, or scissors) the final layer has three nodes.
+
 #+begin_src ipython :session cnn :results none
 model = tensorflow.keras.models.Sequential([
-    # Note the input shape is the desired size of the image 150x150 with 3 bytes color
-    # This is the first convolution
+    # Input Layer/convolution
     tensorflow.keras.layers.Conv2D(64, (3,3), activation='relu', input_shape=(150, 150, 3)),
     tensorflow.keras.layers.MaxPooling2D(2, 2),
     # The second convolution
@@ -186,64 +230,281 @@ model = tensorflow.keras.models.Sequential([
     # The fourth convolution
     tensorflow.keras.layers.Conv2D(128, (3,3), activation='relu'),
     tensorflow.keras.layers.MaxPooling2D(2,2),
-    # Flatten the results to feed into a DNN
+    # Flatten
     tensorflow.keras.layers.Flatten(),
     tensorflow.keras.layers.Dropout(0.5),
-    # 512 neuron hidden layer
+    # Fully-connected and output layers
     tensorflow.keras.layers.Dense(512, activation='relu'),
     tensorflow.keras.layers.Dense(3, activation='softmax')
 ])
-
 #+end_src
+
+Here's a summary of the layers.
+#+begin_src ipython :session cnn :results output :exports both
+model.summary()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Model: "sequential_1"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+conv2d_4 (Conv2D)            (None, 148, 148, 64)      1792      
+_________________________________________________________________
+max_pooling2d_4 (MaxPooling2 (None, 74, 74, 64)        0         
+_________________________________________________________________
+conv2d_5 (Conv2D)            (None, 72, 72, 64)        36928     
+_________________________________________________________________
+max_pooling2d_5 (MaxPooling2 (None, 36, 36, 64)        0         
+_________________________________________________________________
+conv2d_6 (Conv2D)            (None, 34, 34, 128)       73856     
+_________________________________________________________________
+max_pooling2d_6 (MaxPooling2 (None, 17, 17, 128)       0         
+_________________________________________________________________
+conv2d_7 (Conv2D)            (None, 15, 15, 128)       147584    
+_________________________________________________________________
+max_pooling2d_7 (MaxPooling2 (None, 7, 7, 128)         0         
+_________________________________________________________________
+flatten_1 (Flatten)          (None, 6272)              0         
+_________________________________________________________________
+dropout_1 (Dropout)          (None, 6272)              0         
+_________________________________________________________________
+dense_2 (Dense)              (None, 512)               3211776   
+_________________________________________________________________
+dense_3 (Dense)              (None, 3)                 1539      
+=================================================================
+Total params: 3,473,475
+Trainable params: 3,473,475
+Non-trainable params: 0
+_________________________________________________________________
+#+end_example
+
+You can see that the convolutional layers lose two pixels on output, so the filters are stopping when their edges match the image (so the 3 x 3 filter stops with the center one pixel away from the edge of the image). Additionally, our max-pooling layers are cutting the size of the convolutional layers' output in half, so as we progress through the network the inputs are getting smaller and smaller before reaching the fully-connected layers.
+
+*** Compile and Fit
+Now we need to compile and train the model.
+
+#+begin_src ipython :session cnn :results output :exports both
+model.compile(loss = 'categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+MODELS = Path("~/models/rock-paper-scissors/").expanduser()
+checkpoint = tensorflow.keras.callbacks.ModelCheckpoint(
+    str(MODELS/"four-layer-cnn.hdf5"), monitor="val_acc", verbose=1, 
+    save_best_only=True)
+
+with TIMER:
+    model.fit_generator(generator=train_generator,
+                        epochs=25,
+                        callbacks=[checkpoint],
+                        validation_data = validation_generator,
+                        verbose=2)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-08-24 15:11:40,225 graeae.timers.timer start: Started: 2019-08-24 15:11:40.225887
+I0824 15:11:40.225931 139626236733248 timer.py:70] Started: 2019-08-24 15:11:40.225887
+Epoch 1/25
+W0824 15:11:55.847775 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 16s - loss: 1.1443 - accuracy: 0.3563 - val_loss: 1.0544 - val_accuracy: 0.4946
+Epoch 2/25
+W0824 15:12:10.195963 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.9306 - accuracy: 0.5595 - val_loss: 0.3960 - val_accuracy: 0.9516
+Epoch 3/25
+W0824 15:12:24.428791 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.5696 - accuracy: 0.7556 - val_loss: 0.2832 - val_accuracy: 0.9220
+Epoch 4/25
+W0824 15:12:38.833040 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.4048 - accuracy: 0.8417 - val_loss: 0.0812 - val_accuracy: 1.0000
+Epoch 5/25
+W0824 15:12:53.305240 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.2739 - accuracy: 0.8988 - val_loss: 0.0620 - val_accuracy: 0.9812
+Epoch 6/25
+W0824 15:13:07.556443 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.2406 - accuracy: 0.9087 - val_loss: 0.0374 - val_accuracy: 0.9866
+Epoch 7/25
+W0824 15:13:21.821287 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1919 - accuracy: 0.9302 - val_loss: 0.0229 - val_accuracy: 1.0000
+Epoch 8/25
+W0824 15:13:36.075716 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1774 - accuracy: 0.9440 - val_loss: 0.1330 - val_accuracy: 0.9409
+Epoch 9/25
+W0824 15:13:50.658044 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 15s - loss: 0.1510 - accuracy: 0.9448 - val_loss: 0.0588 - val_accuracy: 0.9704
+Epoch 10/25
+W0824 15:14:04.828769 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1533 - accuracy: 0.9492 - val_loss: 0.0582 - val_accuracy: 0.9704
+Epoch 11/25
+W0824 15:14:19.177454 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1352 - accuracy: 0.9556 - val_loss: 0.0884 - val_accuracy: 0.9704
+Epoch 12/25
+W0824 15:14:33.245634 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1165 - accuracy: 0.9579 - val_loss: 0.0850 - val_accuracy: 0.9570
+Epoch 13/25
+W0824 15:14:47.518862 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1262 - accuracy: 0.9627 - val_loss: 0.0546 - val_accuracy: 0.9731
+Epoch 14/25
+W0824 15:15:01.730825 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0934 - accuracy: 0.9675 - val_loss: 0.0551 - val_accuracy: 0.9812
+Epoch 15/25
+W0824 15:15:16.275883 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 15s - loss: 0.1191 - accuracy: 0.9607 - val_loss: 0.0238 - val_accuracy: 0.9892
+Epoch 16/25
+W0824 15:15:30.505814 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0961 - accuracy: 0.9726 - val_loss: 0.0340 - val_accuracy: 0.9812
+Epoch 17/25
+W0824 15:15:44.593067 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0824 - accuracy: 0.9766 - val_loss: 0.0499 - val_accuracy: 0.9758
+Epoch 18/25
+W0824 15:15:58.770111 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1364 - accuracy: 0.9599 - val_loss: 0.0469 - val_accuracy: 0.9839
+Epoch 19/25
+W0824 15:16:12.901974 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0858 - accuracy: 0.9726 - val_loss: 0.1309 - val_accuracy: 0.9677
+Epoch 20/25
+W0824 15:16:27.033554 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.1038 - accuracy: 0.9706 - val_loss: 0.0380 - val_accuracy: 0.9758
+Epoch 21/25
+W0824 15:16:41.215180 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0933 - accuracy: 0.9786 - val_loss: 0.0809 - val_accuracy: 0.9651
+Epoch 22/25
+W0824 15:16:55.316612 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0659 - accuracy: 0.9762 - val_loss: 0.0543 - val_accuracy: 0.9651
+Epoch 23/25
+W0824 15:17:09.454918 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0752 - accuracy: 0.9754 - val_loss: 0.0883 - val_accuracy: 0.9731
+Epoch 24/25
+W0824 15:17:23.766250 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0963 - accuracy: 0.9758 - val_loss: 0.0302 - val_accuracy: 0.9946
+Epoch 25/25
+W0824 15:17:37.788224 139626236733248 callbacks.py:986] Can save best model only with val_acc available, skipping.
+79/79 - 14s - loss: 0.0829 - accuracy: 0.9754 - val_loss: 0.2487 - val_accuracy: 0.8952
+2019-08-24 15:17:37,789 graeae.timers.timer end: Ended: 2019-08-24 15:17:37.789445
+I0824 15:17:37.789466 139626236733248 timer.py:77] Ended: 2019-08-24 15:17:37.789445
+2019-08-24 15:17:37,790 graeae.timers.timer end: Elapsed: 0:05:57.563558
+I0824 15:17:37.790484 139626236733248 timer.py:78] Elapsed: 0:05:57.563558
+#+end_example
+
+That did surprisingly well... is it really that easy a problem?
+
+#+begin_src ipython :session cnn :results output raw :exports both
+data = pandas.DataFrame(model.history.history)
+plot = data.hvplot().opts(title="Rock, Paper, Scissors Training and Validation", width=1000, height=800)
+Embed(plot=plot, file_name="training")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Looking at the validation accuracy it appears that it starts to overfit at the end. Strangely, the validation loss, up until the overfitting, is lower than the training loss, and the validation accuracy is better almost throughout - perhaps this is because the image augmentation for the training set is too hard.
 * End
+** Some Test Images
+#+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/test_paper.png
+base = Path("~/test_images").expanduser()
+paper = base/"Rock-paper-scissors_(paper).png"
+
+image = matplotlib_image.imread(str(paper))
+pyplot.title("Paper Test Case")
+pyplot.imshow(image)
+pyplot.axis('Off')
+pyplot.show()
+#+end_src
+
+#+RESULTS:
+:results:
+# Out[58]:
+[[file:../../files/posts/keras/rock-paper-scissors/test_paper.png]]
+:end:
+
+[[file:test_paper.png]]
+
+#+begin_src ipython :session cnn :results output :exports both
+classifications = dict(zip(range(3), ("Paper", "Rock", "Scissors")))
+image_ = image.load_img(str(paper), target_size=(150, 150))
+x = image.img_to_array(image_)
+x = numpy.expand_dims(x, axis=0)
+images = numpy.vstack([x])
+classes = model.predict(images, batch_size=10)
+print(classifications[classes.argmax()])
+#+end_src
+
+#+RESULTS:
+: Paper
+
+#+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/test_rock.png
+base = Path("~/test_images").expanduser()
+rock = base/"Rock-paper-scissors_(rock).png"
+
+image = matplotlib_image.imread(str(rock))
+pyplot.title("Rock Test Case")
+pyplot.imshow(image)
+pyplot.axis('Off')
+pyplot.show()
+#+end_src
+
+#+RESULTS:
+:results:
+# Out[57]:
+[[file:../../files/posts/keras/rock-paper-scissors/test_rock.png]]
+:end:
+
+[[file:test_rock.png]]
+
+#+begin_src ipython :session cnn :results output :exports both
+base = Path("~/test_images").expanduser()
+rock = base/"Rock-paper-scissors_(rock).png"
+image_ = image.load_img(str(rock), target_size=(150, 150))
+x = image.img_to_array(image_)
+x = numpy.expand_dims(x, axis=0)
+images = numpy.vstack([x])
+classes = model.predict(images, batch_size=10)
+print(classifications[classes.argmax()])
+#+end_src
+
+#+RESULTS:
+: Rock
+
+#+begin_src ipython :session cnn :results raw drawer :ipyfile ../../files/posts/keras/rock-paper-scissors/test_scissors.png
+base = Path("~/test_images").expanduser()
+scissors = base/"Rock-paper-scissors_(scissors).png"
+
+image = matplotlib_image.imread(str(scissors))
+pyplot.title("Scissors Test Case")
+pyplot.imshow(image)
+pyplot.axis('Off')
+pyplot.show()
+#+end_src
+
+#+RESULTS:
+:results:
+# Out[56]:
+[[file:../../files/posts/keras/rock-paper-scissors/test_scissors.png]]
+:end:
+
+[[file:test_scissors.png]]
+
+#+begin_src ipython :session cnn :results output :exports both
+image_ = image.load_img(str(scissors), target_size=(150, 150))
+x = image.img_to_array(image_)
+x = numpy.expand_dims(x, axis=0)
+images = numpy.vstack([x])
+classes = model.predict(images, batch_size=10)
+print(classifications[classes.argmax()])
+#+end_src
+
+#+RESULTS:
+: Scissors
+
+
+** Sources
+   - The [[http://www.laurencemoroney.com/rock-paper-scissors-dataset/][Rock-Paper-Scissors]] dataset was created by Laurence Moroney (lmoroney@gmail.com / laurencemoroney.com).
+   - The test images came from the Wikipedia article on the [[https://en.wikipedia.org/wiki/Rock%E2%80%93paper%E2%80%93scissors?oldformat=true][Rock-paper-scissors game]].
 * Raw
 #+begin_comment
-import tensorflow as tf
-import keras_preprocessing
-from keras_preprocessing import image
-from keras_preprocessing.image import ImageDataGenerator
-
-
-
-
-model.summary()
-
-model.compile(loss = 'categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-
-history = model.fit_generator(train_generator, epochs=25, validation_data = validation_generator, verbose = 1)
-
-model.save("rps.h5")
-
-
-# In[22]:
-
-
-import matplotlib.pyplot as plt
-acc = history.history['acc']
-val_acc = history.history['val_acc']
-loss = history.history['loss']
-val_loss = history.history['val_loss']
-
-epochs = range(len(acc))
-
-plt.plot(epochs, acc, 'r', label='Training accuracy')
-plt.plot(epochs, val_acc, 'b', label='Validation accuracy')
-plt.title('Training and validation accuracy')
-plt.legend(loc=0)
-plt.figure()
-
-
-plt.show()
-
-
-# In[26]:
-
-
-import numpy as np
-from google.colab import files
-from keras.preprocessing import image
-
-uploaded = files.upload()
 
 for fn in uploaded.keys():
  
