@@ -1,0 +1,364 @@
+#+BEGIN_COMMENT
+.. title: Sign Language Exercise
+.. slug: sign-language-exercise
+.. date: 2019-08-25 13:59:38 UTC-07:00
+.. tags: cnn
+.. category: CNN 
+.. link: 
+.. description: A multiclass CNN categorizer.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+begin_src ipython :session signs :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+end_src
+* Beginning
+  This data I'm using is the [[https://www.kaggle.com/datamunge/sign-language-mnist/home][Sign-Language MNIST]] set (hosted on Kaggle). It's a drop-in replacement for the MNIST dataset that contains images of hands showing letters in American Sign  Language that was created by taking 1,704 photos of hands showing letters in the alphabet and then using ImageMagick to alter the photos to create a training set with 27,455 images and a test set with 7,172 images.
+** Imports
+*** Python
+#+begin_src ipython :session signs :results none
+from functools import partial
+from pathlib import Path
+#+end_src
+*** PyPi
+#+begin_src ipython :session signs :results none
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.preprocessing import image as keras_image
+from tensorflow.keras.utils import to_categorical
+import hvplot.pandas
+import matplotlib.pyplot as pyplot
+import matplotlib.image as matplotlib_image
+
+import numpy
+import pandas
+import seaborn
+import tensorflow
+#+end_src
+*** Graeae
+#+begin_src ipython :session signs :results none
+from graeae import EmbedHoloviews, SubPathLoader, Timer
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src ipython :session signs :results none
+get_ipython().run_line_magic('matplotlib', 'inline')
+get_ipython().run_line_magic('config', "InlineBackend.figure_format = 'retina'")
+seaborn.set(style="whitegrid",
+            rc={"axes.grid": False,
+                "font.family": ["sans-serif"],
+                "font.sans-serif": ["Open Sans", "Latin Modern Sans", "Lato"],
+                "figure.figsize": (8, 6)},
+            font_scale=1)
+FIGURE_SIZE = (12, 10)
+
+Embed = partial(
+    EmbedHoloviews,
+    folder_path="../../files/posts/keras/sign-language-exercise/")
+#+end_src
+*** Timer
+#+begin_src ipython :session signs :results none
+TIMER = Timer()
+#+end_src
+*** The Environment
+#+begin_src ipython :session signs :results none
+ENVIRONMENT = SubPathLoader("DATASETS")
+#+end_src
+* Middle
+** The Datasets
+#+begin_src ipython :session signs :results none
+root_path = Path(ENVIRONMENT["SIGN_LANGUAGE_MNIST"]).expanduser()
+#+end_src
+
+#+begin_src ipython :session signs :results none
+def get_data(test_or_train: str) -> tuple:
+    """Gets the MNIST data
+
+    The pixels are reshaped so that they are 28x28
+    Also, an extra dimension is added to make the shape:
+     (<rows>, 28, 28, 1)
+
+    Also converts the labels to a categorical (so there are 25 columns)
+
+    Args:
+     test_or_train: which data set to load
+
+    Returns: 
+     images, labels: numpy arrays with the data
+    """
+    path = root_path/f"sign_mnist_{test_or_train}.csv"
+    data = pandas.read_csv(path) 
+    labels = data.label
+    labels = to_categorical(labels)
+    pixels = data[[column for column in data.columns if column.startswith("pixel")]]
+    pixels = pixels.values.reshape(((len(pixels), 28, 28, 1)))
+    print(labels.shape)
+    print(pixels.shape)
+    return pixels, labels
+#+end_src
+**** Training
+     The data is a CSV with the first column being the labels and the rest of the columns holding the pixel values. To make it work with our networks we need to re-shape the data so that we have a shape of (<rows>, 28, 28). The 28 comes from the fact that there are 784 pixel columns(28 x 28 = 784).
+
+#+begin_src ipython :session signs :results output :exports both
+train_images, train_labels = get_data("train")
+assert train_images.shape == (27455, 28, 28, 1)
+assert train_labels.shape == (27455, 25)
+#+end_src
+
+#+RESULTS:
+: (27455, 25)
+: (27455, 28, 28, 1)
+
+As you can see, there's a lot of columns in the original set. The first one is the "label" and the rest are the "pixel" columns.
+
+#+begin_src ipython :session signs :results output :exports both
+test_images, test_labels = get_data("test")
+assert test_images.shape == (7172, 28, 28, 1)
+assert test_labels.shape == (7172, 25)
+#+end_src
+
+#+RESULTS:
+: (7172, 25)
+: (7172, 28, 28, 1)
+
+*Note:* The original exercise calls for doing this with the python =csv= module. But why?
+** Data Generators
+#+begin_src ipython :session signs :results none
+training_data_generator = ImageDataGenerator(
+    rescale = 1./255,
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest')
+
+validation_data_generator = ImageDataGenerator(rescale = 1./255)
+
+train_generator = training_data_generator.flow(
+	train_images, train_labels,
+)
+
+validation_generator = validation_data_generator.flow(
+	test_images, test_labels,
+)
+#+end_src
+
+** The Model
+   Part of the exercise requires that we only use two convolutional layers.
+#+begin_src ipython :session signs :results none
+model = tensorflow.keras.models.Sequential([
+    # Input Layer/convolution
+    tensorflow.keras.layers.Conv2D(64, (3,3), activation='relu', input_shape=(28, 28, 1)),
+    tensorflow.keras.layers.MaxPooling2D(2, 2),
+    # The second convolution
+    tensorflow.keras.layers.Conv2D(128, (3,3), activation='relu'),
+    tensorflow.keras.layers.MaxPooling2D(2,2),
+    # Flatten
+    tensorflow.keras.layers.Flatten(),
+    tensorflow.keras.layers.Dropout(0.5),
+    # Fully-connected and output layers
+    tensorflow.keras.layers.Dense(512, activation='relu'),
+    tensorflow.keras.layers.Dense(25, activation='softmax'),
+])
+#+end_src
+
+#+begin_src ipython :session signs :results output :exports both
+model.summary()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Model: "sequential_6"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+conv2d_12 (Conv2D)           (None, 26, 26, 64)        640       
+_________________________________________________________________
+max_pooling2d_12 (MaxPooling (None, 13, 13, 64)        0         
+_________________________________________________________________
+conv2d_13 (Conv2D)           (None, 11, 11, 128)       73856     
+_________________________________________________________________
+max_pooling2d_13 (MaxPooling (None, 5, 5, 128)         0         
+_________________________________________________________________
+flatten_6 (Flatten)          (None, 3200)              0         
+_________________________________________________________________
+dropout_6 (Dropout)          (None, 3200)              0         
+_________________________________________________________________
+dense_12 (Dense)             (None, 512)               1638912   
+_________________________________________________________________
+dense_13 (Dense)             (None, 25)                12825     
+=================================================================
+Total params: 1,726,233
+Trainable params: 1,726,233
+Non-trainable params: 0
+_________________________________________________________________
+#+end_example
+
+*** Train It
+#+begin_src ipython :session signs :results output :exports both
+model.compile(loss="categorical_crossentropy", optimizer="rmsprop", metrics=["accuracy"])
+MODELS = Path("~/models/sign-language-mnist/").expanduser()
+assert MODELS.is_dir()
+best_model = MODELS/"two-cnn-layers.hdf5"
+checkpoint = tensorflow.keras.callbacks.ModelCheckpoint(
+    str(best_model), monitor="val_accuracy", verbose=1, 
+    save_best_only=True)
+
+with TIMER:
+    model.fit_generator(generator=train_generator,
+                        epochs=25,
+                        callbacks=[checkpoint],
+                        validation_data = validation_generator,
+                        verbose=2)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-08-25 16:25:13,710 graeae.timers.timer start: Started: 2019-08-25 16:25:13.710604
+I0825 16:25:13.710640 140637170140992 timer.py:70] Started: 2019-08-25 16:25:13.710604
+Epoch 1/25
+
+Epoch 00001: val_accuracy improved from -inf to 0.45427, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 8s - loss: 2.6016 - accuracy: 0.2048 - val_loss: 1.5503 - val_accuracy: 0.4543
+Epoch 2/25
+
+Epoch 00002: val_accuracy improved from 0.45427 to 0.71403, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 1.8267 - accuracy: 0.4160 - val_loss: 0.8762 - val_accuracy: 0.7140
+Epoch 3/25
+
+Epoch 00003: val_accuracy improved from 0.71403 to 0.74888, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 1.4297 - accuracy: 0.5323 - val_loss: 0.7413 - val_accuracy: 0.7489
+Epoch 4/25
+
+Epoch 00004: val_accuracy improved from 0.74888 to 0.76157, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 1.1984 - accuracy: 0.6100 - val_loss: 0.6402 - val_accuracy: 0.7616
+Epoch 5/25
+
+Epoch 00005: val_accuracy improved from 0.76157 to 0.84816, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 1.0498 - accuracy: 0.6570 - val_loss: 0.4581 - val_accuracy: 0.8482
+Epoch 6/25
+
+Epoch 00006: val_accuracy improved from 0.84816 to 0.85778, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.9340 - accuracy: 0.6944 - val_loss: 0.4195 - val_accuracy: 0.8578
+Epoch 7/25
+
+Epoch 00007: val_accuracy improved from 0.85778 to 0.90240, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.8522 - accuracy: 0.7189 - val_loss: 0.3270 - val_accuracy: 0.9024
+Epoch 8/25
+
+Epoch 00008: val_accuracy did not improve from 0.90240
+858/858 - 7s - loss: 0.7963 - accuracy: 0.7410 - val_loss: 0.3144 - val_accuracy: 0.8887
+Epoch 9/25
+
+Epoch 00009: val_accuracy did not improve from 0.90240
+858/858 - 7s - loss: 0.7388 - accuracy: 0.7560 - val_loss: 0.3184 - val_accuracy: 0.8984
+Epoch 10/25
+
+Epoch 00010: val_accuracy improved from 0.90240 to 0.92777, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.7127 - accuracy: 0.7692 - val_loss: 0.2045 - val_accuracy: 0.9278
+Epoch 11/25
+
+Epoch 00011: val_accuracy improved from 0.92777 to 0.93572, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 9s - loss: 0.6798 - accuracy: 0.7792 - val_loss: 0.1813 - val_accuracy: 0.9357
+Epoch 12/25
+
+Epoch 00012: val_accuracy improved from 0.93572 to 0.94046, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.6506 - accuracy: 0.7875 - val_loss: 0.1857 - val_accuracy: 0.9405
+Epoch 13/25
+
+Epoch 00013: val_accuracy improved from 0.94046 to 0.94074, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.6365 - accuracy: 0.7941 - val_loss: 0.1691 - val_accuracy: 0.9407
+Epoch 14/25
+
+Epoch 00014: val_accuracy improved from 0.94074 to 0.95706, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.6127 - accuracy: 0.8028 - val_loss: 0.1426 - val_accuracy: 0.9571
+Epoch 15/25
+
+Epoch 00015: val_accuracy did not improve from 0.95706
+858/858 - 7s - loss: 0.6009 - accuracy: 0.8076 - val_loss: 0.1925 - val_accuracy: 0.9265
+Epoch 16/25
+
+Epoch 00016: val_accuracy improved from 0.95706 to 0.96207, saving model to /home/athena/models/sign-language-mnist/two-cnn-layers.hdf5
+858/858 - 7s - loss: 0.5883 - accuracy: 0.8121 - val_loss: 0.1393 - val_accuracy: 0.9621
+Epoch 17/25
+
+Epoch 00017: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5785 - accuracy: 0.8127 - val_loss: 0.2188 - val_accuracy: 0.9250
+Epoch 18/25
+
+Epoch 00018: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5728 - accuracy: 0.8158 - val_loss: 0.2003 - val_accuracy: 0.9350
+Epoch 19/25
+
+Epoch 00019: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5633 - accuracy: 0.8225 - val_loss: 0.1452 - val_accuracy: 0.9578
+Epoch 20/25
+
+Epoch 00020: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5536 - accuracy: 0.8223 - val_loss: 0.1341 - val_accuracy: 0.9605
+Epoch 21/25
+
+Epoch 00021: val_accuracy did not improve from 0.96207
+858/858 - 8s - loss: 0.5477 - accuracy: 0.8252 - val_loss: 0.1500 - val_accuracy: 0.9442
+Epoch 22/25
+
+Epoch 00022: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5367 - accuracy: 0.8291 - val_loss: 0.1435 - val_accuracy: 0.9568
+Epoch 23/25
+
+Epoch 00023: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5425 - accuracy: 0.8336 - val_loss: 0.1598 - val_accuracy: 0.9615
+Epoch 24/25
+
+Epoch 00024: val_accuracy did not improve from 0.96207
+858/858 - 8s - loss: 0.5243 - accuracy: 0.8330 - val_loss: 0.1749 - val_accuracy: 0.9483
+Epoch 25/25
+
+Epoch 00025: val_accuracy did not improve from 0.96207
+858/858 - 7s - loss: 0.5163 - accuracy: 0.8379 - val_loss: 0.1353 - val_accuracy: 0.9587
+2019-08-25 16:28:20,707 graeae.timers.timer end: Ended: 2019-08-25 16:28:20.707567
+I0825 16:28:20.707660 140637170140992 timer.py:77] Ended: 2019-08-25 16:28:20.707567
+2019-08-25 16:28:20,712 graeae.timers.timer end: Elapsed: 0:03:06.996963
+I0825 16:28:20.712478 140637170140992 timer.py:78] Elapsed: 0:03:06.996963
+#+end_example
+
+#+begin_src ipython :session signs :results none
+predictor = load_model(best_model)
+#+end_src
+
+#+begin_src ipython :session signs :results output raw :exports both
+data = pandas.DataFrame(model.history.history)
+plot = data.hvplot().opts(title="Sign Language MNIST Training and Validation",
+                          fontsize={"title": 16},
+                          width=1000, height=800)
+Embed(plot=plot, file_name="training")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+I'm not sure why these small networks do so well, bit this one seems to be doing fairly well.
+
+#+begin_src ipython :session signs :results output :exports both
+loss, accuracy=predictor.evaluate(test_images, test_labels, verbose=0)
+print(f"Loss: {loss:.2f}, Accuracy: {accuracy:.2f}")
+#+end_src
+
+#+RESULTS:
+: Loss: 4.36, Accuracy: 0.72
+
+So, actually, the performance drops quite a bit outside of the training, even though I'm using the same data-set.
+
+* End
+** Source
+- The exercise comes from [[https://github.com/lmoroney/dlaicourse/tree/master/Exercises/Exercise%208%20-%20Multiclass%20with%20Signs][DLAIcourse Exercise 8]] - Multiclass With Signs
+- The Data Set comes from [[https://www.kaggle.com/datamunge/sign-language-mnist/home][Kaggle]]
