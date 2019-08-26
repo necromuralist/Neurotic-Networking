@@ -1,0 +1,125 @@
+#+BEGIN_COMMENT
+.. title: Cleaning the BBC News Archive
+.. slug: cleaning-the-bbc-news-archive
+.. date: 2019-08-25 17:14:54 UTC-07:00
+.. tags: nlp,cleaning
+.. category: NLP
+.. link: 
+.. description: Cleaning up the BBC news archive.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+begin_src ipython :session bbc :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+end_src
+* Beginning
+  This is an initial look at cleaning up [[http://mlg.ucd.ie/datasets/bbc.html][a text dataset]] from the BBC News archives. Although the exercise sites this as the source the dataset provided doesn't look like the actual raw dataset which is broken up into folders that classify the contents and each news item is in a separate file. Instead we're starting with a [[https://storage.googleapis.com/laurencemoroney-blog.appspot.com/bbc-text.csv][partially pre-processed]] CSV that has been lower-cased and the classification is given as the first column in the dataset.
+** Imports
+*** Python
+#+begin_src ipython :session bbc :results none
+from pathlib import Path
+#+end_src
+*** PyPi
+#+begin_src ipython :session bbc :results none
+from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import CountVectorizer
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import pandas
+#+end_src
+*** Graeae
+#+begin_src ipython :session bbc :results none
+from graeae import SubPathLoader, Timer
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src ipython :session bbc :results none
+ENVIRONMENT = SubPathLoader("DATASETS")
+#+end_src
+*** The Timer
+#+begin_src ipython :session bbc :results none
+TIMER = Timer()
+#+end_src
+* Middle
+** The DataSet
+#+begin_src ipython :session bbc :results output :exports both
+bbc_path = Path(ENVIRONMENT["BBC_NEWS"]).expanduser()
+with TIMER:
+    data = pandas.read_csv(bbc_path/"bbc-text.csv")
+#+end_src
+
+#+RESULTS:
+: 2019-08-25 18:51:38,411 graeae.timers.timer start: Started: 2019-08-25 18:51:38.411196
+: 2019-08-25 18:51:38,658 graeae.timers.timer end: Ended: 2019-08-25 18:51:38.658181
+: 2019-08-25 18:51:38,658 graeae.timers.timer end: Elapsed: 0:00:00.246985
+
+#+begin_src ipython :session bbc :results output :exports both
+print(data.shape)
+#+end_src
+
+#+RESULTS:
+: (2225, 2)
+
+#+begin_src ipython :session bbc :results output :exports both
+print(data.sample().iloc[0])
+#+end_src
+
+#+RESULTS:
+: category                                                sport
+: text        bell set for england debut bath prop duncan be...
+: Name: 2134, dtype: object
+
+So we have two columns - =category= and =text=, text being the one we have to clean up.
+
+#+begin_src ipython :session bbc :results output :exports both
+print(data.text.dtype)
+#+end_src
+
+#+RESULTS:
+: object
+
+That's not such an informative answer, but I checked and each row of text is a single string.
+** The Tokenizer
+   The [[https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing/text/Tokenizer][Keras Tokenizer]] tokenizes the text for us as well as removing the punctuation, lower-casing the text, and some other things. We're also going to use a Out-of-Vocabulary token of "<OOV>" to identify words that are outside of the vocabulary when converting new texts to sequences.
+
+#+begin_src ipython :session bbc :results output :exports both
+tokenizer = Tokenizer(oov_token="<OOV>", num_words=100)
+tokenizer.fit_on_texts(data.text)
+word_index = tokenizer.word_index
+print(len(word_index))
+#+end_src
+
+#+RESULTS:
+: 29727
+
+The word-index is a dict that maps words found in the documents to counts.
+
+*** Convert the Texts To Sequences
+    We're going to convert each of our texts to a sequence of numbers representing the words in them (one-hot-encoding). The =pad_sequences= function adds zeros to the end of sequences that are shorter than the longest one so that they are all the same size.
+
+#+begin_src ipython :session bbc :results output :exports both
+sequences = tokenizer.texts_to_sequences(data.text)
+padded = pad_sequences(sequences, padding="post")
+print(padded[0])
+print(padded.shape)
+#+end_src
+
+#+RESULTS:
+: [1 1 7 ... 0 0 0]
+: (2225, 4491)
+
+Strangely there doesn't appear to be a good way to use stopwords. Maybe sklearn is more appropriate here.
+
+#+begin_src ipython :session bbc :results none
+vectorizer = CountVectorizer(stop_words=stopwords.words("english"),
+                             lowercase=True, min_df=3,
+                             max_df=0.9, max_features=5000)
+vectors = vectorizer.fit_transform(data.text)
+#+end_src
+* End
+** Sources
+*** The Original Dataset
+   - D. Greene and P. Cunningham. "Practical Solutions to the Problem of Diagonal Dominance in Kernel Document Clustering", Proc. ICML 2006. [PDF] [BibTeX]. 
