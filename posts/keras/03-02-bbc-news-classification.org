@@ -26,11 +26,13 @@ import csv
 *** PyPi
 #+begin_src jupyter-python :session bbc :results none
 from sklearn.model_selection import train_test_split
+from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import hvplot.pandas
 import pandas
 import spacy
+import tensorflow
 #+end_src
 *** Graeae
 #+begin_src jupyter-python :session bbc :results none
@@ -47,6 +49,7 @@ ENVIRONMENT = SubPathLoader('DATASETS')
 #+end_src
 *** Spacy
 #+begin_src jupyter-python :session bbc :results none
+spacy.prefer_gpu()
 nlp = spacy.load("en_core_web_lg")
 #+end_src
 *** Plotting
@@ -71,14 +74,14 @@ with TIMER:
 
 #+RESULTS:
 : WARNING: Logging before flag parsing goes to stderr.
-: I0830 13:04:18.039011 139977429321536 environment.py:35] Environment Path: /home/brunhilde/.env
-: I0830 13:04:18.041750 139977429321536 environment.py:90] Environment Path: /home/brunhilde/.config/datasets/env
-: 2019-08-30 13:04:18,043 graeae.timers.timer start: Started: 2019-08-30 13:04:18.043414
-: I0830 13:04:18.043634 139977429321536 timer.py:70] Started: 2019-08-30 13:04:18.043414
-: 2019-08-30 13:07:09,222 graeae.timers.timer end: Ended: 2019-08-30 13:07:09.222191
-: I0830 13:07:09.222329 139977429321536 timer.py:77] Ended: 2019-08-30 13:07:09.222191
-: 2019-08-30 13:07:09,225 graeae.timers.timer end: Elapsed: 0:02:51.178777
-: I0830 13:07:09.225334 139977429321536 timer.py:78] Elapsed: 0:02:51.178777
+: I0831 11:53:24.805988 140324198664000 environment.py:35] Environment Path: /home/athena/.env
+: I0831 11:53:24.807426 140324198664000 environment.py:90] Environment Path: /home/athena/.config/datasets/env
+: 2019-08-31 11:53:24,808 graeae.timers.timer start: Started: 2019-08-31 11:53:24.808391
+: I0831 11:53:24.808531 140324198664000 timer.py:70] Started: 2019-08-31 11:53:24.808391
+: 2019-08-31 11:54:48,792 graeae.timers.timer end: Ended: 2019-08-31 11:54:48.792346
+: I0831 11:54:48.792379 140324198664000 timer.py:77] Ended: 2019-08-31 11:54:48.792346
+: 2019-08-31 11:54:48,793 graeae.timers.timer end: Elapsed: 0:01:23.983955
+: I0831 11:54:48.793155 140324198664000 timer.py:78] Elapsed: 0:01:23.983955
 
 #+begin_src jupyter-python :session bbc :results output :exports both
 print(texts[1])
@@ -109,13 +112,11 @@ Embed(plot=plot, file_name="bbc_category_counts")()
 #+end_src
 
 #+RESULTS:
-: #+begin_export html
-: <object type="text/html" data="bbc_category_counts.html" style="width:100%" height=800>
-:   <p>Figure Missing</p>
-: </object>
-: #+end_export
-11 - 21dc1ad2-9c56-4027-aa31-4e1fad9e63c5
-11 - 777ca893-a6e3-48ab-ac57-5cebe1e1c9bb
+#+begin_export html
+<object type="text/html" data="bbc_category_counts.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
 
 It looks like the categories are somewhat unevenly distributed. Now to normalize the tokens.
 
@@ -126,21 +127,23 @@ with TIMER:
 #+end_src
 
 #+RESULTS:
-: 2019-08-30 13:07:11,624 graeae.timers.timer start: Started: 2019-08-30 13:07:11.624712
-: I0830 13:07:11.624750 139977429321536 timer.py:70] Started: 2019-08-30 13:07:11.624712
-: 2019-08-30 13:07:12,694 graeae.timers.timer end: Ended: 2019-08-30 13:07:12.694682
-: I0830 13:07:12.694779 139977429321536 timer.py:77] Ended: 2019-08-30 13:07:12.694682
-: 2019-08-30 13:07:12,696 graeae.timers.timer end: Elapsed: 0:00:01.069970
-: I0830 13:07:12.696468 139977429321536 timer.py:78] Elapsed: 0:00:01.069970
+: 2019-08-31 11:54:50,873 graeae.timers.timer start: Started: 2019-08-31 11:54:50.873810
+: I0831 11:54:50.873836 140324198664000 timer.py:70] Started: 2019-08-31 11:54:50.873810
+: 2019-08-31 11:54:51,487 graeae.timers.timer end: Ended: 2019-08-31 11:54:51.487066
+: I0831 11:54:51.487107 140324198664000 timer.py:77] Ended: 2019-08-31 11:54:51.487066
+: 2019-08-31 11:54:51,487 graeae.timers.timer end: Elapsed: 0:00:00.613256
+: I0831 11:54:51.487945 140324198664000 timer.py:78] Elapsed: 0:00:00.613256
 
-** The Tokenizer
-   Even though I've already tokenized the text, we need a one-hot-encoded version of it. So I'll use the [[https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing/text/Tokenizer][tensorflow keras Tokenizer]].
+** The Tokenizers
+   Even though I've already tokenized the texts, we need to eventually one-hot-encode, them so I'll use the [[https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing/text/Tokenizer][tensorflow keras Tokenizer]].
 
 #+begin_src jupyter-python :session bbc :results none
 tokenizer = Tokenizer(num_words=1000, oov_token="<OOV>")
+labels_tokenizer = Tokenizer(oov_token="<OOV>")
+labels_tokenizer.fit_on_texts(labels)
 #+end_src
 
-The =num_words= is the total amount of words that will be kept in the word index - I don't know why a thousand, I just found that in the "answer" notebook. The =oov_token= is what's used when a word is encountered outside of the words we're building into our word-index.
+The =num_words= is the total amount of words that will be kept in the word index - I don't know why a thousand, I just found that in the "answer" notebook. The =oov_token= is what's used when a word is encountered outside of the words we're building into our word-index. Now I'll create the word-index by fitting the tokenizer to the text.
 
 #+begin_src jupyter-python :session bbc :results output :exports both
 with TIMER:
@@ -148,16 +151,14 @@ with TIMER:
 #+end_src
 
 #+RESULTS:
-: 2019-08-30 13:07:13,669 graeae.timers.timer start: Started: 2019-08-30 13:07:13.669193
-: I0830 13:07:13.669226 139977429321536 timer.py:70] Started: 2019-08-30 13:07:13.669193
-: 2019-08-30 13:07:13,977 graeae.timers.timer end: Ended: 2019-08-30 13:07:13.977061
-: I0830 13:07:13.977149 139977429321536 timer.py:77] Ended: 2019-08-30 13:07:13.977061
-: 2019-08-30 13:07:13,978 graeae.timers.timer end: Elapsed: 0:00:00.307868
-: I0830 13:07:13.978758 139977429321536 timer.py:78] Elapsed: 0:00:00.307868
+: 2019-08-31 13:56:48,962 graeae.timers.timer start: Started: 2019-08-31 13:56:48.962142
+: I0831 13:56:48.962174 140324198664000 timer.py:70] Started: 2019-08-31 13:56:48.962142
+: 2019-08-31 13:56:49,162 graeae.timers.timer end: Ended: 2019-08-31 13:56:49.162026
+: I0831 13:56:49.162072 140324198664000 timer.py:77] Ended: 2019-08-31 13:56:49.162026
+: 2019-08-31 13:56:49,162 graeae.timers.timer end: Elapsed: 0:00:00.199884
+: I0831 13:56:49.162937 140324198664000 timer.py:78] Elapsed: 0:00:00.199884
 
-That was fast. Maybe because I limited it to 1,000.
-
-We should now have a dictionary named =word_index= that holds the words:index pairs for all the tokens found (it only uses the =num_words= when you call tokenizer's methods according to [[https://stackoverflow.com/questions/46202519/keras-tokenizer-num-words-doesnt-seem-to-work][Stack Overflow]])
+The tokenizer now has a dictionary named =word_index= that holds the words:index pairs for all the tokens found (it only uses the =num_words= when you call tokenizer's methods according to [[https://stackoverflow.com/questions/46202519/keras-tokenizer-num-words-doesnt-seem-to-work][Stack Overflow]]).
 
 #+begin_src jupyter-python :session bbc :results output :exports both
 print(f"{len(tokenizer.word_index):,}")
@@ -165,16 +166,24 @@ print(f"{len(tokenizer.word_index):,}")
 
 #+RESULTS:
 : 24,339
+** Making the Sequences
+I've trained the Tokenizer so that it has a word-index, but now we have to one hot encode our texts and pad them so they're all the same length.
 ** Make training and testing sets
 
 #+begin_src jupyter-python :session bbc :results none
+MAX_LENGTH = 120
 sequences = tokenizer.texts_to_sequences(cleaned)
+padded = pad_sequences(sequences, padding="post", maxlen=MAX_LENGTH)
+labels_sequenced = labels_tokenizer.texts_to_sequences(labels)
 #+end_src
 
 #+begin_src jupyter-python :session bbc :results output :exports both
 TESTING = 0.2
-x_train, x_test, y_train, y_test = train_test_split(sequences, [labels,], TESTING)
-x_train, x_validation, y_train, y_validation = train_test_split(x_train, y_train, TESTING)
+x_train, x_test, y_train, y_test = train_test_split(
+    padded, labels_sequenced,
+    test_size=TESTING)
+x_train, x_validation, y_train, y_validation = train_test_split(
+    x_train, y_train, test_size=TESTING)
 
 print(f"Training: {len(x_train):,}")
 print(f"Validation: {len(x_validation):,}")
@@ -182,161 +191,99 @@ print(f"Testing: {len(x_test):,}")
 #+end_src
 
 #+RESULTS:
+: Training: 1,424
+: Validation: 356
+: Testing: 445
+
+*Note:* I originally forgot to pass the =TESTING= variable with the keyword =test_size= and got an error that I couldn't use a Singleton array - don't forget the keywords when you pass in anything other than the data to =train_test_split=.
+** The Model
+#+begin_src jupyter-python :session bbc :results output :exports both
+vocabulary_size = 1000
+embedding_dimension = 16
+max_length=120
+
+model = tensorflow.keras.Sequential([
+    layers.Embedding(vocabulary_size, embedding_dimension,
+                     input_length=max_length),
+    layers.GlobalAveragePooling1D(),
+    layers.Dense(24, activation="relu"),
+    layers.Dense(6, activation="softmax"),
+])
+model.compile(loss='sparse_categorical_crossentropy',optimizer='adam',metrics=['accuracy'])
+print(model.summary())
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Model: "sequential_1"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+embedding_1 (Embedding)      (None, 120, 16)           16000     
+_________________________________________________________________
+global_average_pooling1d_1 ( (None, 16)                0         
+_________________________________________________________________
+dense_2 (Dense)              (None, 24)                408       
+_________________________________________________________________
+dense_3 (Dense)              (None, 6)                 150       
+=================================================================
+Total params: 16,558
+Trainable params: 16,558
+Non-trainable params: 0
+_________________________________________________________________
+None
+#+end_example
+
+#+begin_src jupyter-python :session bbc :results output :exports both
+model.fit(x_train, y_train, epochs=30,
+          validation_data=(x_validation, y_validation), verbose=2)
+#+end_src
+
+#+RESULTS:
 :RESULTS:
 # [goto error]
 #+begin_example
 
-TypeErrorTraceback (most recent call last)
-<ipython-input-31-bd6aaf7346cf> in <module>
-      1 TESTING = 0.2
-----> 2 x_train, x_test, y_train, y_test = train_test_split(sequences, [labels,], TESTING)
-      3 x_train, x_validation, y_train, y_validation = train_test_split(x_train, y_train, TESTING)
-      4 
-      5 print(f"Training: {len(x_train):,}")
+ValueErrorTraceback (most recent call last)
+<ipython-input-81-e69b3cd977e4> in <module>
+      1 model.fit(x_train, y_train, epochs=30,
+----> 2           validation_data=(x_validation, y_validation), verbose=2)
 
-~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/sklearn/model_selection/_split.py in train_test_split(*arrays, **options)
-   2094         raise TypeError("Invalid parameters passed: %s" % str(options))
-   2095 
--> 2096     arrays = indexable(*arrays)
-   2097 
-   2098     n_samples = _num_samples(arrays[0])
+~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow/python/keras/engine/training.py in fit(self, x, y, batch_size, epochs, verbose, callbacks, validation_split, validation_data, shuffle, class_weight, sample_weight, initial_epoch, steps_per_epoch, validation_steps, validation_freq, max_queue_size, workers, use_multiprocessing, **kwargs)
+    641         max_queue_size=max_queue_size,
+    642         workers=workers,
+--> 643         use_multiprocessing=use_multiprocessing)
+    644 
+    645   def evaluate(self,
 
-~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/sklearn/utils/validation.py in indexable(*iterables)
-    228         else:
-    229             result.append(np.array(X))
---> 230     check_consistent_length(*result)
-    231     return result
-    232 
+~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow/python/keras/engine/training_arrays.py in fit(self, model, x, y, batch_size, epochs, verbose, callbacks, validation_split, validation_data, shuffle, class_weight, sample_weight, initial_epoch, steps_per_epoch, validation_steps, validation_freq, **kwargs)
+    630         steps=steps_per_epoch,
+    631         validation_split=validation_split,
+--> 632         shuffle=shuffle)
+    633 
+    634     if validation_data:
 
-~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/sklearn/utils/validation.py in check_consistent_length(*arrays)
-    199     """
-    200 
---> 201     lengths = [_num_samples(X) for X in arrays if X is not None]
-    202     uniques = np.unique(lengths)
-    203     if len(uniques) > 1:
+~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow/python/keras/engine/training.py in _standardize_user_data(self, x, y, sample_weight, class_weight, batch_size, check_steps, steps_name, steps, validation_split, shuffle, extract_tensors_from_dataset)
+   2448           shapes=None,
+   2449           check_batch_axis=False,  # Don't enforce the batch size.
+-> 2450           exception_prefix='target')
+   2451 
+   2452       # Generate sample-wise weight values given the `sample_weight` and
 
-~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/sklearn/utils/validation.py in <listcomp>(.0)
-    199     """
-    200 
---> 201     lengths = [_num_samples(X) for X in arrays if X is not None]
-    202     uniques = np.unique(lengths)
-    203     if len(uniques) > 1:
+~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow/python/keras/engine/training_utils.py in standardize_input_data(data, names, shapes, check_batch_axis, exception_prefix)
+    477                        'Expected to see ' + str(len(names)) + ' array(s), '
+    478                        'but instead got the following list of ' +
+--> 479                        str(len(data)) + ' arrays: ' + str(data)[:200] + '...')
+    480     elif len(names) > 1:
+    481       raise ValueError('Error when checking model ' + exception_prefix +
 
-~/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/sklearn/utils/validation.py in _num_samples(x)
-    144         if len(x.shape) == 0:
-    145             raise TypeError("Singleton array %r cannot be considered"
---> 146                             " a valid collection." % x)
-    147         # Check that shape is returning an integer or default to len
-    148         # Dask dataframes may not return numeric shape[0] value
-
-TypeError: Singleton array array(0.2) cannot be considered a valid collection.
+ValueError: Error when checking model target: the list of Numpy arrays that you are passing to your model is not the size the model expected. Expected to see 1 array(s), but instead got the following list of 1424 arrays: [array([[2]]), array([[6]]), array([[2]]), array([[2]]), array([[2]]), array([[3]]), array([[4]]), array([[3]]), array([[6]]), array([[6]]), array([[2]]), array([[6]]), array([[2]]), array([[6]]), arr...
 #+end_example
 :END:
-
 
 * End
 * Raw
 #+begin_comment
-# In[ ]:
-
-
-train_size = # YOUR CODE HERE
-
-train_sentences = # YOUR CODE HERE
-train_labels = # YOUR CODE HERE
-
-validation_sentences = # YOUR CODE HERE
-validation_labels = # YOUR CODE HERE
-
-print(train_size)
-print(len(train_sentences))
-print(len(train_labels))
-print(len(validation_sentences))
-print(len(validation_labels))
-
-# Expected output (if training_portion=.8)
-# 1780
-# 1780
-# 1780
-# 445
-# 445
-
-
-# In[ ]:
-
-
-tokenizer = # YOUR CODE HERE
-tokenizer.fit_on_texts(# YOUR CODE HERE)
-word_index = # YOUR CODE HERE
-
-train_sequences = # YOUR CODE HERE
-train_padded = # YOUR CODE HERE
-
-print(len(train_sequences[0]))
-print(len(train_padded[0]))
-
-print(len(train_sequences[1]))
-print(len(train_padded[1]))
-
-print(len(train_sequences[10]))
-print(len(train_padded[10]))
-
-# Expected Ouput
-# 449
-# 120
-# 200
-# 120
-# 192
-# 120
-
-
-# In[ ]:
-
-
-validation_sequences = # YOUR CODE HERE
-validation_padded = # YOUR CODE HERE
-
-print(len(validation_sequences))
-print(validation_padded.shape)
-
-# Expected output
-# 445
-# (445, 120)
-
-
-# In[ ]:
-
-
-label_tokenizer = # YOUR CODE HERE
-label_tokenizer.fit_on_texts(# YOUR CODE HERE)
-
-training_label_seq = # YOUR CODE HERE
-validation_label_seq = # YOUR CODE HERE
-
-print(training_label_seq[0])
-print(training_label_seq[1])
-print(training_label_seq[2])
-print(training_label_seq.shape)
-
-print(validation_label_seq[0])
-print(validation_label_seq[1])
-print(validation_label_seq[2])
-print(validation_label_seq.shape)
-
-# Expected output
-# [4]
-# [2]
-# [1]
-# (1780, 1)
-# [5]
-# [4]
-# [3]
-# (445, 1)
-
-
-# In[ ]:
-
-
 model = tf.keras.Sequential([
 # YOUR CODE HERE
 ])
