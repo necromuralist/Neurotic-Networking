@@ -12,6 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 * Beginning
+  We're going to use the [[https://www.tensorflow.org/datasets/catalog/imdb_reviews][IMDB Reviews Dataset]] (used in [[https://www.tensorflow.org/tutorials/keras/basic_text_classification][this tutorial]]) - a set of 50,000 movie reviews taken from the [[https://www.imdb.com/][Internet Movie Database]] that have been classified as either positive or negative. It looks like the original source is from a page on Stanford University's web sight title [[http://ai.stanford.edu/~amaas/data/sentiment/][Large Movie Review Dataset]]. The dataset seems to be widely available (the Stanford page and [[https://www.kaggle.com/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews][Kaggle]] for instance) but this will serve as practice for using tensorflow datasets as well.
 ** Imports
 *** Python
 #+begin_src ipython :session imdb :results none
@@ -41,6 +42,7 @@ TIMER = Timer()
 * Middle
 ** Get the Dataset
 *** Load It
+    The [[https://www.tensorflow.org/datasets/api_docs/python/tfds/load][load]] function takes quite a few parameters, in this case we're just passing in three - the name of the dataset, =with_info= which tells it to return both a [[https://www.tensorflow.org/api_docs/python/tf/data/Dataset][Dataset]] and a [[https://www.tensorflow.org/datasets/api_docs/python/tfds/core/DatasetInfo][DatasetInfo]] object, and =as_supervised=, which tells the builder to return the =Dataset= as a series of =(input, label)= tuples.
 #+begin_src ipython :session imdb :results none
 with TIMER:
     dataset, info = tensorflow_datasets.load('imdb_reviews/subwords8k',
@@ -48,13 +50,39 @@ with TIMER:
                                              as_supervised=True)
 #+end_src
 *** Split It
+    The =dataset= is a dict with three keys:
+
+#+begin_src ipython :session imdb :results output :exports both
+print(dataset.keys())
+#+end_src
+
+#+RESULTS:
+: dict_keys(['test', 'train', 'unsupervised'])
+
+As you might guess, we don't use the =unsupervised= key.
+
 #+begin_src ipython :session imdb :results none
 train_dataset, test_dataset = dataset['train'], dataset['test']
 #+end_src
 *** The Tokenizer
+    One of the advantages of using the tensorflow dataset version of this is that it comes with a pre-built tokenizer inside the DatasetInfo object.
+
+#+begin_src ipython :session imdb :results output :exports both
+print(info.features)
+#+end_src
+
+#+RESULTS:
+: FeaturesDict({
+:     'label': ClassLabel(shape=(), dtype=tf.int64, num_classes=2),
+:     'text': Text(shape=(None,), dtype=tf.int64, encoder=<SubwordTextEncoder vocab_size=8185>),
+: })
+
 #+begin_src ipython :session imdb :results none
 tokenizer = info.features['text'].encoder
 #+end_src
+
+The =tokenizer= is a [[https://www.tensorflow.org/datasets/api_docs/python/tfds/features/text/SubwordTextEncoder][SubwordTextEncoder]].
+
 *** Set Up Data
 #+begin_src ipython :session imdb :results none
 BUFFER_SIZE = 20000
@@ -79,17 +107,17 @@ model.summary()
 
 #+RESULTS:
 #+begin_example
-Model: "sequential_1"
+Model: "sequential"
 _________________________________________________________________
 Layer (type)                 Output Shape              Param #   
 =================================================================
-embedding_1 (Embedding)      (None, None, 64)          523840    
+embedding (Embedding)        (None, None, 64)          523840    
 _________________________________________________________________
-bidirectional_1 (Bidirection (None, 128)               66048     
+bidirectional (Bidirectional (None, 128)               66048     
 _________________________________________________________________
-dense_2 (Dense)              (None, 64)                8256      
+dense (Dense)                (None, 64)                8256      
 _________________________________________________________________
-dense_3 (Dense)              (None, 1)                 65        
+dense_1 (Dense)              (None, 1)                 65        
 =================================================================
 Total params: 598,209
 Trainable params: 598,209
@@ -105,12 +133,31 @@ model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy']
 *** Train It
 #+begin_src ipython :session imdb :results output :exports both
 EPOCHS = 10
-history = model.fit(train_dataset, epochs=EPOCHS, validation_data=test_dataset)
+SILENT = 0
+history = model.fit(train_dataset, epochs=EPOCHS, validation_data=test_dataset, verbose=SILENT)
 #+end_src
+
 *** Plot the Performance
 #+begin_src ipython :session imdb :results output raw :exports both
-data = pandas.DataFrame(history)
+data = pandas.DataFrame(history.history)
+data = data.rename(columns={"loss": "Training Loss",
+                            "accuracy": "Training Accuracy",
+                            "val_loss": "Validation Loss",
+                            "val_accuracy": "Validation Accuracy"})
 plot = data.hvplot().opts(title="LSTM IMDB Performance", width=1000, height=800)
 Embed(plot=plot, file_name="model_performance")()
 #+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="model_performance.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It looks like I over-trained it, as the loss is getting high. It looks like the sixth epoch was the best in terms of both loss and accuracy.
+
 * End
+** Citation
+   This is the paper where the dataset was originally used.
+   - Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and Christopher Potts. (2011). Learning Word Vectors for Sentiment Analysis. The 49th Annual Meeting of the Association for Computational Linguistics (ACL 2011).
