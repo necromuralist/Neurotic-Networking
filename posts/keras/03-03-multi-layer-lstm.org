@@ -1,0 +1,88 @@
+#+BEGIN_COMMENT
+.. title: Multi-Layer LSTM
+.. slug: multi-layer-lstm
+.. date: 2019-09-19 16:07:27 UTC-07:00
+.. tags: lstm,nlp
+.. category: NLP
+.. link: 
+.. description: Using a multi-layer LSTM model to classify the IMDB reviews.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+* Beginning
+** Imports
+*** Python
+#+begin_src ipython :session lstm :results none
+from functools import partial
+#+end_src
+*** PyPi
+#+begin_src ipython :session lstm :results none
+import hvplot.pandas
+import pandas
+import tensorflow
+import tensorflow_datasets
+#+end_src
+*** Others
+#+begin_src ipython :session lstm :results none
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src ipython :session lstm :results none
+Embed = partial(EmbedHoloviews,
+                folder_path="../../files/posts/keras/multi-layer-lstm/")
+#+end_src
+*** The Dataset
+#+begin_src ipython :session lstm :results none
+dataset, info = tensorflow_datasets.load("imdb_reviews/subwords8k",
+                                         with_info=True
+                                         as_supervised=True)
+#+end_src
+* Middle
+** Set Up the Datasets
+#+begin_src ipython :session lstm :results none
+train_dataset, test_dataset = dataset['train'], dataset['test']
+tokenizer = info.features['text'].encoder
+#+end_src
+
+#+begin_src ipython :session lstm :results none
+BUFFER_SIZE = 10000
+BATCH_SIZE = 64
+
+train_dataset = train_dataset.shuffle(BUFFER_SIZE)
+train_dataset = train_dataset.padded_batch(BATCH_SIZE, train_dataset.output_shapes)
+test_dataset = test_dataset.padded_batch(BATCH_SIZE, test_dataset.output_shapes)
+#+end_src
+** The Model
+   The previous model had one Bidirectional layer, this will add a second one.
+#+begin_src ipython :session lstm :results none
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(tokenizer.vocab_size, 64),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, return_sequences=True)),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(32)),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+#+end_src
+
+#+begin_src ipython :session lstm :results output :exports both
+print(model.summary())
+#+end_src
+*** Compile It
+#+begin_src ipython :session lstm :results none
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+#+end_src
+** Train the Model
+#+begin_src ipython :session lstm :results none
+NUM_EPOCHS = 10
+history = model.fit(train_dataset, epochs=NUM_EPOCHS, validation_data=test_dataset)
+#+end_src
+** Looking at the Performance
+#+begin_src ipython :session lstm :results none
+data = pandas.DataFrame(history)
+plot = data.hvplot().opts(title="Two-Layer LSTM Model", width=1000, height=800)
+Embed(plot=plot, filename="lstm_training")()
+#+end_src
+* End
