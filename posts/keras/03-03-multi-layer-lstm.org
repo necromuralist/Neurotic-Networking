@@ -35,10 +35,13 @@ Embed = partial(EmbedHoloviews,
                 folder_path="../../files/posts/keras/multi-layer-lstm/")
 #+end_src
 *** The Dataset
+    This once again uses the [[https://www.tensorflow.org/datasets/catalog/imdb_reviews][IMDB dataset]] with 50,000 reviews. It has already been converted from strings to integers - each word is encoded as its own integer. Adding ~with_info=True~ returns an object that contains the dictionary with the word to integer mapping. Passing in =imdb_reviews/subwords8k= limits the vocabulary to 8,000 words.
 #+begin_src ipython :session lstm :results none
+split = (tensorflow_datasets.Split.TRAIN.subsplit([6, 4]), tensorflow_datasets.Split.TEST)
 dataset, info = tensorflow_datasets.load("imdb_reviews/subwords8k",
                                          with_info=True
-                                         as_supervised=True)
+                                         as_supervised=True
+                                         split=split)
 #+end_src
 * Middle
 ** Set Up the Datasets
@@ -46,6 +49,8 @@ dataset, info = tensorflow_datasets.load("imdb_reviews/subwords8k",
 train_dataset, test_dataset = dataset['train'], dataset['test']
 tokenizer = info.features['text'].encoder
 #+end_src
+
+Now we're going to shuffle and padd the data. The =BUFFER_SIZE= argument sets the size of the data to sample from. In this case 10,000 entries in the training set will be selected to be put in the buffer and then the "shuffle" is created by randomly selecting items from the buffer, replacing each item as it's selected until all the data has been through the buffer. The =padded_batch= method creates batches of consecutive data and pads them so that they are all the same shape.
 
 #+begin_src ipython :session lstm :results none
 BUFFER_SIZE = 10000
@@ -57,13 +62,20 @@ test_dataset = test_dataset.padded_batch(BATCH_SIZE, test_dataset.output_shapes)
 #+end_src
 ** The Model
    The previous model had one Bidirectional layer, this will add a second one.
+
+*** Embedding
+    The [[https://www.tensorflow.org/guide/embedding][Embedding layer]] converts our inputs of integers and converts them to vectors of real-numbers, which is a better input for a neural network.
+*** Bidirectional
+    The [[https://www.tensorflow.org/api_docs/python/tf/keras/layers/Bidirectional][Bidirectional layer]] is a wrapper for Recurrent Neural Networks.
+*** LSTM
+    The [[https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/layers/LSTM][LSTM layer]] implements Long-Short-Term Memory. The first argument is the size of the outputs
 #+begin_src ipython :session lstm :results none
-model = tf.keras.Sequential([
-    tf.keras.layers.Embedding(tokenizer.vocab_size, 64),
-    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, return_sequences=True)),
-    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(32)),
-    tf.keras.layers.Dense(64, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
+model = tensorflow.keras.Sequential([
+    tensorflow.keras.layers.Embedding(tokenizer.vocab_size, 64),
+    tensorflow.keras.layers.Bidirectional(tensorflow.keras.layers.LSTM(64, return_sequences=True)),
+    tensorflow.keras.layers.Bidirectional(tensorflow.keras.layers.LSTM(32)),
+    tensorflow.keras.layers.Dense(64, activation='relu'),
+    tensorflow.keras.layers.Dense(1, activation='sigmoid')
 ])
 #+end_src
 
