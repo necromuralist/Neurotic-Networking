@@ -15,44 +15,43 @@
   We're going to use the [[https://www.tensorflow.org/datasets/catalog/imdb_reviews][IMDB Reviews Dataset]] (used in [[https://www.tensorflow.org/tutorials/keras/basic_text_classification][this tutorial]]) - a set of 50,000 movie reviews taken from the [[https://www.imdb.com/][Internet Movie Database]] that have been classified as either positive or negative. It looks like the original source is from a page on Stanford University's web sight title [[http://ai.stanford.edu/~amaas/data/sentiment/][Large Movie Review Dataset]]. The dataset seems to be widely available (the Stanford page and [[https://www.kaggle.com/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews][Kaggle]] for instance) but this will serve as practice for using tensorflow datasets as well.
 ** Imports
 *** Python
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 from functools import partial
 #+end_src
 *** PyPi
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 import hvplot.pandas
 import pandas
 import tensorflow
 import tensorflow_datasets
 #+end_src
 *** Graeae
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 from graeae import EmbedHoloviews, Timer
 #+end_src
 ** Set Up
 *** Plotting
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 SLUG = "imdb-reviews-tensorflow-dataset"
 Embed = partial(EmbedHoloviews, folder_path=f"../../files/posts/keras/{SLUG}")
 #+end_src
 *** Timer
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 TIMER = Timer()
 #+end_src
 * Middle
 ** Get the Dataset
 *** Load It
     The [[https://www.tensorflow.org/datasets/api_docs/python/tfds/load][load]] function takes quite a few parameters, in this case we're just passing in three - the name of the dataset, =with_info= which tells it to return both a [[https://www.tensorflow.org/api_docs/python/tf/data/Dataset][Dataset]] and a [[https://www.tensorflow.org/datasets/api_docs/python/tfds/core/DatasetInfo][DatasetInfo]] object, and =as_supervised=, which tells the builder to return the =Dataset= as a series of =(input, label)= tuples.
-#+begin_src ipython :session imdb :results none
-with TIMER:
-    dataset, info = tensorflow_datasets.load('imdb_reviews/subwords8k',
-                                             with_info=True,
-                                             as_supervised=True)
+#+begin_src ipython :session kernel-28453-ssh.json :results none
+dataset, info = tensorflow_datasets.load('imdb_reviews/subwords8k',
+                                         with_info=True,
+                                         as_supervised=True)
 #+end_src
 *** Split It
     The =dataset= is a dict with three keys:
 
-#+begin_src ipython :session imdb :results output :exports both
+#+begin_src ipython :session kernel-28453-ssh.json :results output :exports both
 print(dataset.keys())
 #+end_src
 
@@ -61,13 +60,13 @@ print(dataset.keys())
 
 As you might guess, we don't use the =unsupervised= key.
 
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 train_dataset, test_dataset = dataset['train'], dataset['test']
 #+end_src
 *** The Tokenizer
     One of the advantages of using the tensorflow dataset version of this is that it comes with a pre-built tokenizer inside the DatasetInfo object.
 
-#+begin_src ipython :session imdb :results output :exports both
+#+begin_src ipython :session kernel-28453-ssh.json :results output :exports both
 print(info.features)
 #+end_src
 
@@ -77,14 +76,19 @@ print(info.features)
 :     'text': Text(shape=(None,), dtype=tf.int64, encoder=<SubwordTextEncoder vocab_size=8185>),
 : })
 
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results output :exports both
 tokenizer = info.features['text'].encoder
+print(tokenizer)
 #+end_src
 
-The =tokenizer= is a [[https://www.tensorflow.org/datasets/api_docs/python/tfds/features/text/SubwordTextEncoder][SubwordTextEncoder]].
+#+RESULTS:
+: <SubwordTextEncoder vocab_size=8185>
+
+The =tokenizer= is a [[https://www.tensorflow.org/datasets/api_docs/python/tfds/features/text/SubwordTextEncoder][SubwordTextEncoder]] with a vocabulary size of 8,185.
 
 *** Set Up Data
-#+begin_src ipython :session imdb :results none
+    We're going to shuffle the training data and then add padding to both sets so theyre all the same size.
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 BUFFER_SIZE = 20000
 BATCH_SIZE = 64
 train_dataset = train_dataset.shuffle(BUFFER_SIZE)
@@ -92,7 +96,7 @@ train_dataset = train_dataset.padded_batch(BATCH_SIZE, train_dataset.output_shap
 test_dataset = test_dataset.padded_batch(BATCH_SIZE, test_dataset.output_shapes)
 #+end_src
 ** The Model
-#+begin_src ipython :session imdb :results none
+#+begin_src ipython :session kernel-28453-ssh.json :results none
 model = tensorflow.keras.Sequential([
     tensorflow.keras.layers.Embedding(tokenizer.vocab_size, 64),
     tensorflow.keras.layers.Bidirectional(tensorflow.keras.layers.LSTM(64)),
@@ -101,7 +105,7 @@ model = tensorflow.keras.Sequential([
 ])
 #+end_src
 
-#+begin_src ipython :session imdb :results output :exports both
+#+begin_src ipython :session kernel-28453-ssh.json :results output :exports both
 model.summary()
 #+end_src
 
@@ -126,19 +130,58 @@ _________________________________________________________________
 #+end_example
 
 *** Compile It
-#+begin_src ipython :session imdb :results none
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+#+begin_src ipython :session kernel-28453-ssh.json :results none
+model.compile(loss='binary_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
 #+end_src
 
 *** Train It
-#+begin_src ipython :session imdb :results output :exports both
+#+begin_src ipython :session kernel-28453-ssh.json :results output :exports both
 EPOCHS = 10
 SILENT = 0
-history = model.fit(train_dataset, epochs=EPOCHS, validation_data=test_dataset, verbose=SILENT)
+ONCE_PER_EPOCH = 2
+with TIMER:
+    history = model.fit(train_dataset,
+                        epochs=EPOCHS,
+                        validation_data=test_dataset,
+                        verbose=ONCE_PER_EPOCH)
 #+end_src
 
+#+RESULTS:
+#+begin_example
+2019-09-21 15:52:50,469 graeae.timers.timer start: Started: 2019-09-21 15:52:50.469787
+I0921 15:52:50.469841 140086305412928 timer.py:70] Started: 2019-09-21 15:52:50.469787
+Epoch 1/10
+391/391 - 80s - loss: 0.3991 - accuracy: 0.8377 - val_loss: 0.0000e+00 - val_accuracy: 0.0000e+00
+Epoch 2/10
+391/391 - 80s - loss: 0.3689 - accuracy: 0.8571 - val_loss: 0.4595 - val_accuracy: 0.8021
+Epoch 3/10
+391/391 - 80s - loss: 0.3664 - accuracy: 0.8444 - val_loss: 0.5262 - val_accuracy: 0.7228
+Epoch 4/10
+391/391 - 80s - loss: 0.5611 - accuracy: 0.7133 - val_loss: 0.6832 - val_accuracy: 0.6762
+Epoch 5/10
+391/391 - 80s - loss: 0.6151 - accuracy: 0.6597 - val_loss: 0.5164 - val_accuracy: 0.7844
+Epoch 6/10
+391/391 - 80s - loss: 0.3842 - accuracy: 0.8340 - val_loss: 0.4970 - val_accuracy: 0.7996
+Epoch 7/10
+391/391 - 80s - loss: 0.2449 - accuracy: 0.9058 - val_loss: 0.3639 - val_accuracy: 0.8463
+Epoch 8/10
+391/391 - 80s - loss: 0.1896 - accuracy: 0.9306 - val_loss: 0.3698 - val_accuracy: 0.8614
+Epoch 9/10
+391/391 - 80s - loss: 0.1555 - accuracy: 0.9456 - val_loss: 0.3896 - val_accuracy: 0.8535
+Epoch 10/10
+391/391 - 80s - loss: 0.1195 - accuracy: 0.9606 - val_loss: 0.4878 - val_accuracy: 0.8428
+2019-09-21 16:06:09,935 graeae.timers.timer end: Ended: 2019-09-21 16:06:09.935707
+I0921 16:06:09.935745 140086305412928 timer.py:77] Ended: 2019-09-21 16:06:09.935707
+2019-09-21 16:06:09,938 graeae.timers.timer end: Elapsed: 0:13:19.465920
+I0921 16:06:09.938812 140086305412928 timer.py:78] Elapsed: 0:13:19.465920
+#+end_example
+
 *** Plot the Performance
-#+begin_src ipython :session imdb :results output raw :exports both
+    - **Note**: This only works if your kernel is on the local machine, running it remotely gives an error, as it tries to save it on the remote machine.
+
+#+begin_src ipython :session kernel-28453-ssh.json :results output raw :exports both
 data = pandas.DataFrame(history.history)
 data = data.rename(columns={"loss": "Training Loss",
                             "accuracy": "Training Accuracy",
@@ -155,8 +198,7 @@ Embed(plot=plot, file_name="model_performance")()
 </object>
 #+end_export
 
-It looks like I over-trained it, as the loss is getting high. It looks like the sixth epoch was the best in terms of both loss and accuracy.
-
+It looks like I over-trained it, as the loss is getting high. (Also note that I used this notebook to troubleshoot so there was actually one extra epoch that isn't shown).
 * End
 ** Citation
    This is the paper where the dataset was originally used.

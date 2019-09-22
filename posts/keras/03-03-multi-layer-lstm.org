@@ -16,9 +16,12 @@
 *** Python
 #+begin_src ipython :session lstm :results none
 from functools import partial
+from pathlib import Path
+import pickle
 #+end_src
 *** PyPi
 #+begin_src ipython :session lstm :results none
+import holoviews
 import hvplot.pandas
 import pandas
 import tensorflow
@@ -26,9 +29,13 @@ import tensorflow_datasets
 #+end_src
 *** Others
 #+begin_src ipython :session lstm :results none
-from graeae import EmbedHoloviews
+from graeae import Timer, EmbedHoloviews
 #+end_src
 ** Set Up
+*** The Timer
+#+begin_src ipython :session lstm :results none
+TIMER = Timer()
+#+end_src
 *** Plotting
 #+begin_src ipython :session lstm :results none
 Embed = partial(EmbedHoloviews,
@@ -36,26 +43,32 @@ Embed = partial(EmbedHoloviews,
 #+end_src
 *** The Dataset
     This once again uses the [[https://www.tensorflow.org/datasets/catalog/imdb_reviews][IMDB dataset]] with 50,000 reviews. It has already been converted from strings to integers - each word is encoded as its own integer. Adding ~with_info=True~ returns an object that contains the dictionary with the word to integer mapping. Passing in =imdb_reviews/subwords8k= limits the vocabulary to 8,000 words.
-#+begin_src ipython :session lstm :results none
-split = (tensorflow_datasets.Split.TRAIN.subsplit([6, 4]), tensorflow_datasets.Split.TEST)
-dataset, info = tensorflow_datasets.load("imdb_reviews/subwords8k",
-                                         with_info=True
-                                         as_supervised=True
-                                         split=split)
 
+**Note:** The first time you run this it will download a fairly large dataset so it might appear to hang, but after the first time it is fairly quick.
+
+#+begin_src ipython :session lstm :results none
+dataset, info = tensorflow_datasets.load("imdb_reviews/subwords8k",
+                                         with_info=True,
+                                         as_supervised=True)
 #+end_src
 * Middle
 ** Set Up the Datasets
 #+begin_src ipython :session lstm :results none
-train_dataset, test_dataset = dataset['train'], dataset['test']
+train_dataset, test_dataset = dataset["train"], dataset["test"]
 tokenizer = info.features['text'].encoder
 #+end_src
 
 Now we're going to shuffle and padd the data. The =BUFFER_SIZE= argument sets the size of the data to sample from. In this case 10,000 entries in the training set will be selected to be put in the buffer and then the "shuffle" is created by randomly selecting items from the buffer, replacing each item as it's selected until all the data has been through the buffer. The =padded_batch= method creates batches of consecutive data and pads them so that they are all the same shape.
 
+The BATCH_SIZE needs to be tuned a little. If it's too big the amount of memory needed might keep the GPU from being able to use it (and it might not generalize), and if it's too small, you will take a long time to train, so you have to do a little tuning. If you train it and the GPU process percentage stays at 0, try reducing the Batch Size.
+
+Also note that if you change the batch-size you have to go back to the previous step and re-define =train_dataset= and =test_dataset= because we alter them in the next step and re-altering them makes the shape wrong somehow.
+
 #+begin_src ipython :session lstm :results none
 BUFFER_SIZE = 10000
-BATCH_SIZE = 64
+# if the batch size is too big it will run out of memory on the GPU 
+# so you might have to experiment with this
+BATCH_SIZE = 32
 
 train_dataset = train_dataset.shuffle(BUFFER_SIZE)
 train_dataset = train_dataset.padded_batch(BATCH_SIZE, train_dataset.output_shapes)
@@ -69,7 +82,8 @@ test_dataset = test_dataset.padded_batch(BATCH_SIZE, test_dataset.output_shapes)
 *** Bidirectional
     The [[https://www.tensorflow.org/api_docs/python/tf/keras/layers/Bidirectional][Bidirectional layer]] is a wrapper for Recurrent Neural Networks.
 *** LSTM
-    The [[https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/layers/LSTM][LSTM layer]] implements Long-Short-Term Memory. The first argument is the size of the outputs
+    The [[https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/layers/LSTM][LSTM layer]] implements Long-Short-Term Memory. The first argument is the size of the outputs. This is similar to the model that we ran previously on the same data, but it has an extra layer (so it uses more memory).
+
 #+begin_src ipython :session lstm :results none
 model = tensorflow.keras.Sequential([
     tensorflow.keras.layers.Embedding(tokenizer.vocab_size, 64),
@@ -111,17 +125,85 @@ None
 
 *** Compile It
 #+begin_src ipython :session lstm :results none
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.compile(loss='binary_crossentropy',
+              optimizer="adam",
+              metrics=['accuracy'])
 #+end_src
 ** Train the Model
-#+begin_src ipython :session lstm :results none
-NUM_EPOCHS = 1
-history = model.fit(train_dataset, epochs=NUM_EPOCHS, validation_data=test_dataset)
+#+begin_src ipython :session lstm :results output :exports both
+ONCE_PER_EPOCH = 2
+NUM_EPOCHS = 10
+with TIMER:
+    history = model.fit(train_dataset,
+                        epochs=NUM_EPOCHS,
+                        validation_data=test_dataset,
+                        verbose=ONCE_PER_EPOCH)
 #+end_src
+
+#+RESULTS:
+#+begin_example
+2019-09-21 17:26:50,395 graeae.timers.timer start: Started: 2019-09-21 17:26:50.394797
+I0921 17:26:50.395130 140275698915136 timer.py:70] Started: 2019-09-21 17:26:50.394797
+Epoch 1/10
+W0921 17:26:51.400280 140275698915136 deprecation.py:323] From /home/hades/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow_core/python/ops/nn_impl.py:183: where (from tensorflow.python.ops.array_ops) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use tf.where in 2.0, which has the same broadcast rule as np.where
+782/782 - 224s - loss: 0.6486 - accuracy: 0.6039 - val_loss: 0.0000e+00 - val_accuracy: 0.0000e+00
+Epoch 2/10
+782/782 - 214s - loss: 0.4941 - accuracy: 0.7661 - val_loss: 0.6706 - val_accuracy: 0.6744
+Epoch 3/10
+782/782 - 216s - loss: 0.4087 - accuracy: 0.8266 - val_loss: 0.4024 - val_accuracy: 0.8222
+Epoch 4/10
+782/782 - 217s - loss: 0.2855 - accuracy: 0.8865 - val_loss: 0.3343 - val_accuracy: 0.8645
+Epoch 5/10
+782/782 - 216s - loss: 0.2097 - accuracy: 0.9217 - val_loss: 0.2936 - val_accuracy: 0.8837
+Epoch 6/10
+782/782 - 217s - loss: 0.1526 - accuracy: 0.9467 - val_loss: 0.3188 - val_accuracy: 0.8771
+Epoch 7/10
+782/782 - 215s - loss: 0.1048 - accuracy: 0.9657 - val_loss: 0.3750 - val_accuracy: 0.8710
+Epoch 8/10
+782/782 - 216s - loss: 0.0764 - accuracy: 0.9757 - val_loss: 0.3821 - val_accuracy: 0.8762
+Epoch 9/10
+782/782 - 216s - loss: 0.0585 - accuracy: 0.9832 - val_loss: 0.4747 - val_accuracy: 0.8683
+Epoch 10/10
+782/782 - 216s - loss: 0.0438 - accuracy: 0.9883 - val_loss: 0.4441 - val_accuracy: 0.8704
+2019-09-21 18:02:56,353 graeae.timers.timer end: Ended: 2019-09-21 18:02:56.353722
+I0921 18:02:56.353781 140275698915136 timer.py:77] Ended: 2019-09-21 18:02:56.353722
+2019-09-21 18:02:56,356 graeae.timers.timer end: Elapsed: 0:36:05.958925
+I0921 18:02:56.356238 140275698915136 timer.py:78] Elapsed: 0:36:05.958925
+#+end_example
+
 ** Looking at the Performance
+   To get the history I had to pickle it and then copy it over to the machine with this org-notebook, so you can't just run this notebook and make it work unless everything is run on the same machine (which it wasn't).
+
 #+begin_src ipython :session lstm :results none
-data = pandas.DataFrame(history)
-plot = data.hvplot().opts(title="Two-Layer LSTM Model", width=1000, height=800)
-Embed(plot=plot, filename="lstm_training")()
+path = Path("~/history.pkl").expanduser()
+with path.open("wb") as writer:
+    pickle.dump(history.history, writer)
 #+end_src
-* End
+
+#+begin_src ipython :session lstm :results none
+path = Path("~/history.pkl").expanduser()
+with path.open("rb") as reader:
+    history = pickle.load(reader)
+#+end_src
+
+#+begin_src ipython :session lstm :results output raw :exports both
+data = pandas.DataFrame(history)
+best = data.val_loss.idxmin()
+best_line = holoviews.VLine(best)
+plot = (data.hvplot() * best_line).opts(
+    title="Two-Layer LSTM Model",
+    width=1000,
+    height=800)
+Embed(plot=plot, file_name="lstm_training")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="lstm_training.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It looks like the best epoch was the fifth one, with a validation loss of 0.29 and a validation accuracy of 0.88, after that it looks like it overfits. It seems that text might be a harder problem than images.
