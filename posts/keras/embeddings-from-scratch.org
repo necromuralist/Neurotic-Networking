@@ -1,0 +1,152 @@
+#+BEGIN_COMMENT
+.. title: Embeddings from Scratch
+.. slug: embeddings-from-scratch
+.. date: 2019-09-25 13:30:12 UTC-07:00
+.. tags: embeddings,keras,nlp
+.. category: NLP
+.. link: 
+.. description: Walking through the tensorflow word embeddbings tutorial.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+* Beginning
+  This is a walk-through of the tensorflow [[https://www.tensorflow.org/beta/tutorials/text/word_embeddings][Word Embeddings]] tutorial, just to make sure I can do it.
+** Imports
+*** Python
+#+begin_src ipython :session embeddings :results none
+from argparse import Namespace
+from functools import partial
+#+end_src
+*** PyPi
+#+begin_src ipython :session embeddings :results none
+from tensorflow import keras
+from tensorflow.keras import layers
+import hvplot.pandas
+import pandas
+import tensorflow
+#+end_src
+*** Others
+#+begin_src ipython :session embeddings :results none
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src ipython :session embeddings :results none
+prefix = "../../files/posts/keras/"
+slug = "embeddings-from-scratch"
+
+Embed = partial(EmbedHoloviews, folder_path=f"{prefix}{slug}")
+#+end_src
+* Middle
+** Some Constants
+#+begin_src ipython :session embeddings :results none
+Text = Namespace(
+    vocabulary_size=1000,
+    embeddings_size=32,
+    max_length=500,
+    padding="post",
+)
+
+Tokens = Namespace(
+    padding = "<PAD>",
+    start = "<START>",
+    unknown = "<UNKNOWN>",
+    unused = "<UNUSED>",
+)
+#+end_src
+** The Embeddings Layer
+#+begin_src ipython :session embeddings :results output :exports both
+print(layers.Embedding.__doc__)
+#+end_src
+
+
+#+begin_src ipython :session embeddings :results none
+embedding_layer = layers.Embedding(Text.vocabulary_size, Text.embeddings_size)
+#+end_src
+
+The first argument is the number of possible words in the vocabulary and the second is the number of dimensions. The Emebdding is a sort of lookup table that maps an integer that represents a word to a vector. In this case we're going to build a vocabulary of 1,000 words represented by vectors with a length of 32. The weights in the vectors are learned when we train the model and will encode the distance between words.
+
+The input to the embeddings layer is a 2D tensor of integers with the shape (=number of samples=, =sequence_length=). The sequences are integer-encoded sentences of the same length - so you have to pad the shorter sentences to match the longest one (the =sequence_length=).
+
+The ouput of the embeddings layer is a 3D tensor with the shape (=number of samples=, =sequence_length=, =embedding_dimensionality=).
+** The Dataset
+#+begin_src ipython :session embeddings :results none
+vocabulary_size
+(x_train, y_train), (x_test, y_test) = keras.datasets.imdb.load_data(num_words=Text.vocabulary_size)
+#+end_src
+
+The reviews are already encoded as integers.
+** An Un-Encoder
+#+begin_src ipython :session embeddings :results none
+word_index = keras.datasets.imdb.word_index()
+#+end_src
+
+The first four indices (0 to 3) are reserved so we need to handle them separately.
+
+#+begin_src ipython :session embeddings :results none
+word_index = {key: (value + 3) for key, value in word_index.items()}
+word_index[Tokens.padding], word_index[Tokens.start], word_index[Tokens.unknown], word_index[Tokens.unused] = 0, 1, 2, 3
+reverse_word_index = dict([(value, key) for (key, value) in word_index.items()])
+#+end_src
+
+#+begin_src ipython :session embeddings :results none
+def decode(text):
+    return " ".join([reverse_word_index.get(encoding_, "?") for ecoding_ in text])
+#+end_src
+
+#+begin_src ipython :session embeddings :results output :exports both
+decode(x_train[0])
+#+end_src
+
+** Padding
+   Here's where we pad the shorter sequences to make all the sequences are the same length.
+
+#+begin_src ipython :session embeddings :results none
+training = keras.preprocessing.sequence.pad_sequences(x_train,
+                                                      value=word_index[Text.padding],
+                                                      padding=Text.padding,
+                                                      maxlen=Text.max_length)
+testing = keras.preprocessing.sequence.pad_sequences(x_test,
+                                                     value=word_index[Text.padding],
+                                                     padding=Text.padding,
+                                                     maxlen=Text.max_length)
+#+end_src
+** Build the Model
+
+#+begin_src ipython :session embeddings :results none
+model = keras.Sequential([
+    layers.Embedding(Text.vocabulary_size,
+                     Text.embedding_dimension,
+                     input_length=Text.max_length),
+    layers.GlobalAveragePooling1D(),
+    layers.Dense(16, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+
+print(model.summary())
+#+end_src
+
+** Traing the model
+
+#+begin_src ipython :session embeddings :results output :exports both
+model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+
+BATCH_SIZE = 32
+
+history = model.fit(
+    training,
+    y_train,
+    epochs=20,
+    batch_size=BATCH_SIZE,
+    validation_data = (x_test, y_test)
+)
+#+end_src
+
+* End
+#+begin_src ipython :session embeddings :results output :exports both
+data = pandas.DataFrame(history.history)
+plot = data.hvplot().opts(title="Model Performance", width=1000, height=800)
+Embed(plot=plot, file_name="model_performance")()
+#+end_src
