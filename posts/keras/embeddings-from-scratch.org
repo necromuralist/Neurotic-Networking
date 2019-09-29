@@ -15,36 +15,41 @@
   This is a walk-through of the tensorflow [[https://www.tensorflow.org/beta/tutorials/text/word_embeddings][Word Embeddings]] tutorial, just to make sure I can do it.
 ** Imports
 *** Python
-#+begin_src ipython :session embeddings :results none
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 from argparse import Namespace
 from functools import partial
 #+end_src
 *** PyPi
-#+begin_src ipython :session embeddings :results none
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 from tensorflow import keras
 from tensorflow.keras import layers
 import hvplot.pandas
 import pandas
 import tensorflow
+import tensorflow_datasets
 #+end_src
 *** Others
-#+begin_src ipython :session embeddings :results none
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 from graeae import EmbedHoloviews, Timer
 #+end_src
 ** Set Up
 *** Plotting
-#+begin_src ipython :session embeddings :results none
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 prefix = "../../files/posts/keras/"
 slug = "embeddings-from-scratch"
 
 Embed = partial(EmbedHoloviews, folder_path=f"{prefix}{slug}")
 #+end_src
+*** The Timer
+#+begin_src ipython :session kernel-8379-ssh.json :results none
+TIMER = Timer()
+#+end_src
 * Middle
 ** Some Constants
-#+begin_src ipython :session embeddings :results none
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 Text = Namespace(
     vocabulary_size=1000,
-    embeddings_size=32,
+    embeddings_size=16,
     max_length=500,
     padding="post",
 )
@@ -57,12 +62,70 @@ Tokens = Namespace(
 )
 #+end_src
 ** The Embeddings Layer
-#+begin_src ipython :session embeddings :results output :exports both
+#+begin_src ipython :session kernel-8379-ssh.json :results output :exports both
 print(layers.Embedding.__doc__)
 #+end_src
 
+#+RESULTS:
+#+begin_example
+Turns positive integers (indexes) into dense vectors of fixed size.
 
-#+begin_src ipython :session embeddings :results none
+  e.g. `[[4], [20]] -> [[0.25, 0.1], [0.6, -0.2]]`
+
+  This layer can only be used as the first layer in a model.
+
+  Example:
+
+  ```python
+  model = Sequential()
+  model.add(Embedding(1000, 64, input_length=10))
+  # the model will take as input an integer matrix of size (batch,
+  # input_length).
+  # the largest integer (i.e. word index) in the input should be no larger
+  # than 999 (vocabulary size).
+  # now model.output_shape == (None, 10, 64), where None is the batch
+  # dimension.
+
+  input_array = np.random.randint(1000, size=(32, 10))
+
+  model.compile('rmsprop', 'mse')
+  output_array = model.predict(input_array)
+  assert output_array.shape == (32, 10, 64)
+  ```
+
+  Arguments:
+    input_dim: int > 0. Size of the vocabulary,
+      i.e. maximum integer index + 1.
+    output_dim: int >= 0. Dimension of the dense embedding.
+    embeddings_initializer: Initializer for the `embeddings` matrix.
+    embeddings_regularizer: Regularizer function applied to
+      the `embeddings` matrix.
+    embeddings_constraint: Constraint function applied to
+      the `embeddings` matrix.
+    mask_zero: Whether or not the input value 0 is a special "padding"
+      value that should be masked out.
+      This is useful when using recurrent layers
+      which may take variable length input.
+      If this is `True` then all subsequent layers
+      in the model need to support masking or an exception will be raised.
+      If mask_zero is set to True, as a consequence, index 0 cannot be
+      used in the vocabulary (input_dim should equal size of
+      vocabulary + 1).
+    input_length: Length of input sequences, when it is constant.
+      This argument is required if you are going to connect
+      `Flatten` then `Dense` layers upstream
+      (without it, the shape of the dense outputs cannot be computed).
+
+  Input shape:
+    2D tensor with shape: `(batch_size, input_length)`.
+
+  Output shape:
+    3D tensor with shape: `(batch_size, input_length, output_dim)`.
+  
+#+end_example
+
+
+#+begin_src ipython :session kernel-8379-ssh.json :results none
 embedding_layer = layers.Embedding(Text.vocabulary_size, Text.embeddings_size)
 #+end_src
 
@@ -72,81 +135,119 @@ The input to the embeddings layer is a 2D tensor of integers with the shape (=nu
 
 The ouput of the embeddings layer is a 3D tensor with the shape (=number of samples=, =sequence_length=, =embedding_dimensionality=).
 ** The Dataset
-#+begin_src ipython :session embeddings :results none
-vocabulary_size
-(x_train, y_train), (x_test, y_test) = keras.datasets.imdb.load_data(num_words=Text.vocabulary_size)
+#+begin_src ipython :session kernel-8379-ssh.json :results none
+(train_data, test_data), info = tensorflow_datasets.load(
+    "imdb_reviews/subwords8k",
+    split=(tensorflow_datasets.Split.TRAIN,
+           tensorflow_datasets.Split.TEST),
+    with_info=True, as_supervised=True)
 #+end_src
 
-The reviews are already encoded as integers.
-** An Un-Encoder
-#+begin_src ipython :session embeddings :results none
-word_index = keras.datasets.imdb.word_index()
+
+#+begin_src ipython :session kernel-8379-ssh.json :results output :exports both
+encoder = info.features["text"].encoder
+print(encoder.subwords[:10])
 #+end_src
 
-The first four indices (0 to 3) are reserved so we need to handle them separately.
+#+RESULTS:
+: ['the_', ', ', '. ', 'a_', 'and_', 'of_', 'to_', 's_', 'is_', 'br']
 
-#+begin_src ipython :session embeddings :results none
-word_index = {key: (value + 3) for key, value in word_index.items()}
-word_index[Tokens.padding], word_index[Tokens.start], word_index[Tokens.unknown], word_index[Tokens.unused] = 0, 1, 2, 3
-reverse_word_index = dict([(value, key) for (key, value) in word_index.items()])
-#+end_src
+*** Add Padding
 
-#+begin_src ipython :session embeddings :results none
-def decode(text):
-    return " ".join([reverse_word_index.get(encoding_, "?") for ecoding_ in text])
-#+end_src
-
-#+begin_src ipython :session embeddings :results output :exports both
-decode(x_train[0])
-#+end_src
-
-** Padding
-   Here's where we pad the shorter sequences to make all the sequences are the same length.
-
-#+begin_src ipython :session embeddings :results none
-training = keras.preprocessing.sequence.pad_sequences(x_train,
-                                                      value=word_index[Text.padding],
-                                                      padding=Text.padding,
-                                                      maxlen=Text.max_length)
-testing = keras.preprocessing.sequence.pad_sequences(x_test,
-                                                     value=word_index[Text.padding],
-                                                     padding=Text.padding,
-                                                     maxlen=Text.max_length)
-#+end_src
-** Build the Model
-
-#+begin_src ipython :session embeddings :results none
-model = keras.Sequential([
-    layers.Embedding(Text.vocabulary_size,
-                     Text.embedding_dimension,
-                     input_length=Text.max_length),
-    layers.GlobalAveragePooling1D(),
-    layers.Dense(16, activation="relu"),
-    layers.Dense(1, activation="sigmoid")
-])
-
-print(model.summary())
-#+end_src
-
-** Traing the model
-
-#+begin_src ipython :session embeddings :results output :exports both
-model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-
-BATCH_SIZE = 32
-
-history = model.fit(
-    training,
-    y_train,
-    epochs=20,
-    batch_size=BATCH_SIZE,
-    validation_data = (x_test, y_test)
+#+begin_src ipython :session kernel-8379-ssh.json :results none
+padded_shapes = ([None], ())
+train_batches = train_data.shuffle(Text.vocabulary_size).padded_batch(
+    10, padded_shapes=padded_shapes)
+test_batches = test_data.shuffle(Text.vocabulary_size).padded_batch(
+    10, padded_shapes=padded_shapes
 )
 #+end_src
 
-* End
-#+begin_src ipython :session embeddings :results output :exports both
-data = pandas.DataFrame(history.history)
-plot = data.hvplot().opts(title="Model Performance", width=1000, height=800)
-Embed(plot=plot, file_name="model_performance")()
+*** Checkout a Sample
+
+#+begin_src ipython :session kernel-8379-ssh.json :results output :exports both
+batch, labels = next(iter(train_batches))
+print(batch.numpy())
 #+end_src
+
+#+RESULTS:
+: [[  62    9    4 ...    0    0    0]
+:  [  19 2428    6 ...    0    0    0]
+:  [ 691    2  594 ... 7961 1457 7975]
+:  ...
+:  [6072 5644 8043 ...    0    0    0]
+:  [ 977   15   57 ...    0    0    0]
+:  [5646    2    1 ...    0    0    0]]
+
+** Build a Model
+#+begin_src ipython :session kernel-8379-ssh.json :results none
+model = keras.Sequential([
+    layers.Embedding(encoder.vocab_size, Text.embeddings_size),
+    layers.GlobalAveragePooling1D(),
+    layers.Dense(1, activation="sigmoid")
+])
+#+end_src
+
+#+begin_src ipython :session kernel-8379-ssh.json :results output :exports both
+print(model.summary())
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Model: "sequential"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+embedding_1 (Embedding)      (None, None, 16)          130960    
+_________________________________________________________________
+global_average_pooling1d (Gl (None, 16)                0         
+_________________________________________________________________
+dense (Dense)                (None, 1)                 17        
+=================================================================
+Total params: 130,977
+Trainable params: 130,977
+Non-trainable params: 0
+_________________________________________________________________
+None
+#+end_example
+
+** Compile and Train
+#+begin_src ipython :session kernel-8379-ssh.json :results output :exports both
+model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+ONCE_PER_EPOCH = 2
+with TIMER:
+    history = model.fit(train_batches, epochs=10,
+                        validation_data=test_batches,
+                        verbose=ONCE_PER_EPOCH,
+                        validation_steps=20)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2019-09-28 17:14:52,764 graeae.timers.timer start: Started: 2019-09-28 17:14:52.764725
+I0928 17:14:52.764965 140515023214400 timer.py:70] Started: 2019-09-28 17:14:52.764725
+W0928 17:14:52.806057 140515023214400 deprecation.py:323] From /home/hades/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/tensorflow_core/python/ops/nn_impl.py:183: where (from tensorflow.python.ops.array_ops) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use tf.where in 2.0, which has the same broadcast rule as np.where
+Epoch 1/10
+ val_loss: 0.3015 - val_accuracy: 0.8900
+2019-09-28 17:17:36,036 graeae.timers.timer end: Ended: 2019-09-28 17:17:36.036090
+I0928 17:17:36.036139 140515023214400 timer.py:77] Ended: 2019-09-28 17:17:36.036090
+2019-09-28 17:17:36,037 graeae.timers.timer end: Elapsed: 0:02:43.271365
+I0928 17:17:36.037808 140515023214400 timer.py:78] Elapsed: 0:02:43.271365
+#+end_example
+* End
+#+begin_src ipython :session kernel-8379-ssh.json :results output raw :exports both
+data = pandas.DataFrame(history.history)
+plot = data.hvplot().opts(title="Training/Validation Performance",
+                          width=1000,
+                          height=800)
+Embed(plot=plot, file_name="training")()
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
