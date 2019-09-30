@@ -1,0 +1,381 @@
+#+BEGIN_COMMENT
+.. title: NLP Classification Exercise
+.. slug: nlp-classification-exercise
+.. date: 2019-09-29 11:28:06 UTC-07:00
+.. tags: nlp,embeddings
+.. category: NLP
+.. link: 
+.. description: Walking through an embeddings exercise.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+* Beginning
+** Imports
+*** Python
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+#+end_src
+*** PyPi
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.text import Tokenizer
+import hvplot.pandas
+import numpy
+import pandas
+#+end_src
+*** Others
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+from graeae import (CountPercentage,
+                    EmbedHoloviews,
+                    SubPathLoader,
+                    ZipDownloader)
+#+end_src
+** Set Up
+*** The Plotting
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+slug = "nlp-classification-exercise"
+Embed = partial(EmbedHoloviews, folder_path=f"../../files/posts/keras/{slug}")
+#+end_src
+*** The Dataset
+    It isn't mentioned in the notebook where the data originally came from, but it looks like it's the [[http://help.sentiment140.com/home][Sentiment140]] dataset, which consists of tweets whose sentiment was inferred by emoticons in each tweet.
+#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+url = "http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip"
+path = Path("~/data/datasets/texts/sentiment140/").expanduser()
+download = ZipDownloader(url, path)
+download()
+#+end_src
+
+#+RESULTS:
+: 2019-09-29 12:26:31,866 [1mZipDownloader[0m start: ([1mZipDownloader[0m) Started: 2019-09-29 12:26:31.866085
+: 2019-09-29 12:26:31,867 [1mZipDownloader[0m download: Downloading the zip file
+: 2019-09-29 12:26:57,309 [1mZipDownloader[0m end: ([1mZipDownloader[0m) Ended: 2019-09-29 12:26:57.309619
+: 2019-09-29 12:26:57,311 [1mZipDownloader[0m end: ([1mZipDownloader[0m) Elapsed: 0:00:25.443534
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+columns = ["polarity", "tweet_id", "datetime", "query", "user", "text"]
+training = pandas.read_csv(path/"training.1600000.processed.noemoticon.csv", 
+                           encoding="latin-1", names=columns, header=None)
+testing = pandas.read_csv(path/"testdata.manual.2009.06.14.csv", 
+                           encoding="latin-1", names=columns, header=None)
+#+end_src
+
+*** Some Constants
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+Text = Namespace(
+    embedding_dim = 100,
+    max_length = 16,
+    trunc_type='post',
+    padding_type='post',
+    oov_tok = "<OOV>",
+    training_size=16000,
+)
+#+end_src
+* Middle
+** The Data
+#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+print(training.sample().iloc[0])
+#+end_src
+
+#+RESULTS:
+: polarity                                                    4
+: tweet_id                                           2001983272
+: datetime                         Tue Jun 02 02:44:58 PDT 2009
+: query                                                NO_QUERY
+: user                                                    pod13
+: text        @wkdjellybaby to private email??? I will check...
+: Name: 1283818, dtype: object
+
+#+begin_src ipython :session kernel-29864-ssh.json :results output raw :exports both
+CountPercentage(training.polarity)()
+#+end_src
+
+#+RESULTS:
+| Value | Count   | Percent (%) |
+|-------+---------+-------------|
+|     4 | 800,000 |       50.00 |
+|     0 | 800,000 |       50.00 |
+
+The =polarity= is what might also be called the "sentiment" of the tweet - /0/ mean a negative tweet and /4/ means a positive tweet.
+
+But, for our purposes, we would be better off if the positive polarity was =1=, not =4=, so let's convert it.
+
+#+begin_src ipython :session kernel-29864-ssh.json :results output raw :exports both
+training.loc[training.polarity==4, "polarity"] = 1
+counts = CountPercentage(training.polarity)()
+#+end_src
+
+#+RESULTS:
+| Value | Count   | Percent (%) |
+|-------+---------+-------------|
+|     1 | 800,000 |       50.00 |
+|     0 | 800,000 |       50.00 |
+
+** The Tokenizer
+   As you can see from the sample, the data is still in text form so we need to convert it to a numeric form with a Tokenizer.
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(training.text.values)
+#+end_src
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+word_index = tokenizer.word_index
+vocabulary_size = len(tokenizer.word_index)
+#+end_src
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+sequences = tokenizer.texts_to_sequences(training.text.values)
+padded = pad_sequences(sequences, maxlen=Text.max_length,
+                       truncating=Text.trunc_type)
+
+splits = train_test_split(
+    padded, training.polarity, test_size=.2)
+
+training_sequences, test_sequences, training_labels, test_labels = splits
+#+end_src
+** GloVe
+   GloVe is short for /Global Vectors for Word Representation/. It is an /unsupervised/ algorithm that creates vector representations for words. They have a [[https://nlp.stanford.edu/projects/glove/][site]] where you can download pre-trained models or get the code and train one yourself. We're going to use one of their pre-trained models.
+
+#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+path = Path("~/models/glove/").expanduser()
+url = "http://nlp.stanford.edu/data/glove.6B.zip"
+ZipDownloader(url, path)()
+#+end_src
+
+#+RESULTS:
+: Files exist, not downloading
+
+The GloVe data is stored as a series of space separated lines with the first column being the word that's encoded and the rest of the columns being the values for the vector. To make this work we're going to split the word off from the vector and put each into a dictionary.
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+embeddings = {}
+with open(path/"glove.6B.100d.txt") as lines:
+    for line in lines:
+        tokens = line.split()
+        embeddings[tokens[0]] = numpy.array(tokens[1:])
+#+end_src
+
+#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+print(f"{len(embeddings):,}")
+#+end_src
+
+#+RESULTS:
+: 400,000
+
+So, our vocabulary consists of 400,000 "words" (tokens is more accurate, since they also include punctuation). The problem we have to deal with next is that our data set wasn't part of the dataset used to train the embeddings, so there will probably be some tokens in our data set that aren't in the embeddings. To handle this we need to add zeroed embeddings for the extra tokens.
+
+Rather than adding to the dict, we'll create a matrix of zeros with rows for each word in our datasets vocabulary, then we'll iterate over the words in our dataset and if there's a match in the GloVE embeddings we'll insert it into the matrix.
+
+#+begin_src ipython :session kernel-29864-ssh.json :results none
+embeddings_matrix = numpy.zeros((vocabulary_size+1, Text.embedding_dim));
+for word, index in word_index.items():
+    embedding_vector = embeddings.get(word);
+    if embedding_vector is not None:
+        embeddings_matrix[index] = embedding_vector;
+#+end_src
+
+#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+print(f"{len(embeddings_matrix):,}")
+#+end_src
+
+#+RESULTS:
+: 690,961
+
+* End
+** Citations
+   - Jeffrey Pennington, Richard Socher, and Christopher D. Manning. 2014. GloVe: Global Vectors for Word Representation. 
+* Raw
+#+begin_comment
+import json
+import tensorflow as tf
+import csv
+import random
+import numpy as np
+
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras import regularizers
+
+
+embedding_dim = 100
+max_length = 16
+trunc_type='post'
+padding_type='post'
+oov_tok = "<OOV>"
+training_size=#Your dataset size here. Experiment using smaller values (i.e. 16000), but don't forget to train on at least 160000 to see the best effects
+test_portion=.1
+
+corpus = []
+
+
+# In[ ]:
+
+
+
+# Note that I cleaned the Stanford dataset to remove LATIN1 encoding to make it easier for Python CSV reader
+# You can do that yourself with:
+# iconv -f LATIN1 -t UTF8 training.1600000.processed.noemoticon.csv -o training_cleaned.csv
+# I then hosted it on my site to make it easier to use in this notebook
+
+get_ipython().system('wget --no-check-certificate     https://storage.googleapis.com/laurencemoroney-blog.appspot.com/training_cleaned.csv     -O /tmp/training_cleaned.csv')
+
+num_sentences = 0
+
+with open("/tmp/training_cleaned.csv") as csvfile:
+    reader = csv.reader(csvfile, delimiter=',')
+    for row in reader:
+      # Your Code here. Create list items where the first item is the text, found in row[5], and the second is the label. Note that the label is a '0' or a '4' in the text. When it's the former, make
+      # your label to be 0, otherwise 1. Keep a count of the number of sentences in num_sentences
+        list_item=[]
+        # YOUR CODE HERE
+        num_sentences = num_sentences + 1
+        corpus.append(list_item)
+
+
+
+# In[ ]:
+
+
+print(num_sentences)
+print(len(corpus))
+print(corpus[1])
+
+# Expected Output:
+# 1600000
+# 1600000
+# ["is upset that he can't update his Facebook by texting it... and might cry as a result  School today also. Blah!", 0]
+
+
+# In[ ]:
+
+
+sentences=[]
+labels=[]
+random.shuffle(corpus)
+for x in range(training_size):
+    sentences.append(# YOUR CODE HERE)
+    labels.append(# YOUR CODE HERE)
+
+
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(# YOUR CODE HERE)
+
+word_index = tokenizer.word_index
+vocab_size=len(# YOUR CODE HERE)
+
+sequences = tokenizer.texts_to_sequences(# YOUR CODE HERE)
+padded = pad_sequences(# YOUR CODE HERE)
+
+split = int(test_portion * training_size)
+
+test_sequences = padded[# YOUR CODE HERE]
+training_sequences = padded[# YOUR CODE HERE]
+test_labels = labels[# YOUR CODE HERE]
+training_labels = labels[# YOUR CODE HERE]
+
+
+# In[ ]:
+
+
+print(vocab_size)
+print(word_index['i'])
+# Expected Output
+# 138858
+# 1
+
+
+# In[ ]:
+
+
+# Note this is the 100 dimension version of GloVe from Stanford
+# I unzipped and hosted it on my site to make this notebook easier
+get_ipython().system('wget --no-check-certificate     https://storage.googleapis.com/laurencemoroney-blog.appspot.com/glove.6B.100d.txt     -O /tmp/glove.6B.100d.txt')
+embeddings_index = {};
+with open('/tmp/glove.6B.100d.txt') as f:
+    for line in f:
+        values = line.split();
+        word = values[0];
+        coefs = np.asarray(values[1:], dtype='float32');
+        embeddings_index[word] = coefs;
+
+embeddings_matrix = np.zeros((vocab_size+1, embedding_dim));
+for word, i in word_index.items():
+    embedding_vector = embeddings_index.get(word);
+    if embedding_vector is not None:
+        embeddings_matrix[i] = embedding_vector;
+
+
+# In[ ]:
+
+
+print(len(embeddings_matrix))
+# Expected Output
+# 138859
+
+
+# In[ ]:
+
+
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size+1, embedding_dim, input_length=max_length, weights=[embeddings_matrix], trainable=False),
+    # YOUR CODE HERE - experiment with combining different types, such as convolutions and LSTMs
+])
+model.compile(# YOUR CODE HERE)
+model.summary()
+
+num_epochs = 50
+history = model.fit(training_sequences, training_labels, epochs=num_epochs, validation_data=(test_sequences, test_labels), verbose=2)
+
+print("Training Complete")
+
+
+# In[ ]:
+
+
+import matplotlib.image  as mpimg
+import matplotlib.pyplot as plt
+
+#-----------------------------------------------------------
+# Retrieve a list of list results on training and test data
+# sets for each training epoch
+#-----------------------------------------------------------
+acc=history.history['acc']
+val_acc=history.history['val_acc']
+loss=history.history['loss']
+val_loss=history.history['val_loss']
+
+epochs=range(len(acc)) # Get number of epochs
+
+#------------------------------------------------
+# Plot training and validation accuracy per epoch
+#------------------------------------------------
+plt.plot(epochs, acc, 'r')
+plt.plot(epochs, val_acc, 'b')
+plt.title('Training and validation accuracy')
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend(["Accuracy", "Validation Accuracy"])
+
+plt.figure()
+
+#------------------------------------------------
+# Plot training and validation loss per epoch
+#------------------------------------------------
+plt.plot(epochs, loss, 'r')
+plt.plot(epochs, val_loss, 'b')
+plt.title('Training and validation loss')
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend(["Loss", "Validation Loss"])
+
+plt.figure()
+
+
+# Expected Output
+# A chart where the validation loss does not increase sharply!
+#+end_comment
