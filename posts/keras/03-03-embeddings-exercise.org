@@ -13,22 +13,23 @@
 * Beginning
 ** Imports
 *** Python
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 from argparse import Namespace
 from functools import partial
 from pathlib import Path
 #+end_src
 *** PyPi
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
 import hvplot.pandas
 import numpy
 import pandas
+import tensorflow
 #+end_src
 *** Others
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 from graeae import (CountPercentage,
                     EmbedHoloviews,
                     SubPathLoader,
@@ -37,17 +38,17 @@ from graeae import (CountPercentage,
 #+end_src
 ** Set Up
 *** The Timer
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 TIMER = Timer()
 #+end_src
 *** The Plotting
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 slug = "nlp-classification-exercise"
 Embed = partial(EmbedHoloviews, folder_path=f"../../files/posts/keras/{slug}")
 #+end_src
 *** The Dataset
     It isn't mentioned in the notebook where the data originally came from, but it looks like it's the [[http://help.sentiment140.com/home][Sentiment140]] dataset, which consists of tweets whose sentiment was inferred by emoticons in each tweet.
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 url = "http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip"
 path = Path("~/data/datasets/texts/sentiment140/").expanduser()
 download = ZipDownloader(url, path)
@@ -55,12 +56,9 @@ download()
 #+end_src
 
 #+RESULTS:
-: 2019-09-29 12:26:31,866 [1mZipDownloader[0m start: ([1mZipDownloader[0m) Started: 2019-09-29 12:26:31.866085
-: 2019-09-29 12:26:31,867 [1mZipDownloader[0m download: Downloading the zip file
-: 2019-09-29 12:26:57,309 [1mZipDownloader[0m end: ([1mZipDownloader[0m) Ended: 2019-09-29 12:26:57.309619
-: 2019-09-29 12:26:57,311 [1mZipDownloader[0m end: ([1mZipDownloader[0m) Elapsed: 0:00:25.443534
+: Files exist, not downloading
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 columns = ["polarity", "tweet_id", "datetime", "query", "user", "text"]
 training = pandas.read_csv(path/"training.1600000.processed.noemoticon.csv", 
                            encoding="latin-1", names=columns, header=None)
@@ -69,7 +67,7 @@ testing = pandas.read_csv(path/"testdata.manual.2009.06.14.csv",
 #+end_src
 
 *** Some Constants
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 Text = Namespace(
     embedding_dim = 100,
     max_length = 16,
@@ -81,20 +79,20 @@ Text = Namespace(
 #+end_src
 * Middle
 ** The Data
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 print(training.sample().iloc[0])
 #+end_src
 
 #+RESULTS:
-: polarity                                                    4
-: tweet_id                                           2001983272
-: datetime                         Tue Jun 02 02:44:58 PDT 2009
+: polarity                                                    0
+: tweet_id                                           1999685047
+: datetime                         Mon Jun 01 20:38:41 PDT 2009
 : query                                                NO_QUERY
-: user                                                    pod13
-: text        @wkdjellybaby to private email??? I will check...
-: Name: 1283818, dtype: object
+: user                                                     JETX
+: text        Just had to freaking fight tech support to giv...
+: Name: 304226, dtype: object
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output raw :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output raw :exports both
 CountPercentage(training.polarity)()
 #+end_src
 
@@ -104,11 +102,11 @@ CountPercentage(training.polarity)()
 |     4 | 800,000 |       50.00 |
 |     0 | 800,000 |       50.00 |
 
-The =polarity= is what might also be called the "sentiment" of the tweet - /0/ mean a negative tweet and /4/ means a positive tweet.
+The =polarity= is what might also be called the "sentiment" of the tweet - /0/ means a negative tweet and /4/ means a positive tweet.
 
 But, for our purposes, we would be better off if the positive polarity was =1=, not =4=, so let's convert it.
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output raw :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output raw :exports both
 training.loc[training.polarity==4, "polarity"] = 1
 counts = CountPercentage(training.polarity)()
 #+end_src
@@ -120,32 +118,64 @@ counts = CountPercentage(training.polarity)()
 |     0 | 800,000 |       50.00 |
 
 ** The Tokenizer
-   As you can see from the sample, the data is still in text form so we need to convert it to a numeric form with a Tokenizer.
+   As you can see from the sample, the data is still in text form so we need to convert it to a numeric form with a Tokenizer. 
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(training.text.values)
+First I'll Lower-case it.
+
+#+begin_src ipython :session kernel-3945-ssh.json :results none
+training.loc[:, "text"] = training.text.str.lower()
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+Next we'll fit it to our text.
+
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
+tokenizer = Tokenizer()
+with TIMER:
+    tokenizer.fit_on_texts(training.text.values)
+#+end_src
+
+#+RESULTS:
+: 2019-10-06 18:44:00,612 graeae.timers.timer start: Started: 2019-10-06 18:44:00.612015
+: WARNING: Logging before flag parsing goes to stderr.
+: I1006 18:44:00.612909 140055379531584 timer.py:70] Started: 2019-10-06 18:44:00.612015
+: 2019-10-06 18:44:37,167 graeae.timers.timer end: Ended: 2019-10-06 18:44:37.167109
+: I1006 18:44:37.167169 140055379531584 timer.py:77] Ended: 2019-10-06 18:44:37.167109
+: 2019-10-06 18:44:37,170 graeae.timers.timer end: Elapsed: 0:00:36.555094
+: I1006 18:44:37.170241 140055379531584 timer.py:78] Elapsed: 0:00:36.555094
+
+Now, we can store some of it's values in variables for convenience.
+
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 word_index = tokenizer.word_index
 vocabulary_size = len(tokenizer.word_index)
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
-sequences = tokenizer.texts_to_sequences(training.text.values)
-padded = pad_sequences(sequences, maxlen=Text.max_length,
-                       truncating=Text.trunc_type)
+Now, we'll convert the texts to sequences and pad them so they are all the same length.
 
-splits = train_test_split(
-    padded, training.polarity, test_size=.2)
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
+with TIMER:
+    sequences = tokenizer.texts_to_sequences(training.text.values)
+    padded = pad_sequences(sequences, maxlen=Text.max_length,
+                           truncating=Text.trunc_type)
 
-training_sequences, test_sequences, training_labels, test_labels = splits
+    splits = train_test_split(
+        padded, training.polarity, test_size=.2)
+
+    training_sequences, test_sequences, training_labels, test_labels = splits
 #+end_src
+
+#+RESULTS:
+: 2019-10-06 18:50:31,373 graeae.timers.timer start: Started: 2019-10-06 18:50:31.373126
+: I1006 18:50:31.373161 140055379531584 timer.py:70] Started: 2019-10-06 18:50:31.373126
+: 2019-10-06 18:51:12,694 graeae.timers.timer end: Ended: 2019-10-06 18:51:12.694651
+: I1006 18:51:12.694694 140055379531584 timer.py:77] Ended: 2019-10-06 18:51:12.694651
+: 2019-10-06 18:51:12,697 graeae.timers.timer end: Elapsed: 0:00:41.321525
+: I1006 18:51:12.697135 140055379531584 timer.py:78] Elapsed: 0:00:41.321525
+
 ** GloVe
    GloVe is short for /Global Vectors for Word Representation/. It is an /unsupervised/ algorithm that creates vector representations for words. They have a [[https://nlp.stanford.edu/projects/glove/][site]] where you can download pre-trained models or get the code and train one yourself. We're going to use one of their pre-trained models.
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 path = Path("~/models/glove/").expanduser()
 url = "http://nlp.stanford.edu/data/glove.6B.zip"
 ZipDownloader(url, path)()
@@ -156,15 +186,24 @@ ZipDownloader(url, path)()
 
 The GloVe data is stored as a series of space separated lines with the first column being the word that's encoded and the rest of the columns being the values for the vector. To make this work we're going to split the word off from the vector and put each into a dictionary.
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 embeddings = {}
-with open(path/"glove.6B.100d.txt") as lines:
-    for line in lines:
-        tokens = line.split()
-        embeddings[tokens[0]] = numpy.array(tokens[1:])
+with TIMER:
+    with open(path/"glove.6B.100d.txt") as lines:
+        for line in lines:
+            tokens = line.split()
+            embeddings[tokens[0]] = numpy.array(tokens[1:])
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+RESULTS:
+: 2019-10-06 18:55:11,592 graeae.timers.timer start: Started: 2019-10-06 18:55:11.592880
+: I1006 18:55:11.592908 140055379531584 timer.py:70] Started: 2019-10-06 18:55:11.592880
+: 2019-10-06 18:55:21,542 graeae.timers.timer end: Ended: 2019-10-06 18:55:21.542689
+: I1006 18:55:21.542738 140055379531584 timer.py:77] Ended: 2019-10-06 18:55:21.542689
+: 2019-10-06 18:55:21,544 graeae.timers.timer end: Elapsed: 0:00:09.949809
+: I1006 18:55:21.544939 140055379531584 timer.py:78] Elapsed: 0:00:09.949809
+
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 print(f"{len(embeddings):,}")
 #+end_src
 
@@ -175,15 +214,24 @@ So, our vocabulary consists of 400,000 "words" (tokens is more accurate, since t
 
 Rather than adding to the dict, we'll create a matrix of zeros with rows for each word in our datasets vocabulary, then we'll iterate over the words in our dataset and if there's a match in the GloVE embeddings we'll insert it into the matrix.
 
-#+begin_src ipython :session kernel-29864-ssh.json :results none
-embeddings_matrix = numpy.zeros((vocabulary_size+1, Text.embedding_dim));
-for word, index in word_index.items():
-    embedding_vector = embeddings.get(word);
-    if embedding_vector is not None:
-        embeddings_matrix[index] = embedding_vector;
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
+with TIMER:
+    embeddings_matrix = numpy.zeros((vocabulary_size+1, Text.embedding_dim));
+    for word, index in word_index.items():
+        embedding_vector = embeddings.get(word);
+        if embedding_vector is not None:
+            embeddings_matrix[index] = embedding_vector;
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+RESULTS:
+: 2019-10-06 18:55:46,577 graeae.timers.timer start: Started: 2019-10-06 18:55:46.577855
+: I1006 18:55:46.577886 140055379531584 timer.py:70] Started: 2019-10-06 18:55:46.577855
+: 2019-10-06 18:55:51,374 graeae.timers.timer end: Ended: 2019-10-06 18:55:51.374706
+: I1006 18:55:51.374763 140055379531584 timer.py:77] Ended: 2019-10-06 18:55:51.374706
+: 2019-10-06 18:55:51,377 graeae.timers.timer end: Elapsed: 0:00:04.796851
+: I1006 18:55:51.377207 140055379531584 timer.py:78] Elapsed: 0:00:04.796851
+
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 print(f"{len(embeddings_matrix):,}")
 #+end_src
 
@@ -192,7 +240,7 @@ print(f"{len(embeddings_matrix):,}")
 ** The Models
 *** A CNN
 **** Build
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 convoluted_model = tensorflow.keras.Sequential([
     tensorflow.keras.layers.Embedding(
         vocabulary_size + 1,
@@ -200,38 +248,66 @@ convoluted_model = tensorflow.keras.Sequential([
         input_length=Text.max_length,
         weights=[embeddings_matrix],
         trainable=False),
+    tensorflow.keras.layers.Conv1D(filters=128,
                                    kernel_size=5,
-                                   activation='relu'),
+    activation='relu'),
     tensorflow.keras.layers.GlobalMaxPooling1D(),
     tensorflow.keras.layers.Dense(24, activation='relu'),
     tensorflow.keras.layers.Dense(1, activation='sigmoid')
 ])
-model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+convoluted_model.compile(loss="binary_crossentropy", optimizer="rmsprop",
+                         metrics=["accuracy"])
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
-print(model.summary())
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
+print(convoluted_model.summary())
 #+end_src
+
+#+RESULTS:
+#+begin_example
+Model: "sequential"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+embedding (Embedding)        (None, 16, 100)           69096100  
+_________________________________________________________________
+conv1d (Conv1D)              (None, 12, 128)           64128     
+_________________________________________________________________
+global_max_pooling1d (Global (None, 128)               0         
+_________________________________________________________________
+dense (Dense)                (None, 24)                3096      
+_________________________________________________________________
+dense_1 (Dense)              (None, 1)                 25        
+=================================================================
+Total params: 69,163,349
+Trainable params: 67,249
+Non-trainable params: 69,096,100
+_________________________________________________________________
+None
+#+end_example
+
 **** Train
-#+begin_src ipython :session kernel-29864-ssh.json :results none
+#+begin_src ipython :session kernel-3945-ssh.json :results none
 Training = Namespace(
     size = 0.75,
-    epochs = 50,
+    epochs = 2,
     verbosity = 2,
+    batch_size=128,
     )
 #+end_src
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 with TIMER:
-    cnn_history = model.fit(training_padded,
-                        y_train.values,
-                        epochs=Training.epochs,
-                        validation_data=(testing_padded, y_test.values),
-                        verbose=Training.verbosity)
+    cnn_history = convoluted_model.fit(training_sequences,
+                                       training_labels.values,
+                                       epochs=Training.epochs,
+                                       batch_size=Training.batch_size,
+                                       validation_data=(test_sequences, test_labels.values),
+                                       verbose=Training.verbosity)
 #+end_src
 **** Some Plotting
 
-#+begin_src ipython :session kernel-29864-ssh.json :results output raw :exports both
+#+begin_src ipython :session kernel-3945-ssh.json :results output raw :exports both
 performance = pandas.DataFrame(cnn_history.history)
 plot = performance.hvplot().opts(title="CNN Twitter Sentiment Training Performance",
                                  width=1000,
