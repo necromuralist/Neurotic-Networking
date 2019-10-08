@@ -67,6 +67,7 @@ testing = pandas.read_csv(path/"testdata.manual.2009.06.14.csv",
 #+end_src
 
 *** Some Constants
+    Right now I'm not able to train on the GPU (the embeddings are too large) experiment with the =embedding_dim= until it works.
 #+begin_src ipython :session kernel-3945-ssh.json :results none
 Text = Namespace(
     embedding_dim = 100,
@@ -75,6 +76,12 @@ Text = Namespace(
     padding_type='post',
     oov_tok = "<OOV>",
     training_size=16000,
+)
+#+end_src
+#+begin_src ipython :session kernel-3945-ssh.json :results none
+Data = Namespace(
+    batch_size = 64,
+    shuffle_buffer_size=100,
 )
 #+end_src
 * Middle
@@ -171,6 +178,22 @@ with TIMER:
 : I1006 18:51:12.694694 140055379531584 timer.py:77] Ended: 2019-10-06 18:51:12.694651
 : 2019-10-06 18:51:12,697 graeae.timers.timer end: Elapsed: 0:00:41.321525
 : I1006 18:51:12.697135 140055379531584 timer.py:78] Elapsed: 0:00:41.321525
+
+Now convert them to [[https://www.tensorflow.org/tutorials/load_data/numpy][datasets]].
+
+#+begin_src ipython :session kernel-3945-ssh.json :results none
+training_dataset = tensorflow.data.Dataset.from_tensor_slices(
+    (training_sequences, training_labels)
+)
+
+testing_dataset = tensorflow.data.Dataset.from_tensor_slices(
+    (test_sequences, test_labels)
+)
+
+training_dataset = training_dataset.shuffle(Data.shuffle_buffer_size).batch(Data.batch_size)
+testing_dataset = testing_dataset.shuffle(Data.shuffle_buffer_size).batch(Data.batch_size)
+#+end_src
+
 
 ** GloVe
    GloVe is short for /Global Vectors for Word Representation/. It is an /unsupervised/ algorithm that creates vector representations for words. They have a [[https://nlp.stanford.edu/projects/glove/][site]] where you can download pre-trained models or get the code and train one yourself. We're going to use one of their pre-trained models.
@@ -298,8 +321,7 @@ Training = Namespace(
 
 #+begin_src ipython :session kernel-3945-ssh.json :results output :exports both
 with TIMER:
-    cnn_history = convoluted_model.fit(training_sequences,
-                                       training_labels.values,
+    cnn_history = convoluted_model.fit(training_dataset,
                                        epochs=Training.epochs,
                                        batch_size=Training.batch_size,
                                        validation_data=(test_sequences, test_labels.values),
