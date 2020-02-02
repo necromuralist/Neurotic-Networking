@@ -1,0 +1,144 @@
+#+BEGIN_COMMENT
+.. title: Hand-rolling a CountVectorizer
+.. slug: hand-rolling-a-countvectorizer
+.. date: 2020-01-03 17:21:23 UTC-08:00
+.. tags: fastai,nlp
+.. category: fastai
+.. link: 
+.. description: Writing your own CountVectorizer
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+* Beginning
+  This is part of lesson 3 from the [[https://github.com/fastai/course-nlp][fastai NLP course]].
+** Imports
+*** Python
+#+begin_src ipython :session nlp :results none
+from collections import Counter
+from functools import partial
+#+end_src
+*** PyPi
+#+begin_src ipython :session nlp :results none
+from fastai.text import (
+    URLs,
+    untar_data,
+    TextList,
+    )
+import hvplot.pandas
+import pandas
+#+end_src
+*** Others
+#+begin_src ipython :session nlp :results none
+from graeae import CountPercentage, EmbedHoloviews
+#+end_src
+** Setup
+*** Plotting
+#+begin_src ipython :session nlp :results none
+Embed = partial(
+    EmbedHoloviews,
+    folder_path="../../files/posts/fastai/hand-rolling-a-countvectorizer/")
+#+end_src
+*** The Data Set
+The data-set is a collection of 50,000 IMDB reviews [[https://course.fast.ai/datasets.html][hosted on AWS Open Datasets]] as part of the fastai datasets collection. We're going to try and create a classifier that can predict the "sentiment" of reviews. The [[http://ai.stanford.edu/~amaas/data/sentiment/][original dataset]] comes from Stanford University.
+
+To make it easier to experiment, we'll initially load a sub-set of the dataset that fastai prepared. The [[https://docs.fast.ai/datasets.html#URLs][URLs]] class contains the URLs for the datasets that fastai has uploaded and the [[https://docs.fast.ai/datasets.html#untar_data][=untar_data=]] function downloads data from the URL given to a given (or in this case default) location.
+#+begin_src ipython :session nlp :results output :exports both
+path = untar_data(URLs.IMDB_SAMPLE)
+print(path)
+#+end_src
+
+#+RESULTS:
+: /home/athena/.fastai/data/imdb_sample
+
+The =untar_data= function doesn't actually load the data for us, so we'll use pandas to do that.
+
+#+begin_src ipython :session nlp :results output :exports both
+sample_frame = pandas.read_csv(path/"texts.csv")
+print(sample_frame.head())
+#+end_src
+
+#+RESULTS:
+:       label                                               text  is_valid
+: 0  negative  Un-bleeping-believable! Meg Ryan doesn't even ...     False
+: 1  positive  This is a extremely well-made film. The acting...     False
+: 2  negative  Every once in a long while a movie will come a...     False
+: 3  positive  Name just says it all. I watched this movie wi...     False
+: 4  negative  This movie succeeds at being one of the most u...     False
+
+The =is_valid= column is kind of interesting here especially since the first examples are all false... but I couldn't find an explanation for it on the data-download page.
+
+#+begin_src ipython :session nlp :results output raw :exports both
+CountPercentage(sample.label)()
+#+end_src
+
+#+RESULTS:
+| Value    | Count | Percent (%) |
+|----------+-------+-------------|
+| negative |   524 |       52.40 |
+| positive |   476 |       47.60 |
+
+So it is nearly balanced but with a slight bias toward negative comments.
+
+#+begin_src ipython :session nlp :results output raw :exports both
+CountPercentage(sample.is_valid)()
+#+end_src
+
+#+RESULTS:
+| Value | Count | Percent (%) |
+|-------+-------+-------------|
+| False |   800 |       80.00 |
+| True  |   200 |       20.00 |
+
+Well, so exactly 20% are invalid? Curious.
+
+*** The Text List
+    To actually work with the dataset we'll use fastai's [[https://docs.fast.ai/text.data.html#The-TextList-input-classes][TextList]] instead of pandas' dataframe.
+
+#+begin_src ipython :session nlp :results none
+sample_list = TextList.from_csv(path, "texts.csv", cols="text")
+sample_split = sample_list.split_from_df(col=2)
+sample = (sample_split
+          .label_from_df(cols=0))
+#+end_src
+
+The original notebook builds the =TextList= in a single train-wreck, but if you try and find out what those methods do from the fastai documentation... well, good luck to you, it's easier (although still obscure) to inspect the intermediate objects to try and muddle through what's going on. The ultimate outcome seems to be that =sample= is an object with the somewhat pre-processed. It looks like the text is lower-cased and somewhat tokenized. There's also a lot of strange tokens inserted (=xxmaj=, =xxunk=) which, according to the [[https://docs.fast.ai/text.transform.html#Introduction][tokenization documentation]] indicate special tokens - although there's more unknown tokens than I would have expected.
+
+#+begin_src ipython :session nlp :results output :exports both
+print(sample.train.x[0])
+#+end_src
+
+#+RESULTS:
+: xxbos xxmaj un - xxunk - believable ! xxmaj meg xxmaj ryan does n't even look her usual xxunk lovable self in this , which normally makes me forgive her shallow xxunk acting xxunk . xxmaj hard to believe she was the producer on this dog . xxmaj plus xxmaj kevin xxmaj kline : what kind of suicide trip has his career been on ? xxmaj xxunk ... xxmaj xxunk ! ! ! xxmaj finally this was directed by the guy who did xxmaj big xxmaj xxunk ? xxmaj must be a replay of xxmaj jonestown - hollywood style . xxmaj xxunk !
+
+#+begin_src ipython :session nlp :results output :exports both
+print(sample_frame.text.iloc[0])
+#+end_src
+
+#+RESULTS:
+: Un-bleeping-believable! Meg Ryan doesn't even look her usual pert lovable self in this, which normally makes me forgive her shallow ticky acting schtick. Hard to believe she was the producer on this dog. Plus Kevin Kline: what kind of suicide trip has his career been on? Whoosh... Banzai!!! Finally this was directed by the guy who did Big Chill? Must be a replay of Jonestown - hollywood style. Wooofff!
+
+Here's the category fo that review.
+
+#+begin_src ipython :session nlp :results output :exports both
+print(sample.train.y[0])
+#+end_src
+
+#+RESULTS:
+: negative
+
+Note that the output looks like a string, but it's actually a fastai "type".
+
+#+begin_src ipython :session nlp :results output :exports both
+print(type(sample.train.y[0]))
+#+end_src
+
+#+RESULTS:
+: <class 'fastai.core.Category'>
+** Creating a Term-Document Matrix
+   Here we'll create a matrix that counts the number of times each token appears in each document.
+* End
+** Reference
+*** The Dataset
+- Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and Christopher Potts. 2011. Learning word vectors for sentiment analysis. In Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies - Volume 1 (HLT ’11). Association for Computational Linguistics, USA, 142–150
