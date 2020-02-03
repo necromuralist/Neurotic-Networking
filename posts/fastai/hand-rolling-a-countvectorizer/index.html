@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Writing your own CountVectorizer" name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Hand-rolling a CountVectorizer | In Too Deep</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/In-Too-Deep/posts/fastai/hand-rolling-a-countvectorizer/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
+<script async src="../../../assets/javascript/bokeh-1.3.4.min.js" type="text/javascript"></script>
+<meta content="Cloistered Monkey" name="author">
+<link href="/posts/fastai/topic-modeling-with-matrix-decomposition/" rel="prev" title="Topic Modeling With Matrix Decomposition" type="text/html">
+<meta content="In Too Deep" property="og:site_name">
+<meta content="Hand-rolling a CountVectorizer" property="og:title">
+<meta content="https://necromuralist.github.io/In-Too-Deep/posts/fastai/hand-rolling-a-countvectorizer/" property="og:url">
+<meta content="Writing your own CountVectorizer" property="og:description">
+<meta content="article" property="og:type">
+<meta content="2020-01-03T17:21:23-08:00" property="article:published_time">
+<meta content="fastai" property="article:tag">
+<meta content="nlp" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/In-Too-Deep/"><span id="blog-title">In Too Deep</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="/archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="/categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="/rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/In-Too-Deep/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="/posts/fastai/hand-rolling-a-countvectorizer/index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href="/posts/fastai/hand-rolling-a-countvectorizer/">Hand-rolling a CountVectorizer</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="/posts/fastai/hand-rolling-a-countvectorizer/" rel="bookmark"><time class="published dt-published" datetime="2020-01-03T17:21:23-08:00" itemprop="datePublished" title="2020-01-03 17:21">2020-01-03 17:21</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="/posts/fastai/hand-rolling-a-countvectorizer/index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgdf835eb">Beginning</a>
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgf50eb45">Imports</a>
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org9f07c2a">Python</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org2b2e3e9">PyPi</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org60a4781">Others</a></li>
+</ul>
+</li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org28cc130">Setup</a>
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgbe1aac1">Plotting</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org5e54ed1">The Data Set</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org5e3c7a2">The Text List</a></li>
+</ul>
+</li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgb1d41c7">Creating a Term-Document Matrix</a></li>
+</ul>
+</li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orga0a53d0">End</a>
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgb33814d">Reference</a>
+<ul>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org2f8da6e">The Dataset</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgdf835eb">
+<h2 id="orgdf835eb">Beginning</h2>
+<div class="outline-text-2" id="text-orgdf835eb">
+<p>This is part of lesson 3 from the <a href="https://github.com/fastai/course-nlp">fastai NLP course</a>.</p>
+</div>
+<div class="outline-3" id="outline-container-orgf50eb45">
+<h3 id="orgf50eb45">Imports</h3>
+<div class="outline-text-3" id="text-orgf50eb45"></div>
+<div class="outline-4" id="outline-container-org9f07c2a">
+<h4 id="org9f07c2a">Python</h4>
+<div class="outline-text-4" id="text-org9f07c2a">
+<div class="highlight">
+<pre><span></span>from collections import Counter
+from functools import partial
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org2b2e3e9">
+<h4 id="org2b2e3e9">PyPi</h4>
+<div class="outline-text-4" id="text-org2b2e3e9">
+<div class="highlight">
+<pre><span></span>from fastai.text import (
+    URLs,
+    untar_data,
+    TextList,
+    )
+import hvplot.pandas
+import pandas
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org60a4781">
+<h4 id="org60a4781">Others</h4>
+<div class="outline-text-4" id="text-org60a4781">
+<div class="highlight">
+<pre><span></span>from graeae import CountPercentage, EmbedHoloviews
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org28cc130">
+<h3 id="org28cc130">Setup</h3>
+<div class="outline-text-3" id="text-org28cc130"></div>
+<div class="outline-4" id="outline-container-orgbe1aac1">
+<h4 id="orgbe1aac1">Plotting</h4>
+<div class="outline-text-4" id="text-orgbe1aac1">
+<div class="highlight">
+<pre><span></span>Embed = partial(
+    EmbedHoloviews,
+    folder_path="../../files/posts/fastai/hand-rolling-a-countvectorizer/")
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org5e54ed1">
+<h4 id="org5e54ed1">The Data Set</h4>
+<div class="outline-text-4" id="text-org5e54ed1">
+<p>The data-set is a collection of 50,000 IMDB reviews <a href="https://course.fast.ai/datasets.html">hosted on AWS Open Datasets</a> as part of the fastai datasets collection. We're going to try and create a classifier that can predict the "sentiment" of reviews. The <a href="http://ai.stanford.edu/~amaas/data/sentiment/">original dataset</a> comes from Stanford University.</p>
+<p>To make it easier to experiment, we'll initially load a sub-set of the dataset that fastai prepared. The <a href="https://docs.fast.ai/datasets.html#URLs">URLs</a> class contains the URLs for the datasets that fastai has uploaded and the <a href="https://docs.fast.ai/datasets.html#untar_data"><code>untar_data</code></a> function downloads data from the URL given to a given (or in this case default) location.</p>
+<div class="highlight">
+<pre><span></span>path = untar_data(URLs.IMDB_SAMPLE)
+print(path)
+</pre></div>
+<pre class="example">
+/home/athena/.fastai/data/imdb_sample
+</pre>
+<p>The <code>untar_data</code> function doesn't actually load the data for us, so we'll use pandas to do that.</p>
+<div class="highlight">
+<pre><span></span>sample_frame = pandas.read_csv(path/"texts.csv")
+print(sample_frame.head())
+</pre></div>
+<pre class="example">
+      label                                               text  is_valid
+0  negative  Un-bleeping-believable! Meg Ryan doesn't even ...     False
+1  positive  This is a extremely well-made film. The acting...     False
+2  negative  Every once in a long while a movie will come a...     False
+3  positive  Name just says it all. I watched this movie wi...     False
+4  negative  This movie succeeds at being one of the most u...     False
+</pre>
+<p>The <code>is_valid</code> column is kind of interesting here especially since the first examples are all false… but I couldn't find an explanation for it on the data-download page.</p>
+<div class="highlight">
+<pre><span></span>CountPercentage(sample.label)()
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Value</th>
+<th class="org-right" scope="col">Count</th>
+<th class="org-right" scope="col">Percent (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">negative</td>
+<td class="org-right">524</td>
+<td class="org-right">52.40</td>
+</tr>
+<tr>
+<td class="org-left">positive</td>
+<td class="org-right">476</td>
+<td class="org-right">47.60</td>
+</tr>
+</tbody>
+</table>
+<p>So it is nearly balanced but with a slight bias toward negative comments.</p>
+<div class="highlight">
+<pre><span></span>CountPercentage(sample.is_valid)()
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Value</th>
+<th class="org-right" scope="col">Count</th>
+<th class="org-right" scope="col">Percent (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">False</td>
+<td class="org-right">800</td>
+<td class="org-right">80.00</td>
+</tr>
+<tr>
+<td class="org-left">True</td>
+<td class="org-right">200</td>
+<td class="org-right">20.00</td>
+</tr>
+</tbody>
+</table>
+<p>Well, so exactly 20% are invalid? Curious.</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org5e3c7a2">
+<h4 id="org5e3c7a2">The Text List</h4>
+<div class="outline-text-4" id="text-org5e3c7a2">
+<p>To actually work with the dataset we'll use fastai's <a href="https://docs.fast.ai/text.data.html#The-TextList-input-classes">TextList</a> instead of pandas' dataframe.</p>
+<div class="highlight">
+<pre><span></span>sample_list = TextList.from_csv(path, "texts.csv", cols="text")
+sample_split = sample_list.split_from_df(col=2)
+sample = (sample_split
+          .label_from_df(cols=0))
+</pre></div>
+<p>The original notebook builds the <code>TextList</code> in a single train-wreck, but if you try and find out what those methods do from the fastai documentation… well, good luck to you, it's easier (although still obscure) to inspect the intermediate objects to try and muddle through what's going on. The ultimate outcome seems to be that <code>sample</code> is an object with the somewhat pre-processed. It looks like the text is lower-cased and somewhat tokenized. There's also a lot of strange tokens inserted (<code>xxmaj</code>, <code>xxunk</code>) which, according to the <a href="https://docs.fast.ai/text.transform.html#Introduction">tokenization documentation</a> indicate special tokens - although there's more unknown tokens than I would have expected.</p>
+<div class="highlight">
+<pre><span></span>print(sample.train.x[0])
+</pre></div>
+<pre class="example">
+xxbos xxmaj un - xxunk - believable ! xxmaj meg xxmaj ryan does n't even look her usual xxunk lovable self in this , which normally makes me forgive her shallow xxunk acting xxunk . xxmaj hard to believe she was the producer on this dog . xxmaj plus xxmaj kevin xxmaj kline : what kind of suicide trip has his career been on ? xxmaj xxunk ... xxmaj xxunk ! ! ! xxmaj finally this was directed by the guy who did xxmaj big xxmaj xxunk ? xxmaj must be a replay of xxmaj jonestown - hollywood style . xxmaj xxunk !
+</pre>
+<div class="highlight">
+<pre><span></span>print(sample_frame.text.iloc[0])
+</pre></div>
+<pre class="example">
+Un-bleeping-believable! Meg Ryan doesn't even look her usual pert lovable self in this, which normally makes me forgive her shallow ticky acting schtick. Hard to believe she was the producer on this dog. Plus Kevin Kline: what kind of suicide trip has his career been on? Whoosh... Banzai!!! Finally this was directed by the guy who did Big Chill? Must be a replay of Jonestown - hollywood style. Wooofff!
+</pre>
+<p>Here's the category fo that review.</p>
+<div class="highlight">
+<pre><span></span>print(sample.train.y[0])
+</pre></div>
+<pre class="example">
+negative
+</pre>
+<p>Note that the output looks like a string, but it's actually a fastai "type".</p>
+<div class="highlight">
+<pre><span></span>print(type(sample.train.y[0]))
+</pre></div>
+<pre class="example">
+&lt;class 'fastai.core.Category'&gt;
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgb1d41c7">
+<h3 id="orgb1d41c7">Creating a Term-Document Matrix</h3>
+<div class="outline-text-3" id="text-orgb1d41c7">
+<p>Here we'll create a matrix that counts the number of times each token appears in each document.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga0a53d0">
+<h2 id="orga0a53d0">End</h2>
+<div class="outline-text-2" id="text-orga0a53d0"></div>
+<div class="outline-3" id="outline-container-orgb33814d">
+<h3 id="orgb33814d">Reference</h3>
+<div class="outline-text-3" id="text-orgb33814d"></div>
+<div class="outline-4" id="outline-container-org2f8da6e">
+<h4 id="org2f8da6e">The Dataset</h4>
+<div class="outline-text-4" id="text-org2f8da6e">
+<ul class="org-ul">
+<li>Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and Christopher Potts. 2011. Learning word vectors for sentiment analysis. In Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies - Volume 1 (HLT ’11). Association for Computational Linguistics, USA, 142–150</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="/categories/fastai/" rel="tag">fastai</a></li>
+<li><a class="tag p-category" href="/categories/nlp/" rel="tag">nlp</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/" rel="prev" title="Topic Modeling With Matrix Decomposition">Previous post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer">Contents © 2020 <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="/assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script> 
+</body>
+</html>

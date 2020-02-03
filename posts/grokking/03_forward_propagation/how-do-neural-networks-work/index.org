@@ -10,8 +10,41 @@
 
 #+END_COMMENT
 #+OPTIONS: ^:{}
-#+TOC: headlines 1
+#+TOC: headlines 2
 * Beginning
+** What is this about?
+  These are notes on Chapter Three of "Grokking Deep Learning". It is an explanation of how neural networks perform the first step of training the model - making predictions. This might seem like a step for after you finish training the model, but in order to correct the model you have to be able to make predictions to see how well it is doing. We'll look at a model that predicts whether a team will win a game based on a single feature (the average number of toes on the team).
+
+Heres' the network.
+
+#+BEGIN_SRC ipython :session grok :results raw drawer ../../../files/posts/grokking/03_forward_propagation/how-do-neural-networks-owrk/toes_model_1.png
+SLUG = "how-do-neural-networks-work/"
+PATH = "../../../files/posts/grokking/03_forward_propagation/" + SLUG
+graph = Digraph(comment="Toes Model", format="png",
+                graph_attr={"rankdir": "LR", "dpi": "200"})
+graph.node("A", "Toes")
+graph.node("B", "Win")
+graph.edge("A", "B", label="w=0.1")
+graph.render(PATH + "toes_model_1.dot")
+graph
+#+END_SRC
+
+#+RESULTS:
+:results:
+# Out[24]:
+[[file:./obipy-resources/VpM6AT.svg]]
+:end:
+
+[[file:toes_model_1.dot.png]]
+
+Although we're calling it a network we're really creating only the first building block for a single neuron. A neuron works by doing three basic things:
+
+ 1. It receives signals from other neurons (over /dendrites/, the inputs to the neuron)
+ 2. It aggregates the signals within the cell-body (/soma/) of the neurn
+ 3. If the cell voltage crosses a threshold then it fires a signal out across its /axon/
+
+We can kind of say there's an implied axon to our network, it just isn't shown, and we can read the /Toes/ node as either another neuron and the edge between it and the /Win/ node is a /synapse/ (Greek for /conjunction/) which contains an axon coming out of /Toes/ that joins the dendrite going into /Win/), and we might even say that it's a network of two nodes, but what we are truly missing is the test to see if the cell's charge exceeds a threshold. That will have to come later.
+
 ** Imports
 *** From Python
  #+BEGIN_SRC ipython :session grok :results none
@@ -22,7 +55,10 @@ from typing import List
 #+BEGIN_SRC ipython :session grok :results none
 from graphviz import Digraph
 import holoviews
+import hvplot.pandas
 import numpy
+import pandas
+import torch
  #+END_SRC
 *** Others
 #+begin_src ipython :session grok :results none
@@ -33,7 +69,7 @@ from graeae import EmbedHoloviews
 #+BEGIN_SRC ipython :session grok :results none
 Embed = partial(
     EmbedHoloviews,
-    folder_path="../../../files/posts/grokking/03_forward_propagation/how-do-neural-networks-work")
+    folder_path=PATH)
 
 holoviews.opts(width=1000, height=800)
 #+END_SRC
@@ -41,35 +77,17 @@ holoviews.opts(width=1000, height=800)
 #+BEGIN_SRC ipython :session grok :results none
 Numbers = List[float]
 #+END_SRC
-** What is this about?
-  These are notes on Chapter Three of "Grokking Deep Learning". It is an explanation of how neural networks perform the first step of training the model - Predict. It will look at a model that predicts whether a team will win a game based on a single feature (the average number of toes on the team).
-
-Heres' the network.
-
-#+BEGIN_SRC ipython :session grok :results raw drawer ../../../files/posts/grokking/03_forward_propagation/how-do-neural-networks-work/toes_model_1.png
-graph = Digraph(comment="Toes Model", format="png",
-                graph_attr={"rankdir": "LR"})
-#graph.graph_attr["rankdir"] ="LR"
-#graph.graph_attr["format"] = "png"
-graph.node("A", "Toes")
-graph.node("B", "Win")
-graph.edge("A", "B")
-graph.render("graphs/toes_model_1.dot")
-graph
-#+END_SRC
-
-#+RESULTS:
-:RESULTS:
-# Out[31]:
-[[file:./obipy-resources/3FpW0g.svg]]
-:END:
+* Middle
+** What is the simplest neural network we can create to make this prediction?
+*** Our Network
 
 [[file:toes_model_1.dot.png]]
 
+Our network represents two neurons with a synapse between them. The synapse/dendrite has a certain weight representing how much of the input signal (average number of toes) can get across it to the /Win/ neuron - the higher the weight, the more signal it contributes to our /Win/ neuron deciding whether to fire or not. In this case we have an arbitrary weight of 0.1. The input to the /Win/ neuron is just the weight of the dendrite times the output of the /Toes/ neuron.
 
-* What is the simplest neural network we can create to make this prediction?
-** Our Network
-#+BEGIN_SRC ipython :session grok :results none
+In the book /Grokking Deep Learning/ Andrew Trask uses the analogy of the weights being like the knob on a machine that turns the volume up and down (I don't think he says volume, but it's the same idea). This is something that I seem to recall seeing in books describing the coefficients for linear regression - every variable you add gives you another knob to tune, but since the more common analogy is to think of modeling artificial neurons in the brain, it might be better to think of the weights as the thickness of the dendrite.
+    
+ #+BEGIN_SRC ipython :session grok :results none
 def one_neuron(toes: float, weight: float=0.1) -> float:
     """This is a model to predict whether a team will win
     
@@ -78,36 +96,62 @@ def one_neuron(toes: float, weight: float=0.1) -> float:
      weight: how much to weight to give to the toes
 
     Returns:
-     prediction: our guess as to whether they will win
+     prediction: our guess as to the probability that they will win
     """
     return toes * weight
-#+END_SRC
-** Some Predictions
-#+BEGIN_SRC ipython :session grok :results output :exports both
-average_toes = [8.5, 9.5, 10, 9]
-for toes in average_toes:
-    prediction = one_neuron(toes)
-    print(
-        ("I predict the team with {} toes has a {:.0f} % "
-         "probability of winning.").format(toes, 100 * prediction))
-#+END_SRC
+ #+END_SRC
+*** Some Predictions
+    We can test out what our model thinks with some test values.
+ #+BEGIN_SRC ipython :session grok :results output raw :exports both
+average_toes = [8.5, 9, 9.5, 10]
+predictions = [one_neuron(toe) for toe in average_toes]
+print("| Toes | Probability of Winning (%)|")
+print("|-+-|")
+for index, toes in enumerate(average_toes):
+    prediction = predictions[index] * 100
+    print(f"| {toes} | {prediction:.0f} % |")
+ #+END_SRC
 
-#+RESULTS:
-: I predict the team with 8.5 toes has a 85 % probability of winning.
-: I predict the team with 9.5 toes has a 95 % probability of winning.
-: I predict the team with 10 toes has a 100 % probability of winning.
-: I predict the team with 9 toes has a 90 % probability of winning.
+ #+RESULTS:
+ | Toes | Probability of Winning (%) |
+ |------+----------------------------|
+ |  8.5 | 85 %                       |
+ |    9 | 90 %                       |
+ |  9.5 | 95 %                       |
+ |   10 | 100 %                      |
 
-* What does /knowledge/ and /information/ mean in our neural network?
-  The neural network stores its /knowledge/ as weights and when given /information/ (input) it converts them to a prediction (output).
-* What kind of memory does a neuron have?
-  A neuron stores what its learned (long-term memory) as the weight on the edge(s). The neuron as we've implemented it doesn't have any short-term memory, it can only consider one input at a time and "forgets" the previous input that it got. To have short-term memory you need to employ a different method that uses multiple inputs at the same time.
-* So weights are memory, but what is it memorizing?
-  Since the neuron represents one feature (average toes) the weight is how important this feature is to the outcome (winning). If you have multiple features, the weights turn up or down the volume for each of the features (thus the knob analogy).
-* So, how do you handle multiple inputs?
-  If you have multiple inputs then your prediction is the sum of the individual outputs.
+ #+BEGIN_SRC ipython :session grok :results output raw :exports both
+data = pandas.DataFrame({"Average Toes": average_toes,
+                         "Probability of Winning": predictions})
+plot = data.hvplot(x="Average Toes", y="Probability of Winning").opts(
+    width=1000, height=800, title="Toe Model")
+Embed(plot=plot, file_name="toes_only_predictions")()
+ #+END_SRC
 
-#+BEGIN_SRC ipython :session grok :results none
+ #+RESULTS:
+ #+begin_export html
+ <object type="text/html" data="toes_only_predictions.html" style="width:100%" height=800>
+   <p>Figure Missing</p>
+ </object>
+ #+end_export
+
+As you can see, it's just a straight line. If we think in terms of the familiar \(y=mx + b\) it's:
+
+\[
+probability = 0.1 \times toes 
+\]
+
+Where \(b=0\). So every toe contributes 10% to our prediction.
+** What does /knowledge/ and /information/ mean in our neural network?
+   The neural network stores its /knowledge/ as weights and when given /information/ (input) it converts them to a prediction (output).
+** What kind of memory does a neuron have?
+   A neuron stores what its learned (long-term memory) as the weight on the edge(s). The neuron as we've implemented it doesn't have any short-term memory, it can only consider one input at a time and "forgets" the previous input that it got. To have short-term memory you need to employ a different method that uses multiple inputs at the same time.
+** So weights are memory, but what is it memorizing?
+   Since the neuron represents one feature (average toes) the weight is how important this feature is to the outcome (winning). If you have multiple features, the weights turn up or down the volume for each of the features (thus the knob analogy).
+** So, how do you handle multiple inputs?
+   If you have multiple inputs then your prediction is the sum of the individual outputs.
+
+ #+BEGIN_SRC ipython :session grok :results none
 graph = Digraph(comment="Three Nodes", format="png")
 graph.node("A", "Toes")
 graph.node("B", "Wins")
@@ -115,13 +159,13 @@ graph.node("C", "Fans")
 graph.node("D", "Prediction")
 graph.edges(["AD", "BD", "CD"])
 graph.render("graphs/three_nodes.dot")
-#+END_SRC
+ #+END_SRC
 
-[[file:three_nodes.dot.png]]
+ [[file:three_nodes.dot.png]]
 
-** Weighted Sum
-   Since we have three nodes we need to return the sum of the weights and inputs. This is actually [[https://en.wikipedia.org/wiki/Dot_product][the dot-product]].
-#+BEGIN_SRC ipython :session grok :results none
+*** Weighted Sum
+    Since we have three nodes we need to return the sum of the weights and inputs. This is actually [[https://en.wikipedia.org/wiki/Dot_product][the dot-product]].
+ #+BEGIN_SRC ipython :session grok :results none
 def weighted_sum(inputs: Numbers, weights: Numbers) -> float:
     """calculates the sum of the products
 
@@ -134,44 +178,105 @@ def weighted_sum(inputs: Numbers, weights: Numbers) -> float:
     """
     assert len(inputs) == len(weights)
     return sum((inputs[item] * weights[item] for item in range(len(inputs))))
-#+END_SRC
+ #+END_SRC
 
-** The Node
-   For each of our features we will have a series of inputs and weights
+*** The Node
+    For each of our features we will have a series of inputs and weights
 
-#+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC ipython :session grok :results none
 def network(inputs: Numbers, weights:Numbers) -> float:
     """Makes a prediction based on the inputs and weights"""
     return weighted_sum(inputs, weights)
-#+END_SRC
+ #+END_SRC
 
-** Some Statistics
-   We have some data collected about our team over four games.
+*** Some Statistics
+    We have some data collected about our team over four games.
 
-| Variable | Description                                          |
-|----------+------------------------------------------------------|
-| =toes=   | average number of toes the members have at game-time |
-| =record= | fraction of games won                                |
-| =fans=   | Millions of fans that watched                        |
+ | Variable | Description                                          |
+ |----------+------------------------------------------------------|
+ | =toes=   | average number of toes the members have at game-time |
+ | =record= | fraction of games won                                |
+ | =fans=   | Millions of fans that watched                        |
 
-#+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC ipython :session grok :results none
 toes = [8.5, 9.5, 9.9, 9.0]
 record = [0.65, 0.8, 0.8, 0.9]
 fans = [1.2, 1.3, 0.5, 1.0]
-#+END_SRC
+ #+END_SRC
 
-#+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC ipython :session grok :results none
 weights = [0.1, 0.2, 0.0]
-#+END_SRC
+ #+END_SRC
 
-The weights correspond to /(toes, record, fans)/ for each game so we weight the win-loss record the most and fans not at all.
+ The weights correspond to /(toes, record, fans)/ for each game so we weight the win-loss record the most and fans not at all.
 
-#+BEGIN_SRC ipython :session grok :results output :exports both
+ #+BEGIN_SRC ipython :session grok :results output :exports both
 predictions = [
-    neural_network([toes[game], record[game], fans[game]], weights)
+    network([toes[game], record[game], fans[game]], weights)
                for game in range(len(toes))]
 assert abs(predictions[0] - 0.98) < 0.1**5
 
+for game, prediction in enumerate(predictions):
+    print("For game {} our prediction is {:.2f}".format(game + 2,
+                                                    prediction))
+ #+END_SRC
+
+ #+RESULTS:
+ : For game 2 our prediction is 0.98
+ : For game 3 our prediction is 1.11
+ : For game 4 our prediction is 1.15
+ : For game 5 our prediction is 1.08
+
+With the exception of game two we're predicting that the combination of toes and previous wins make the win pretty much inevitable.
+
+ #+BEGIN_SRC ipython :session grok :results output raw :exports both
+data = pandas.DataFrame({"toes": toes, "record": record,
+                         "prediction": predictions})
+data = data.sort_values(by="toes")
+prediction_plot = data.hvplot(x="toes", y="prediction")
+other = data.hvplot(x="toes", y="record")
+plot = (prediction_plot * other).opts(
+    title="Toes vs Record & Prediction",
+    width=1000,
+    height=800,
+)
+
+Embed(plot=plot, file_name="toes_vs_record")()
+ #+END_SRC
+
+ #+RESULTS:
+ #+begin_export html
+ <object type="text/html" data="toes_vs_record.html" style="width:100%" height=800>
+   <p>Figure Missing</p>
+ </object>
+ #+end_export
+
+Looking at the plot you can see that the probability keeps climbing with the number of toes and the peak record (9 toes, 90% wins) is canceled out by the fact that it occurs with a team with fewer toes than the peak of 9.9 toes.
+** How would you do this with numpy?
+Although we used for-loops to calculate the predictions, we can view each of the inputs as a vector and the weights as a vector and then the prediction becomes the dot product of the inputs and the weights, so we can use numpy's [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.dot.html][dot]] method to calculate it for us.
+ #+BEGIN_SRC ipython :session grok :results output :exports both
+network = numpy.array([toes, record, fans])
+predictions = network.T.dot(weights)
+assert abs(predictions[0] - 0.98) < 0.1**5
+
+for game, prediction in enumerate(predictions):
+    print("For game {} our prediction is {:.2f}".format(game + 2,
+                                                    prediction))
+ #+END_SRC
+
+ #+RESULTS:
+ : For game 2 our prediction is 0.98
+ : For game 3 our prediction is 1.11
+ : For game 4 our prediction is 1.15
+ : For game 5 our prediction is 1.08
+
+*** PyTorch Redo
+    Pytorch can act like numpy working on the GPU, making the calculations faster, but the syntax is a little different.
+#+BEGIN_SRC ipython :session grok :results output :exports both
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+inputs = torch.tensor([toes, record, fans], device=device)
+weights = torch.tensor(weights, device=device)
+predictions = inputs.T.matmul(weights)
 for game, prediction in enumerate(predictions):
     print("For game {} our prediction is {:.2f}".format(game + 2,
                                                     prediction))
@@ -182,24 +287,13 @@ for game, prediction in enumerate(predictions):
 : For game 3 our prediction is 1.11
 : For game 4 our prediction is 1.15
 : For game 5 our prediction is 1.08
-* How would you do this with numpy?
-  Since we know we're just calculating the dot-product of the weights and inputs, we can use numpy's [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.dot.html][dot]] method.
-#+BEGIN_SRC ipython :session grok :results output :exports both
-predictions = [
-    numpy.array([toes[game], record[game], fans[game]]).dot(weights)
-               for game in range(len(toes))]
-assert abs(predictions[0] - 0.98) < 0.1**5
+: /home/athena/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/ipykernel_launcher.py:3: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+:   This is separate from the ipykernel package so we can avoid doing imports until
 
-for game, prediction in enumerate(predictions):
-    print("For game {} our prediction is {:.2f}".format(game + 2,
-                                                    prediction))
+**Note:** In this simple case the pytorch version is much slower than the numpy version - sometimes "optimization" isn't really optimal.
 
-#+END_SRC
-
-#+RESULTS:
-: For game 2 our prediction is 0.98
-: For game 3 our prediction is 1.11
-: For game 4 our prediction is 1.15
-: For game 5 our prediction is 1.08
-
-
+* End
+** Sources
+*** [GDL] Trask AW. Grokking Deep Learning. Shelter Island: Manning; 2019. 309 p.
+*** [DLI] Krohn J. Deep Learning Illustrated: a visual, interactive guide to artificial intelligence. Boston, MA: Addison-Wesley; 2019.
+*** [[https://github.com/iamtrask/Grokking-Deep-Learning/blob/master/Chapter3%20-%20%20Forward%20Propagation%20-%20Intro%20to%20Neural%20Prediction.ipynb][iamtrask]]: Andrew Trask's jupyter notebook (on github) for this chapter
