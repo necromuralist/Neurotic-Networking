@@ -12,27 +12,48 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 * Beginning
+** Imports
+   Some if this is needed to draw the network so I'm putting all the imports first.
+*** From Python
+ #+BEGIN_SRC python :session grok :results none
+from functools import partial
+from pathlib import Path
+from typing import List
+ #+END_SRC
+*** From PyPi 
+#+BEGIN_SRC python :session grok :results none
+from graphviz import Digraph
+import holoviews
+import hvplot.pandas
+import numpy
+import pandas
+import torch
+ #+END_SRC
+*** Others
+#+begin_src python :session grok :results none
+from graeae import EmbedHoloviews
+#+end_src
 ** What is this about?
   These are notes on Chapter Three of "Grokking Deep Learning". It is an explanation of how neural networks perform the first step of training the model - making predictions. This might seem like a step for after you finish training the model, but in order to correct the model you have to be able to make predictions to see how well it is doing. We'll look at a model that predicts whether a team will win a game based on a single feature (the average number of toes on the team).
 
 Heres' the network.
 
-#+BEGIN_SRC ipython :session grok :results raw drawer ../../../files/posts/grokking/03_forward_propagation/how-do-neural-networks-owrk/toes_model_1.png
+#+BEGIN_SRC python :session grok :results raw drawer
 SLUG = "how-do-neural-networks-work/"
-PATH = "../../../files/posts/grokking/03_forward_propagation/" + SLUG
+PATH = Path("../../../files/posts/grokking/03_forward_propagation/")/SLUG
 graph = Digraph(comment="Toes Model", format="png",
                 graph_attr={"rankdir": "LR", "dpi": "200"})
 graph.node("A", "Toes")
 graph.node("B", "Win")
 graph.edge("A", "B", label="w=0.1")
-graph.render(PATH + "toes_model_1.dot")
+graph.render(PATH/"toes_model_1.dot")
 graph
 #+END_SRC
 
 #+RESULTS:
 :results:
-# Out[24]:
-[[file:./obipy-resources/VpM6AT.svg]]
+# Out[4]:
+[[file:./obipy-resources/XQ10GI.svg]]
 :end:
 
 [[file:toes_model_1.dot.png]]
@@ -43,30 +64,11 @@ Although we're calling it a network we're really creating only the first buildin
  2. It aggregates the signals within the cell-body (/soma/) of the neurn
  3. If the cell voltage crosses a threshold then it fires a signal out across its /axon/
 
-We can kind of say there's an implied axon to our network, it just isn't shown, and we can read the /Toes/ node as either another neuron and the edge between it and the /Win/ node is a /synapse/ (Greek for /conjunction/) which contains an axon coming out of /Toes/ that joins the dendrite going into /Win/), and we might even say that it's a network of two nodes, but what we are truly missing is the test to see if the cell's charge exceeds a threshold. That will have to come later.
+We can kind of say there's an implied axon to our network, it just isn't shown, and we can read the /Toes/ node as either another neuron and the edge between it and the /Win/ node is a /synapse/ (Greek for /conjunction/) which contains an axon coming out of /Toes/ that joins the dendrite going into /Win/), giving us a network of two nodes, but what we are missing is the test to see if the cell's charge exceeds a threshold. That will come later.
 
-** Imports
-*** From Python
- #+BEGIN_SRC ipython :session grok :results none
-from functools import partial
-from typing import List
- #+END_SRC
-*** From PyPi 
-#+BEGIN_SRC ipython :session grok :results none
-from graphviz import Digraph
-import holoviews
-import hvplot.pandas
-import numpy
-import pandas
-import torch
- #+END_SRC
-*** Others
-#+begin_src ipython :session grok :results none
-from graeae import EmbedHoloviews
-#+end_src
 ** Set Up
 *** Plotting
-#+BEGIN_SRC ipython :session grok :results none
+#+BEGIN_SRC python :session grok :results none
 Embed = partial(
     EmbedHoloviews,
     folder_path=PATH)
@@ -74,7 +76,8 @@ Embed = partial(
 holoviews.opts(width=1000, height=800)
 #+END_SRC
 *** Types
-#+BEGIN_SRC ipython :session grok :results none
+    This is for type-hinting.
+#+BEGIN_SRC python :session grok :results none
 Numbers = List[float]
 #+END_SRC
 * Middle
@@ -83,11 +86,11 @@ Numbers = List[float]
 
 [[file:toes_model_1.dot.png]]
 
-Our network represents two neurons with a synapse between them. The synapse/dendrite has a certain weight representing how much of the input signal (average number of toes) can get across it to the /Win/ neuron - the higher the weight, the more signal it contributes to our /Win/ neuron deciding whether to fire or not. In this case we have an arbitrary weight of 0.1. The input to the /Win/ neuron is just the weight of the dendrite times the output of the /Toes/ neuron.
+Our network represents two neurons with a synapse between them. The dendrite leading into the /Win/ neuron has a certain weight representing how much of the input signal (average number of toes) can get across it to the /Win/ neuron - the higher the weight, the more signal it contributes to our /Win/ neuron deciding whether to fire or not (once we add a threshold). In this case we have an arbitrary weight of 0.1. The input to the /Win/ neuron is just the weight of the dendrite times the output of the /Toes/ neuron.
 
 In the book /Grokking Deep Learning/ Andrew Trask uses the analogy of the weights being like the knob on a machine that turns the volume up and down (I don't think he says volume, but it's the same idea). This is something that I seem to recall seeing in books describing the coefficients for linear regression - every variable you add gives you another knob to tune, but since the more common analogy is to think of modeling artificial neurons in the brain, it might be better to think of the weights as the thickness of the dendrite.
     
- #+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC python :session grok :results none
 def one_neuron(toes: float, weight: float=0.1) -> float:
     """This is a model to predict whether a team will win
     
@@ -102,7 +105,7 @@ def one_neuron(toes: float, weight: float=0.1) -> float:
  #+END_SRC
 *** Some Predictions
     We can test out what our model thinks with some test values.
- #+BEGIN_SRC ipython :session grok :results output raw :exports both
+ #+BEGIN_SRC python :session grok :results output raw :exports both
 average_toes = [8.5, 9, 9.5, 10]
 predictions = [one_neuron(toe) for toe in average_toes]
 print("| Toes | Probability of Winning (%)|")
@@ -120,7 +123,7 @@ for index, toes in enumerate(average_toes):
  |  9.5 | 95 %                       |
  |   10 | 100 %                      |
 
- #+BEGIN_SRC ipython :session grok :results output raw :exports both
+ #+BEGIN_SRC python :session grok :results output raw :exports both
 data = pandas.DataFrame({"Average Toes": average_toes,
                          "Probability of Winning": predictions})
 plot = data.hvplot(x="Average Toes", y="Probability of Winning").opts(
@@ -135,7 +138,7 @@ Embed(plot=plot, file_name="toes_only_predictions")()
  </object>
  #+end_export
 
-As you can see, it's just a straight line. If we think in terms of the familiar \(y=mx + b\) it's:
+As you can see, it's just a straight line. If we think in terms of the familiar \(y=mx + b\), our model is the equivalent of:
 
 \[
 probability = 0.1 \times toes 
@@ -149,23 +152,28 @@ Where \(b=0\). So every toe contributes 10% to our prediction.
 ** So weights are memory, but what is it memorizing?
    Since the neuron represents one feature (average toes) the weight is how important this feature is to the outcome (winning). If you have multiple features, the weights turn up or down the volume for each of the features (thus the knob analogy).
 ** So, how do you handle multiple inputs?
-   If you have multiple inputs then your prediction is the sum of the individual outputs.
+   If you have multiple inputs then your prediction is the sum of the individual inputs times their weights.
 
- #+BEGIN_SRC ipython :session grok :results none
-graph = Digraph(comment="Three Nodes", format="png")
+ #+BEGIN_SRC python :session grok :results none
+graph = Digraph(comment="Three Nodes", format="png",
+                graph_attr={"rankdir": "LR", "dpi": "200"})
 graph.node("A", "Toes")
 graph.node("B", "Wins")
 graph.node("C", "Fans")
 graph.node("D", "Prediction")
-graph.edges(["AD", "BD", "CD"])
-graph.render("graphs/three_nodes.dot")
+graph.edge("A", "D", label="0.1")
+graph.edge("B", "D", label="0.2")
+graph.edge("C", "D", label="0.0")
+graph.render(PATH/"three_nodes.dot")
  #+END_SRC
 
  [[file:three_nodes.dot.png]]
 
+Here we've added two more input neurons - /Wins/ is the fraction of games played that the team won and /Fans/ is the number of fans the team has (in millions).
+
 *** Weighted Sum
-    Since we have three nodes we need to return the sum of the weights and inputs. This is actually [[https://en.wikipedia.org/wiki/Dot_product][the dot-product]].
- #+BEGIN_SRC ipython :session grok :results none
+    Since we have three nodes we need to return the sum of the weights and inputs. If we think of the weights and inputs as vectorns then this is [[https://en.wikipedia.org/wiki/Dot_product][their dot-product]].
+ #+BEGIN_SRC python :session grok :results none
 def weighted_sum(inputs: Numbers, weights: Numbers) -> float:
     """calculates the sum of the products
 
@@ -181,15 +189,15 @@ def weighted_sum(inputs: Numbers, weights: Numbers) -> float:
  #+END_SRC
 
 *** The Node
-    For each of our features we will have a series of inputs and weights
+    Right now this next function is just an alias for the =weighted_sum= but eventually we'll be doing more with it.
 
- #+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC python :session grok :results none
 def network(inputs: Numbers, weights:Numbers) -> float:
     """Makes a prediction based on the inputs and weights"""
     return weighted_sum(inputs, weights)
  #+END_SRC
 
-*** Some Statistics
+*** Some Inputs
     We have some data collected about our team over four games.
 
  | Variable | Description                                          |
@@ -198,38 +206,49 @@ def network(inputs: Numbers, weights:Numbers) -> float:
  | =record= | fraction of games won                                |
  | =fans=   | Millions of fans that watched                        |
 
- #+BEGIN_SRC ipython :session grok :results none
+ #+BEGIN_SRC python :session grok :results none
 toes = [8.5, 9.5, 9.9, 9.0]
 record = [0.65, 0.8, 0.8, 0.9]
 fans = [1.2, 1.3, 0.5, 1.0]
  #+END_SRC
 
- #+BEGIN_SRC ipython :session grok :results none
+Each entry in the vectors is the value that was true just before each game. This makes the first =record= entry sort of non-sensical, but it's just an illustration.
+
+ #+BEGIN_SRC python :session grok :results none
 weights = [0.1, 0.2, 0.0]
  #+END_SRC
 
- The weights correspond to /(toes, record, fans)/ for each game so we weight the win-loss record the most and fans not at all.
+ The weights correspond to /(toes, record, fans)/ for each game so we weight the win-loss record the most and fans not at all. Our for game /i/ (so 0 if it's the first game), our prediction will be calculated as:
 
- #+BEGIN_SRC ipython :session grok :results output :exports both
+\begin{align}
+prediction_i &= toes_i \times weights_0 + record_i \times weights_1 + fans_i \times weights_2\\
+&= (0.1) toes_i + (0.2) record_i + (0) fans_i\\
+\end{align}
+
+#+BEGIN_SRC python :session grok :results output raw :exports both
+print("|Game|Prediction|")
+print("|-+-|")
+
 predictions = [
     network([toes[game], record[game], fans[game]], weights)
                for game in range(len(toes))]
 assert abs(predictions[0] - 0.98) < 0.1**5
 
 for game, prediction in enumerate(predictions):
-    print("For game {} our prediction is {:.2f}".format(game + 2,
-                                                    prediction))
+    print(f"|{game + 1}|{prediction:.2f}")
  #+END_SRC
 
  #+RESULTS:
- : For game 2 our prediction is 0.98
- : For game 3 our prediction is 1.11
- : For game 4 our prediction is 1.15
- : For game 5 our prediction is 1.08
+ | Game | Prediction |
+ |------+------------|
+ |    1 |       0.98 |
+ |    2 |       1.11 |
+ |    3 |       1.15 |
+ |    4 |       1.08 |
 
-With the exception of game two we're predicting that the combination of toes and previous wins make the win pretty much inevitable.
+With the exception of game one we're predicting that the combination of toes and previous wins make the win pretty much inevitable. We should also note that the highestt prediction went to the third game which was the game with the highest number of average toes. Even though we weighted the win-loss record higher, the values being passed in are much greater for the toes than for the win-loss record.
 
- #+BEGIN_SRC ipython :session grok :results output raw :exports both
+ #+BEGIN_SRC python :session grok :results output raw :exports both
 data = pandas.DataFrame({"toes": toes, "record": record,
                          "prediction": predictions})
 data = data.sort_values(by="toes")
@@ -254,46 +273,52 @@ Embed(plot=plot, file_name="toes_vs_record")()
 Looking at the plot you can see that the probability keeps climbing with the number of toes and the peak record (9 toes, 90% wins) is canceled out by the fact that it occurs with a team with fewer toes than the peak of 9.9 toes.
 ** How would you do this with numpy?
 Although we used for-loops to calculate the predictions, we can view each of the inputs as a vector and the weights as a vector and then the prediction becomes the dot product of the inputs and the weights, so we can use numpy's [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.dot.html][dot]] method to calculate it for us.
- #+BEGIN_SRC ipython :session grok :results output :exports both
+ #+BEGIN_SRC python :session grok :results output raw :exports both
+print("|Game|Prediction|")
+print("|-+-|")
+
 network = numpy.array([toes, record, fans])
 predictions = network.T.dot(weights)
 assert abs(predictions[0] - 0.98) < 0.1**5
 
 for game, prediction in enumerate(predictions):
-    print("For game {} our prediction is {:.2f}".format(game + 2,
-                                                    prediction))
+    print(f"|{game + 1}|{prediction:.2f}|")
  #+END_SRC
 
  #+RESULTS:
- : For game 2 our prediction is 0.98
- : For game 3 our prediction is 1.11
- : For game 4 our prediction is 1.15
- : For game 5 our prediction is 1.08
+ | Game | Prediction |
+ |------+------------|
+ |    1 |       0.98 |
+ |    2 |       1.11 |
+ |    3 |       1.15 |
+ |    4 |       1.08 |
 
-*** PyTorch Redo
+*** What about pytorch
     Pytorch can act like numpy working on the GPU, making the calculations faster, but the syntax is a little different.
-#+BEGIN_SRC ipython :session grok :results output :exports both
+#+BEGIN_SRC python :session grok :results output raw :exports both
+print("|Game|Prediction|")
+print("|-+-|")
+
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 inputs = torch.tensor([toes, record, fans], device=device)
-weights = torch.tensor(weights, device=device)
-predictions = inputs.T.matmul(weights)
+weights_vector = torch.tensor(weights, device=device)
+predictions = inputs.T.matmul(weights_vector).tolist()
 for game, prediction in enumerate(predictions):
-    print("For game {} our prediction is {:.2f}".format(game + 2,
-                                                    prediction))
+    print(f"|{game + 1}|{prediction:.2f}|")
 #+END_SRC
 
 #+RESULTS:
-: For game 2 our prediction is 0.98
-: For game 3 our prediction is 1.11
-: For game 4 our prediction is 1.15
-: For game 5 our prediction is 1.08
-: /home/athena/.virtualenvs/In-Too-Deep/lib/python3.7/site-packages/ipykernel_launcher.py:3: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
-:   This is separate from the ipykernel package so we can avoid doing imports until
-
-**Note:** In this simple case the pytorch version is much slower than the numpy version - sometimes "optimization" isn't really optimal.
+| Game | Prediction |
+|------+------------|
+|    1 |       0.98 |
+|    2 |       1.11 |
+|    3 |       1.15 |
+|    4 |       1.08 |
+ 
+**Note:** In this simple case the pytorch version can be much slower than the numpy version - sometimes "optimization" isn't really optimal.
 
 * End
 ** Sources
-*** [GDL] Trask AW. Grokking Deep Learning. Shelter Island: Manning; 2019. 309 p.
-*** [DLI] Krohn J. Deep Learning Illustrated: a visual, interactive guide to artificial intelligence. Boston, MA: Addison-Wesley; 2019.
-*** [[https://github.com/iamtrask/Grokking-Deep-Learning/blob/master/Chapter3%20-%20%20Forward%20Propagation%20-%20Intro%20to%20Neural%20Prediction.ipynb][iamtrask]]: Andrew Trask's jupyter notebook (on github) for this chapter
+   - [GDL] Trask AW. Grokking Deep Learning. Shelter Island: Manning; 2019. 309 p.
+   - [DLI] Krohn J. Deep Learning Illustrated: a visual, interactive guide to artificial intelligence. Boston, MA: Addison-Wesley; 2019.
+   - [[https://github.com/iamtrask/Grokking-Deep-Learning/blob/master/Chapter3%20-%20%20Forward%20Propagation%20-%20Intro%20to%20Neural%20Prediction.ipynb][iamtrask]]: Andrew Trask's jupyter notebook (on github) for this chapter
