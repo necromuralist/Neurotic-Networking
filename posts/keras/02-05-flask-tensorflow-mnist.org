@@ -100,6 +100,8 @@ print(f"Testing:\t{rows:,} images\timage = {width} x {height}")
 : Training:	60,000 images	image = 28 x 28
 : Testing:	10,000 images	image = 28 x 28
 
+** A Note On the Tangling
+   I'm going to do this as a [[https://www.wikiwand.com/en/Literate_programming][literate programming]] document with the tangle going into a temporary folder. I was creating the temporary folder using python but I'm running the code on a different machine from where I'm editing this document so running python executes on the remote machine but tangling out the files happens on my local machine. Maybe next time it will make more sense to edit the document on the remote machine (note to future self). Although that also introduces problems because then I'd have to run the tests headless... Every solution has a problem.
 * Middle
 ** The Data
 *** The Distribution
@@ -307,9 +309,11 @@ So our validation accuracy goes from 38 % to 94%, which isn't bad, especially wh
 *** Save It
     Now we can save the model to use in our flask application.
 
-**Note To Self:** Since this is being run on a remote machine, both the =.env= file and the directory to save the models refers to the remote machine, not the local machine where this file is being edited.
+**Note To Self:** Since this is being run on a remote machine, both the =.env= file and the directory to save the models refers to the remote machine, not the local machine where this file is being edited so you have to copy it to the local machine later on to use it with flask.
 
 Also note that the you can't see the name since I put it in a =.env= file but it has =.h5= as the extension. According to the TensorFlow page on [[https://www.tensorflow.org/guide/keras/save_and_serialize][saving and loading a model]], H5 is the older format, they've switched to the [[https://www.tensorflow.org/guide/saved_model][SavedModel]] format, you lose some information that would help you resume training, but we're not going to do that anyway, and the H5 format should be a little smaller.
+
+Most of the next blob is to make sure the folder for the model exists. I put it in the environment variable mostly because I keep changing my mind as to where to put it and what to call it.
 
 #+begin_src python :results none
 base = "flask_tensorflow_mnist"
@@ -322,17 +326,18 @@ MODEL_PATH = MODELS/MODEL_NAME
 model.save(MODEL_PATH)
 assert MODEL_PATH.is_file()
 #+end_src
-* The Web Page
-*** Back-End (The Model Server)
-**** Tests
-***** Fixtures
-      These are the pytest fixtures to make it easier to create objects.
+** The Web Page
+**** Back-End (The Model Server)
+***** Tests
+****** Fixtures
+       These are the pytest fixtures to make it easier to create objects.
 
-#+begin_src python :tangle ~/posts/flask-tensorflow/fixtures.py
+ #+begin_src python :tangle /tmp/flask-tensorflow/fixtures.py
 # python
 from argparse import Namespace
 
 # from pypi
+
 import pytest
 import tensorflow
 
@@ -357,6 +362,7 @@ def client():
         yield client
     return
 
+
 @pytest.fixture
 def mnist():
     """Gets the test labels"""
@@ -366,10 +372,10 @@ def mnist():
         x_test=x_test/MAX_BRIGHTNESS,
         y_test=y_test,
     )
-#+end_src
-***** Features
-      These are the feature files.
-#+begin_src feature :tangle ~/posts/flask-tensorflow/get_predictions.feature
+ #+end_src
+****** Features
+       These are the feature files.
+ #+begin_src feature :tangle /tmp/flask-tensorflow/get_predictions.feature
 Feature: A Prediction Getter
 
 Scenario: The root page is retrieved
@@ -386,11 +392,11 @@ Scenario: The API end-point is retrieved
   Given a connection to the flask client
   When the API end-point is retrieved
   Then the response has the expected JSON
-#+end_src
-**** The Tests
-     These are the actual test functions.
+ #+end_src
+****** The Tests
+      These are the actual test functions.
 
-#+begin_src python :tangle ~/posts/flask-tensorflow/test_get_predictions.py
+ #+begin_src python :tangle /tmp/flask-tensorflow/test_get_predictions.py
 # python
 from http import HTTPStatus
 
@@ -524,12 +530,11 @@ def check_response(katamari, mnist):
     expected = mnist.x_test[katamari.index]
     expect(numpy.array_equal(numpy.array(data["image"]), expected)).to(be_true)
     return
-#+end_src
+ #+end_src
 
-
-**** The Implementation
-    This is where we tangle out a file to run a flask server that will serve up our model's predictions.
-#+begin_src python :tangle ~/posts/flask-tensorflow/ml_server.py
+***** The Implementation
+     This is where we tangle out a file to run a flask server that will serve up our model's predictions.
+ #+begin_src python :tangle /tmp/flask-tensorflow/ml_server.py
 <<ml-server-imports>>
 
 <<ml-server-flask-app>>
@@ -550,11 +555,11 @@ def check_response(katamari, mnist):
 <<ml-server-api>>
 
 <<ml-server-main>>
-#+end_src
+ #+end_src
 
-First up is our imports. Other than Flask there really isn't anything new here.
+ First up is our imports. Other than Flask there really isn't anything new here.
 
-#+begin_src python :noweb-ref ml-server-imports
+ #+begin_src python :noweb-ref ml-server-imports
 # python
 from argparse import Namespace
 import json
@@ -570,22 +575,22 @@ import tensorflow
 
 from dotenv import load_dotenv
 from flask import Flask, request
-#+end_src
+ #+end_src
 
-Now we create the flask app and something to hold the paths.
+ Now we create the flask app and something to hold the paths.
 
-#+begin_src python :noweb-ref ml-server-flask-app
+ #+begin_src python :noweb-ref ml-server-flask-app
 app = Flask(__name__)
 
 PATHS = Namespace(
     root = "/",
     api = "/api",
 )
-#+end_src
+ #+end_src
 
-Next we'll load the saved model. I'm going to break this up a little bit just because I wasn't clear about what was going on originally.
+ Next we'll load the saved model. I'm going to break this up a little bit just because I wasn't clear about what was going on originally.
 
-#+begin_src python :noweb-ref ml-server-load-model
+ #+begin_src python :noweb-ref ml-server-load-model
 load_dotenv(override=True)
 
 base = "flask_tensorflow_mnist"
@@ -596,28 +601,28 @@ MODEL_PATH = MODELS/MODEL_NAME
 assert MODEL_PATH.is_file()
 
 model = tensorflow.keras.models.load_model(MODEL_PATH)
-#+end_src
+ #+end_src
 
-At this point we should have a re-loaded version of our trained model (minus some information as noted above because it was saved using the =H5= format). Our model has one output layer - the softmax prediction layer - which gives the probabilities that an input image is one of the ten digits, but since we want to see what each layer is doing, we'll create a new model with the output from each layer added to the outputs - so since we have three layers in the model we'll now have three outputs.
+ At this point we should have a re-loaded version of our trained model (minus some information as noted above because it was saved using the =H5= format). Our model has one output layer - the softmax prediction layer - which gives the probabilities that an input image is one of the ten digits, but since we want to see what each layer is doing, we'll create a new model with the output from each layer added to the outputs - so since we have three layers in the model we'll now have three outputs.
 
-#+begin_src python :noweb-ref ml-server-feature-model
+ #+begin_src python :noweb-ref ml-server-feature-model
 feature_model = tensorflow.keras.models.Model(
     inputs=model.inputs,
     outputs=[layer.output for layer in model.layers])
-#+end_src
+ #+end_src
 
-Next let's load and normalize the data. We don't use the training data or the labels here.
+ Next let's load and normalize the data. We don't use the training data or the labels here.
 
-#+begin_src python :noweb-ref ml-server-load-data
+ #+begin_src python :noweb-ref ml-server-load-data
 MAX_BRIGHTNESS = 255
 
 _, (x_test, _) = tensorflow.keras.datasets.mnist.load_data()
 x_test = x_test/MAX_BRIGHTNESS
-#+end_src
+ #+end_src
 
-Now we create the function to get the prediction for an image. It also returns the image so that we can see what it was.
+ Now we create the function to get the prediction for an image. It also returns the image so that we can see what it was.
 
-#+begin_src python :noweb-ref ml-server-get-prediction
+ #+begin_src python :noweb-ref ml-server-get-prediction
 ROWS, HEIGHT, WIDTH = x_test.shape
 PIXELS = HEIGHT * WIDTH
 
@@ -638,21 +643,21 @@ def get_prediction() -> (list, numpy.array):
     image = x_test[index,:,:]
     image_array = numpy.reshape(image, (1, PIXELS))
     return feature_model.predict(image_array), image
-#+end_src
+ #+end_src
 
-Next we create the handler for the REST calls. If you make a GET request from the root you'll get an HTML page back.
+ Next we create the handler for the REST calls. If you make a GET request from the root you'll get an HTML page back.
 
-#+begin_src python :noweb-ref ml-server-index
+ #+begin_src python :noweb-ref ml-server-index
 @app.route(PATHS.root, methods=['GET'])
 def index():
     """The home page view"""
-    return "This is the Neural Network Visualizer (use a POST, not a GET)"
-#+end_src
+    return "This is the Neural Network Visualizer (use /api for the API)"
+ #+end_src
 
 
-If you return a dict flask will automatically identify it as JSON.
+ If you return a dict flask will automatically identify it as JSON.
 
-#+begin_src python :noweb-ref ml-server-api
+ #+begin_src python :noweb-ref ml-server-api
 @app.route(PATHS.api, methods=["GET"])
 def api():
     """the JSON view
@@ -666,25 +671,238 @@ def api():
     final_predictions = [prediction.tolist() for prediction in predictions]
     return {"prediction": final_predictions,
             'image': image.tolist()}
-#+end_src
+ #+end_src
 
-And now we make the "main" entry point.
+ And now we make the "main" entry point.
 
-#+begin_src python :noweb-ref ml-server-main
+ #+begin_src python :noweb-ref ml-server-main
 if __name__ == "__main__":
     app.run()
-#+end_src
+ #+end_src
 
-To run this you would enter the same directory as the =ml_server.py= file and execute:
+ To run this you would enter the same directory as the =ml_server.py= file and execute:
+
+ #+begin_src bash
+python ml_server.py
+ #+end_src
+
+Or better, use the [[https://flask.palletsprojects.com/en/1.1.x/server/][development server]].
 
 #+begin_src bash
-python ml_server.py
+set -X FLASK_APP ml_server
+set -X FLASK_ENV development
+
+flask run
 #+end_src
-*** Front-End
-    For the front-end we'll use Streamlit, a python library to make creating web-pages for certain types of applications more easily (I think, I'll need to check it out more later). My best guess at this point is that it's meant to be a python answer to R's [[https://shiny.rstudio.com/][Shiny]].
+
+This will automatically re-load if you make changes to the code. The first two lines in the code block above tell flask which one of the modules has the flask-app and also that it should run in development mode. I'm using the [[https://fishshell.com/][Fish Shell]], so if you are using bash or a similar shell instead the lines would be this instead.
+
+#+begin_src bash
+export FLASK_APP=ml_server
+export FLASK_ENV=development
+
+flask run
+#+end_src
+**** Front-End
+***** Tests
+#+begin_src feature :tangle /tmp/flask-tensorflow/front_end.feature
+<<front-end-feature-title>>
+
+<<front-end-click>>
+ #+end_src
+
+#+begin_src python :tangle /tmp/flask-tensorflow/front_end_fixtures.py
+# python
+from argparse import Namespace
+
+# pypi
+from selenium import webdriver
+
+import pytest
+
+
+@pytest.fixture
+def browser():
+    """Creates the selenium webdriver session"""
+    browser = webdriver.Firefox()
+    yield browser
+    browser.close()
+    return
+
+
+CSSSelectors = Namespace(
+    main_title = ".main h1",
+    main_button = ".main button",
+    sidebar_title = ".sidebar h1",
+    sidebar_image = ".sidebar-content img",
+    )
+
+class HomePage:
+    """A page-class for testing
+
+    Args:
+     address: the address of the streamlit server
+     wait: seconds to implicitly wait for page-objects
+    """
+    def __init__(self, address: str="http://localhost:8501",
+                 wait: int=1) -> None:
+        self.address = address
+        self.wait = wait
+        self._browser = None
+        return
+
+    @property
+    def browser(self) -> webdriver.Firefox:
+        """The browser opened to the home page"""
+        if self._browser is None:
+            self._browser = webdriver.Firefox()
+            self._browser.implicitly_wait(self.wait)
+            self._browser.get(self.address)
+        return self._browser
+
+    @property
+    def main_title(self) -> webdriver.firefox.webelement.FirefoxWebElement:
+        """The object with the main title"""
+        return self.browser.find_element_by_css_selector(
+                CSSSelectors.main_title
+            )
+
+    @property
+    def main_button(self) -> webdriver.firefox.webelement.FirefoxWebElement:
+        """The man button"""
+        return self.browser.find_element_by_css_selector(
+                CSSSelectors.main_button
+            )
+
+
+    @property
+    def sidebar_title(self) -> webdriver.firefox.webelement.FirefoxWebElement:
+        """The sidebar title element"""
+        return self.browser.find_element_by_css_selector(
+                CSSSelectors.sidebar_title
+            )
+
+    @property
+    def sidebar_image(self) -> webdriver.firefox.webelement.FirefoxWebElement:
+        """This tries to get the sidebar image element
+        """
+        return self.browser.find_element_by_css_selector(
+            CSSSelectors.sidebar_image)
+
+    def __del__(self):
+        """Finalizer that closes the browser"""
+        if self._browser is not None:
+            self.browser.close()
+        return
+
+
+@pytest.fixture
+def home_page():
+    return HomePage()
+#+end_src
+
+ #+begin_src python :tangle /tmp/flask-tensorflow/test_front_end.py
+<<test-front-imports>>
+
+<<test-front-text>>
+
+<<test-front-click>>
+ #+end_src
+
+***** The Features
+We can start with the imports and basic set up.
+
+ #+begin_src python :noweb-ref test-front-imports
+# pypi
+from expects import (
+    be_true,
+    equal,
+    expect
+)
+
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+# fixtures
+from fixtures import katamari
+
+from front_end_fixtures import home_page
+
+and_also = then
+scenarios("front_end.feature")
+#+end_src
+
+****** The Initial Text
+ #+begin_src feature :noweb-ref front-end-feature-title
+Feature: The GUI web page to view the model
+  
+Scenario: The user goes to the home page and checks it out
+  Given a browser on the home page
+  When the user checks out the titles and button
+  Then they have the expected text
+ #+end_src
+
+#+begin_src python :noweb-ref test-front-text
+# ***** The Text ***** #
+# Scenario: The user goes to the home page and checks it out
+ 
+
+@given("a browser on the home page")
+def setup_browser(katamari, home_page):
+    # katamari.home_page = home_page
+    return
+
+
+@when("the user checks out the titles and button")
+def get_text(katamari, home_page):
+    katamari.main_title = home_page.main_title.text
+    katamari.button_text = home_page.main_button.text
+    katamari.sidebar_title = home_page.sidebar_title.text
+    return
+
+
+@then("they have the expected text")
+def check_text(katamari):
+    expect(katamari.main_title).to(equal("Neural Network Visualizer"))
+    expect(katamari.button_text).to(equal("Get Random Prediction"))
+    expect(katamari.sidebar_title).to(equal("Input Image"))
+    return
+ #+end_src
+****** Click the Button
+#+begin_src feature :noweb-ref front-end-click
+Scenario: The user gets a random prediction
+  Given a browser on the home page
+  When the user clicks on the button
+  Then the sidebar displays the input image
+#+end_src
+
+#+begin_src python :noweb-ref test-front-click
+# ***** The button click ****** #
+# Scenario: The user gets a random prediction
+#  Given a browser on the home page
+
+
+@when("the user clicks on the button")
+def click_get_image_button(home_page):
+    home_page.main_button.click()
+    return
+
+
+@then("the sidebar displays the input image")
+def check_sidebar_sections(home_page):
+    expect(home_page.sidebar_image.is_displayed()).to(be_true)
+    return
+#+end_src
+
+***** Streamlit
+     For the front-end we'll use Streamlit, a python library to make creating web-pages for certain types of applications more easily (I think, I'll need to check it out more later).
     
 
-#+begin_src python :tangle app.py
+ #+begin_src python :tangle /tmp/flask-tensorflow/app.py
 <<streamlit-imports>>
 
 <<streamlit-url>>
@@ -694,50 +912,54 @@ python ml_server.py
 <<streamlit-sidebar>>
 
 <<streamlit-control>>
-#+end_src
+ #+end_src
 
-First the imports.
+ First the imports.
 
-#+begin_src python :noweb-ref streamlit-imports
+ #+begin_src python :noweb-ref streamlit-imports
 # python
 import json
 import os
+from urllib.parse import urljoin
 
 # pypi
 import requests
 import numpy
 import streamlit
 import matplotlib.pyplot as pyplot
-#+end_src
 
-Now we'll setup the URL - as you can see we're expecting to run this on =localhost=, you'd have to change this for make it available outside the host PC.
+# this code
+from ml_server import PATHS
+ #+end_src
 
-#+begin_src python :noweb-ref streamlit-url
-URI = 'http://127.0.0.1:5000'
-#+end_src
+ Now we'll setup the URL for our flask backend - as you can see we're expecting to run this on the =localhost= address, you'd have to change this for make it available outside the host PC.
 
-Next we'll set the title for the page - this can be a little confusing, although it's called the title, it isn't the HTML title but rather the main heading for the page.
+ #+begin_src python :noweb-ref streamlit-url
+URI = urljoin("http://127.0.0.1:5000/", PATHS.api)
+ #+end_src
 
-#+begin_src python :noweb-ref streamlit-title
+ Next we'll set the title for the page - this can be a little confusing, although it's called the title, it isn't the HTML title but rather the main heading for the page.
+
+ #+begin_src python :noweb-ref streamlit-title
 streamlit.title('Neural Network Visualizer')
-#+end_src
+ #+end_src
 
-Now we'll add a collapsible sidebar where we'll eventually put our image output.
+ Now we'll add a collapsible sidebar where we'll eventually put our image output and add a headline for it (=Input Image=).
 
-#+begin_src python :noweb-ref streamlit-sidebar
+ #+begin_src python :noweb-ref streamlit-sidebar
 streamlit.sidebar.markdown('# Input Image')
-#+end_src
+ #+end_src
 
-Now we'll add some logic. I think if you were to compare this to django this would be the =control= portion of the code. It's basically where we react to a button press by getting a random image and visualizing how it makes a prediction.
+ Now we'll add some logic. I think this would be the  =control= portion of a more traditional web-server. It's basically where we react to a button press by getting a random image and visualizing how it makes a prediction.
 
-#+begin_src python :noweb-ref streamlit-control
+ #+begin_src python :noweb-ref streamlit-control
 # create a button and wait for someone to press it
-if streamlit.button("Get random prediction"):
+if streamlit.button("Get Random Prediction"):
     # Someone pressed the button, make an API call to our flask server
-    response = requests.post(URI, data={})
+    response = requests.get(URI)
 
     # convert the response to a dict
-    response = json.loads(response.text)
+    response = response.json()
 
     # get the prediction array
     predictions = response.get('prediction')
@@ -746,32 +968,43 @@ if streamlit.button("Get random prediction"):
     image = response.get('image')
 
     # the image 
-    # image = numpy.reshape(image, (28, 28))
+    # streamlit expects a numpy array or string-like object, not lists
+    image = numpy.array(image)
+
     # show the image in the sidebar
     streamlit.sidebar.image(image, width=150)
 
     # iterate over the prediction for each layer in the model
     for layer, prediction in enumerate(predictions):
+        # convert the prediction list to an array
+        # and flatten it to a vector
         numbers = numpy.squeeze(numpy.array(prediction))
         pyplot.figure(figsize=(32, 4))
+        rows = 1
         if layer == 2:
-            row = 1
-            col = 10
+            # this is the output layer so we only want one row
+            # and we want 10 columns (one for each digit)
+            columns = 10
         else:
-            row = 2
-            col = 16
-        for i, number in enumerate(numbers):
-            pyplot.subplot(row, col, i + 1)
+            # this is the input or hidden layer
+            # since our model had 32 hidden nodes it has 32 columns
+            # the original version had 2 rows and 16 columns, but
+            # while that looked nicer, I think it makes more sense for 
+            # there to be one layer
+            columns = 32
+        for index, number in enumerate(numbers):
+            # add a subplot to the figure
+            pyplot.subplot(rows, columns, index + 1)
             pyplot.imshow((number * numpy.ones((8, 8, 3)))
                           .astype('float32'), cmap='binary')
             pyplot.xticks([])
             pyplot.yticks([])
             if layer == 2:
-                pyplot.xlabel(str(i), fontsize=40)
-                pyplot.subplots_adjust(wspace=0.05, hspace=0.05)
-                pyplot.tight_layout()
-                streamlit.text('Layer {}'.format(layer + 1), )
-                streamlit.pyplot()
-#+end_src
+                pyplot.xlabel(str(index), fontsize=40)
+            pyplot.subplots_adjust(wspace=0.05, hspace=0.05)
+            pyplot.tight_layout()
+        streamlit.text('Layer {}'.format(layer + 1), )
+        streamlit.pyplot()
+ #+end_src
 * End
 
