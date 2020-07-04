@@ -17,10 +17,10 @@ import time
 
 # Data about this site
 BLOG_AUTHOR = "Cloistered Monkey"  # (translatable)
-BLOG_TITLE = "In Too Deep"  # (translatable)
+BLOG_TITLE = "Neurotic Networking"  # (translatable)
 # This is the main URL for your site. It will be used
 # in a prominent link. Don't forget the protocol (http/https)!
-SITE_URL = "https://necromuralist.github.io/In-Too-Deep/"
+SITE_URL = "https://necromuralist.github.io/Neurotic-Networking/"
 # This is the URL where Nikola's output will be deployed.
 # If not set, defaults to SITE_URL
 # BASE_URL = "https://necromuralist.github.io/"
