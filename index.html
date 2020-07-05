@@ -19,7 +19,7 @@
 <link href="site.webmanifest" rel="manifest">
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
 <script async src="javascript/bokeh-1.3.4.min.js" type="text/javascript"></script>
-<link href="/posts/keras/flask-tensorflow-and-mnist/" rel="prefetch" type="text/html">
+<link href="/posts/nlp/twitter-preprocessing-with-nltk/" rel="prefetch" type="text/html">
 </head>
 <body>
 <a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
@@ -53,6 +53,564 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="/posts/nlp/twitter-preprocessing-with-nltk/">Twitter Preprocessing With NLTK</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="/posts/nlp/twitter-preprocessing-with-nltk/" rel="bookmark"><time class="published dt-published" datetime="2020-07-03T21:23:48-07:00" itemprop="datePublished" title="2020-07-03 21:23">2020-07-03 21:23</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div class="outline-2" id="outline-container-org1b5892d">
+<h2 id="org1b5892d">Beginning</h2>
+<div class="outline-text-2" id="text-org1b5892d">
+<p>This is the first lab in the first course in Coursera's <a href="https://www.wikiwand.com/en/Natural_language_processing">Natural Language Processing</a> Specialization - <i>Natural Language Processing With Classification and Vector Spaces</i>. In this lab, we will be exploring how to preprocess tweets for sentiment analysis. We will provide a function for preprocessing tweets during this week's assignment, but it is still good to know what is going on under the hood. By the end of this lecture, you will see how to use the <a href="http://www.nltk.org">NLTK</a> package to perform a preprocessing pipeline for Twitter datasets.</p>
+<p>You will be doing sentiment analysis on tweets in the first two weeks of this course. To help with that, we will be using the <a href="http://www.nltk.org/howto/twitter.html">Natural Language Toolkit (NLTK)</a> package, an open-source Python library for natural language processing. It has modules for colle cting, handling, and processing Twitter data, and you will be acquainted with them as we move along the course.</p>
+<p>For this exercise, we will use a Twitter dataset that comes with NLTK. This dataset has been manually annotated and serves to establish baselines for models quickly. Let us import them now as well as a few other libraries we will be using.</p>
+<p>The <a href="https://www.nltk.org/howto/corpus.html">NLTK Corpus How To</a> has a brief description of the Twitter dataset - it contains 20,000 tweets retrieved from the Twitter API. They also have <a href="https://www.nltk.org/howto/twitter.html">some documentation</a> about how to gather data using the API yourself.</p>
+</div>
+<div class="outline-3" id="outline-container-org7d577b7">
+<h3 id="org7d577b7">Set Up</h3>
+<div class="outline-text-3" id="text-org7d577b7"></div>
+<div class="outline-4" id="outline-container-org9638d5b">
+<h4 id="org9638d5b">Imports</h4>
+<div class="outline-text-4" id="text-org9638d5b">
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">random</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">string</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">nltk.corpus</span> <span class="kn">import</span> <span class="n">stopwords</span>
+<span class="kn">from</span> <span class="nn">nltk.corpus</span> <span class="kn">import</span> <span class="n">twitter_samples</span>
+<span class="kn">from</span> <span class="nn">nltk.stem</span> <span class="kn">import</span> <span class="n">PorterStemmer</span>
+<span class="kn">from</span> <span class="nn">nltk.tokenize</span> <span class="kn">import</span> <span class="n">TweetTokenizer</span>
+
+<span class="kn">import</span> <span class="nn">nltk</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org1d8ce3f">
+<h4 id="org1d8ce3f">Data</h4>
+<div class="outline-text-4" id="text-org1d8ce3f">
+<p>The first thing to do is download the dataset using the <a href="https://www.nltk.org/data.html">download</a> function. If you don't pass an argument to it a dialog will open and you can choose to download any or all of their datasets, but for this exercise we'll just download the Twitter samples.</p>
+<div class="highlight">
+<pre><span></span><span class="n">nltk</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s1">'twitter_samples'</span><span class="p">)</span>
+</pre></div>
+<p>The data is contained in three files. You can see the file names using the <code>twitter_samples.fileids</code> function.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">twitter_samples</span><span class="o">.</span><span class="n">fileids</span><span class="p">())</span>
+</pre></div>
+<pre class="example">
+['negative_tweets.json', 'positive_tweets.json', 'tweets.20150430-223406.json']
+
+</pre>
+<p>As you can see (or maybe guess) two of the files contain tweets that have been categorized as negative or positive. The third file has all the tweets.</p>
+<p>To get just the text of the tweets you use the <code>twitter_samples.strings</code> function.</p>
+<div class="highlight">
+<pre><span></span><span class="n">help</span><span class="p">(</span><span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Help on method strings in module nltk.corpus.reader.twitter:
+
+strings(fileids=None) method of nltk.corpus.reader.twitter.TwitterCorpusReader instance
+    Returns only the text content of Tweets in the file(s)
+    
+    :return: the given file(s) as a list of Tweets.
+    :rtype: list(str)
+
+
+</pre>
+<p>Note that it says that it returns only the given file(s) as a list of tweets but it also makes the <code>fileids</code> argument optional. If you don't pass in any argument you end up with the tweets from all the files, which you probably don't want.</p>
+<div class="highlight">
+<pre><span></span><span class="n">all_positive_tweets</span> <span class="o">=</span> <span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">(</span><span class="s1">'positive_tweets.json'</span><span class="p">)</span>
+<span class="n">all_negative_tweets</span> <span class="o">=</span> <span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">(</span><span class="s1">'negative_tweets.json'</span><span class="p">)</span>
+<span class="n">all_tweets</span> <span class="o">=</span> <span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">(</span><span class="s2">"tweets.20150430-223406.json"</span><span class="p">)</span>
+</pre></div>
+<p>Now we also need to download the stopwords for our pre-processing and setup the english stopwords for use later.</p>
+<div class="highlight">
+<pre><span></span><span class="n">nltk</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s1">'stopwords'</span><span class="p">)</span>
+<span class="n">english_stopwords</span> <span class="o">=</span> <span class="n">stopwords</span><span class="o">.</span><span class="n">words</span><span class="p">(</span><span class="s2">"english"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org8bcf0b1">
+<h4 id="org8bcf0b1">The Random Seed</h4>
+<div class="outline-text-4" id="text-org8bcf0b1">
+<p>This just sets the random seed so that we get the same values if we re-run this later on (although this is a little tricky with the notebook, since you can call the same code multiple times).</p>
+<div class="highlight">
+<pre><span></span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">20200704</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge22f92c">
+<h2 id="orge22f92c">Middle</h2>
+<div class="outline-text-2" id="text-orge22f92c"></div>
+<div class="outline-3" id="outline-container-orgefe77ac">
+<h3 id="orgefe77ac">Explore the Data</h3>
+<div class="outline-text-3" id="text-orgefe77ac">
+<p>Let's start by looking at the number of tweets we got and confirming that the <code>strings</code> function gave us back a list of strings like the docstring said it would.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Number of tweets: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_tweets</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Number of positive tweets: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_positive_tweets</span><span class="p">)</span><span class="si">:</span><span class="s1">,</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Number of negative tweets: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_negative_tweets</span><span class="p">)</span><span class="si">:</span><span class="s1">,</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s1">'</span><span class="se">\n</span><span class="s1">The type of all_positive_tweets is: '</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">all_positive_tweets</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s1">'The type of a tweet entry is: '</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">all_negative_tweets</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+</pre></div>
+<pre class="example">
+Number of tweets: 20,000
+Number of positive tweets: 5,000
+Number of negative tweets: 5,000
+
+The type of all_positive_tweets is:  &lt;class 'list'&gt;
+The type of a tweet entry is:  &lt;class 'str'&gt;
+
+</pre>
+<p>Note from the original notebook:</p>
+<blockquote>
+<p>It contains 5,000 positive tweets and 5,000 negative tweets exactly. The exact match between these classes is not a coincidence. The intention is to have a balanced dataset. That does not reflect the real distributions of positive and negative classes in live Twitter streams. It is just because balanced datasets simplify the design of most computational methods that are required for sentiment analysis. However, it is better to be aware that this balance of classes is artificial.</p>
+</blockquote>
+<p>We can see that the data for each file is made up of strings stored in a list and there were 20,000 tweets in total but only half of them have been categorized.</p>
+</div>
+<div class="outline-4" id="outline-container-org999f488">
+<h4 id="org999f488">Looking At Some Examples</h4>
+<div class="outline-text-4" id="text-org999f488">
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Random Positive Tweet: </span><span class="si">{</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">all_positive_tweets</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Random Negative Tweet: </span><span class="si">{</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">all_negative_tweets</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Random Positive Tweet: @Aaliyan_ Lucky me :))
+Random Negative Tweet: @NotRedbutBlue awww :(
+at least u never got called luis manzano tho
+
+</pre>
+<p>One thing the original exercise noted is that there are <a href="https://www.wikiwand.com/en/Emoji">Emoticons</a> in the dataset that need to be handled.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">all_positive_tweets</span><span class="p">[</span><span class="mi">405</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+@fwmkian HAPPY BIRTHDAY BABY 💟💟 I MISS YOU SO MUCH AND LOVE YOU SO MUCH :))
+
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org28644ee">
+<h3 id="org28644ee">Processing the Data</h3>
+<div class="outline-text-3" id="text-org28644ee">
+<p>There are four basic steps for NLP pre-processing:</p>
+<ul class="org-ul">
+<li><a href="https://nlp.stanford.edu/IR-book/html/htmledition/tokenization-1.html">Tokenization</a></li>
+<li>Lower-casing</li>
+<li>Removing <a href="https://www.wikiwand.com/en/Stop_words">stop words</a> and punctuation</li>
+<li><a href="https://www.wikiwand.com/en/Stemming">Stemming</a></li>
+</ul>
+<p>We're going to start by taking one tweet and seeing how it is transformed by this process.</p>
+<div class="highlight">
+<pre><span></span><span class="n">THE_CHOSEN</span> <span class="o">=</span> <span class="n">all_positive_tweets</span><span class="p">[</span><span class="mi">2277</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">THE_CHOSEN</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+My beautiful sunflowers on a sunny Friday morning off :) #sunflowers #favourites #happy #Friday off… https://t.co/3tfYom0N1i
+
+</pre></div>
+<div class="outline-4" id="outline-container-org1333796">
+<h4 id="org1333796">Cleaning Up Twitter-Specific Markup</h4>
+<div class="outline-text-4" id="text-org1333796">
+<p>Although I listed four steps in the beginning, there's often another step where we remove things that are common or not useful but known in advance. In this case we want to remove old re-tweet tags, hyperlinks, and hashtags. We're going to do that with python's built in <a href="https://docs.python.org/3/library/re.html">regular expression</a> module.</p>
+<div class="highlight">
+<pre><span></span><span class="n">START_OF_LINE</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"^"</span>
+<span class="n">OPTIONAL</span> <span class="o">=</span> <span class="s2">"?"</span>
+<span class="n">ANYTHING</span> <span class="o">=</span> <span class="s2">"."</span>
+<span class="n">ZERO_OR_MORE</span> <span class="o">=</span> <span class="s2">"*"</span>
+<span class="n">ONE_OR_MORE</span> <span class="o">=</span> <span class="s2">"+"</span>
+
+<span class="n">SPACE</span> <span class="o">=</span> <span class="s2">"\s"</span>
+<span class="n">SPACES</span> <span class="o">=</span> <span class="n">SPACE</span> <span class="o">+</span> <span class="n">ONE_OR_MORE</span>
+<span class="n">EVERYTHING_OR_NOTHING</span> <span class="o">=</span> <span class="n">ANYTHING</span> <span class="o">+</span> <span class="n">ZERO_OR_MORE</span>
+
+<span class="n">ERASE</span> <span class="o">=</span> <span class="s2">""</span>
+<span class="n">FORWARD_SLASH</span> <span class="o">=</span> <span class="s2">"\/"</span>
+<span class="n">NEWLINES</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"[\r\n]"</span>
+</pre></div>
+</div>
+<ul class="org-ul">
+<li><a id="orgf5082ba"></a>Re-Tweets<br>
+<div class="outline-text-5" id="text-orgf5082ba">
+<p>None of the positive or negative samples have this tag so I'm going to pull an example from the complete set just to show it working.</p>
+<div class="highlight">
+<pre><span></span><span class="n">RE_TWEET</span> <span class="o">=</span> <span class="n">START_OF_LINE</span> <span class="o">+</span> <span class="s2">"RT"</span> <span class="o">+</span> <span class="n">SPACES</span>
+
+<span class="n">tweet</span> <span class="o">=</span> <span class="n">all_tweets</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span>
+<span class="n">tweet</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">RE_TWEET</span><span class="p">,</span> <span class="n">ERASE</span><span class="p">,</span> <span class="n">tweet</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+RT @KirkKus: Indirect cost of the UK being in the EU is estimated to be costing Britain £170 billion per year! #BetterOffOut #UKIP
+@KirkKus: Indirect cost of the UK being in the EU is estimated to be costing Britain £170 billion per year! #BetterOffOut #UKIP
+
+</pre></div>
+</li>
+<li><a id="org07b1c3f"></a>Hyperlinks<br>
+<div class="outline-text-5" id="text-org07b1c3f">
+<div class="highlight">
+<pre><span></span><span class="n">HYPERLINKS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"http"</span> <span class="o">+</span> <span class="s2">"s"</span> <span class="o">+</span> <span class="n">OPTIONAL</span> <span class="o">+</span> <span class="s2">":"</span> <span class="o">+</span> <span class="n">FORWARD_SLASH</span> <span class="o">+</span> <span class="n">FORWARD_SLASH</span>
+              <span class="o">+</span> <span class="n">EVERYTHING_OR_NOTHING</span> <span class="o">+</span> <span class="n">NEWLINES</span> <span class="o">+</span> <span class="n">ZERO_OR_MORE</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">THE_CHOSEN</span><span class="p">)</span>
+<span class="n">re_chosen</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">HYPERLINKS</span><span class="p">,</span> <span class="n">ERASE</span><span class="p">,</span> <span class="n">THE_CHOSEN</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">re_chosen</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org17e9a5c"></a>HashTags<br>
+<div class="outline-text-5" id="text-org17e9a5c">
+<p>We aren't removing the actual hash-tags, just the hash-marks (<code>#</code>).</p>
+<div class="highlight">
+<pre><span></span><span class="n">HASH</span> <span class="o">=</span> <span class="s2">"#"</span>
+<span class="n">re_chosen</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">HASH</span><span class="p">,</span> <span class="n">ERASE</span><span class="p">,</span> <span class="n">re_chosen</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">re_chosen</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+My beautiful sunflowers on a sunny Friday morning off :) sunflowers favourites happy Friday off… 
+
+</pre></div>
+</li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-org9a6bf14">
+<h4 id="org9a6bf14">Tokenize</h4>
+<div class="outline-text-4" id="text-org9a6bf14">
+<p>NLTK has a tokenizer specially built for tweets. The <code>twitter_samples</code> module actually has a <code>tokenizer</code> function that breaks the tweets up, but since we are using regular expressions to clean up the strings a little first, it makes more sense to tokenize the strings afterwards. Also note that one of the steps is to lower-case the letters, which the <code>TweetTokenizer</code> will do for us if we set the <code>preserve_case</code> argument to <code>False</code>.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">help</span><span class="p">(</span><span class="n">TweetTokenizer</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+Help on class TweetTokenizer in module nltk.tokenize.casual:
+
+class TweetTokenizer(builtins.object)
+ |  TweetTokenizer(preserve_case=True, reduce_len=False, strip_handles=False)
+ |  
+ |  Tokenizer for tweets.
+ |  
+ |      &gt;&gt;&gt; from nltk.tokenize import TweetTokenizer
+ |      &gt;&gt;&gt; tknzr = TweetTokenizer()
+ |      &gt;&gt;&gt; s0 = "This is a cooool #dummysmiley: :-) :-P &lt;3 and some arrows &lt; &gt; -&gt; &lt;--"
+ |      &gt;&gt;&gt; tknzr.tokenize(s0)
+ |      ['This', 'is', 'a', 'cooool', '#dummysmiley', ':', ':-)', ':-P', '&lt;3', 'and', 'some', 'arrows', '&lt;', '&gt;', '-&gt;', '&lt;--']
+ |  
+ |  Examples using `strip_handles` and `reduce_len parameters`:
+ |  
+ |      &gt;&gt;&gt; tknzr = TweetTokenizer(strip_handles=True, reduce_len=True)
+ |      &gt;&gt;&gt; s1 = '@remy: This is waaaaayyyy too much for you!!!!!!'
+ |      &gt;&gt;&gt; tknzr.tokenize(s1)
+ |      [':', 'This', 'is', 'waaayyy', 'too', 'much', 'for', 'you', '!', '!', '!']
+ |  
+ |  Methods defined here:
+ |  
+ |  __init__(self, preserve_case=True, reduce_len=False, strip_handles=False)
+ |      Initialize self.  See help(type(self)) for accurate signature.
+ |  
+ |  tokenize(self, text)
+ |      :param text: str
+ |      :rtype: list(str)
+ |      :return: a tokenized list of strings; concatenating this list returns        the original string if `preserve_case=False`
+ |  
+ |  ----------------------------------------------------------------------
+ |  Data descriptors defined here:
+ |  
+ |  __dict__
+ |      dictionary for instance variables (if defined)
+ |  
+ |  __weakref__
+ |      list of weak references to the object (if defined)
+
+None
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">TweetTokenizer</span><span class="p">(</span><span class="n">preserve_case</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">strip_handles</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                           <span class="n">reduce_len</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+<p>Now we can tokenize our partly cleaned token.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">re_chosen</span><span class="p">)</span>
+<span class="n">tokens</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">tokenize</span><span class="p">(</span><span class="n">re_chosen</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+My beautiful sunflowers on a sunny Friday morning off :) sunflowers favourites happy Friday off… 
+['my', 'beautiful', 'sunflowers', 'on', 'a', 'sunny', 'friday', 'morning', 'off', ':)', 'sunflowers', 'favourites', 'happy', 'friday', 'off', '…']
+
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org6868639">
+<h4 id="org6868639">Remove Stop Words and Punctuation</h4>
+<div class="outline-text-4" id="text-org6868639">
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">english_stopwords</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">punctuation</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"]
+!"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\]^_`{|}~
+
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">cleaned</span> <span class="o">=</span> <span class="p">[</span><span class="n">word</span> <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">tokens</span> <span class="k">if</span> <span class="p">(</span><span class="n">word</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">english_stopwords</span> <span class="ow">and</span>
+                                       <span class="n">word</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">string</span><span class="o">.</span><span class="n">punctuation</span><span class="p">)]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">cleaned</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+['beautiful', 'sunflowers', 'sunny', 'friday', 'morning', ':)', 'sunflowers', 'favourites', 'happy', 'friday', '…']
+
+</pre>
+<p>The original text noted that things like <code>:)</code> and <code>...</code> are important in this context but might not be on other contexts so it would probably be a good idea to inspect both the stopwords and the putnctuation you're using and decide if all of what you have is both sufficient and correct.</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc0c9636">
+<h4 id="orgc0c9636">Stemming</h4>
+<div class="outline-text-4" id="text-orgc0c9636">
+<p>We're going to use the <a href="https://www.nltk.org/_modules/nltk/stem/porter.html">Porter Stemmer</a> from NLTK (see <a href="https://tartarus.org/martin/PorterStemmer/">this</a> for the official Porter Stemmer algorithm page).</p>
+<div class="highlight">
+<pre><span></span><span class="n">stemmer</span> <span class="o">=</span> <span class="n">PorterStemmer</span><span class="p">()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">stemmed</span> <span class="o">=</span> <span class="p">[</span><span class="n">stemmer</span><span class="o">.</span><span class="n">stem</span><span class="p">(</span><span class="n">word</span><span class="p">)</span> <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">cleaned</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">stemmed</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+['beauti', 'sunflow', 'sunni', 'friday', 'morn', ':)', 'sunflow', 'favourit', 'happi', 'friday', '…']
+
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5609850">
+<h2 id="org5609850">End</h2>
+<div class="outline-text-2" id="text-org5609850">
+<p>So now we've seen the basic steps that we're going to need to preprocess our tweets for <a href="https://www.wikiwand.com/en/Sentiment_analysis">Sentiment Analysis</a>. The rest of this is outside the scope of the exercise, it's just to get it all into one place.</p>
+</div>
+<div class="outline-3" id="outline-container-org682b579">
+<h3 id="org682b579">Tests</h3>
+<div class="outline-text-3" id="text-org682b579">
+<div class="highlight">
+<pre><span></span>Feature: Tweet pre-processor
+
+&lt;&lt;re-tweet-processing&gt;&gt;
+
+&lt;&lt;hyperlink-processing&gt;&gt;
+
+&lt;&lt;hash-processing&gt;&gt;
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">expects</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">equal</span><span class="p">,</span>
+    <span class="n">expect</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">pytest_bdd</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">given</span><span class="p">,</span>
+    <span class="n">scenarios</span><span class="p">,</span>
+    <span class="n">then</span><span class="p">,</span>
+    <span class="n">when</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">pytest</span>
+
+
+<span class="c1"># software under test</span>
+<span class="kn">from</span> <span class="nn">processor</span> <span class="kn">import</span> <span class="n">TwitterProcessor</span>
+
+<span class="c1"># fixtures</span>
+
+<span class="k">class</span> <span class="nc">Katamari</span><span class="p">:</span>
+    <span class="sd">"""Something to stick values into"""</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span> <span class="nf">katamari</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">Katamari</span><span class="p">()</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span> <span class="nf">processor</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">TwitterProcessor</span><span class="p">()</span>
+
+<span class="n">scenarios</span><span class="p">(</span><span class="s2">"tweet_preprocessing.feature"</span><span class="p">)</span>
+
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">re</span><span class="o">-</span><span class="n">tweet</span><span class="o">&gt;&gt;</span>
+
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">hyperlinks</span><span class="o">&gt;&gt;</span>
+
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">hashtags</span><span class="o">&gt;&gt;</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org984fb16">
+<h4 id="org984fb16">The Re-tweets</h4>
+<div class="outline-text-4" id="text-org984fb16">
+<div class="highlight">
+<pre><span></span>Scenario: A re-tweet is cleaned.
+
+  Given a tweet that has been re-tweeted
+  When the tweet is cleaned
+  Then it has the text removed
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: A re-tweet is cleaned.</span>
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a tweet that has been re-tweeted"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_re_tweet</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">faker</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="n">faker</span><span class="o">.</span><span class="n">sentence</span><span class="p">()</span>
+    <span class="n">spaces</span> <span class="o">=</span> <span class="s2">" "</span> <span class="o">*</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">to_clean</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"RT</span><span class="si">{</span><span class="n">spaces</span><span class="si">}{</span><span class="n">katamari</span><span class="o">.</span><span class="n">expected</span><span class="si">}</span><span class="s2">"</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@when</span><span class="p">(</span><span class="s2">"the tweet is cleaned"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">process_tweet</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">processor</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">actual</span> <span class="o">=</span> <span class="n">processor</span><span class="o">.</span><span class="n">clean</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">to_clean</span><span class="p">)</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@then</span><span class="p">(</span><span class="s2">"it has the text removed"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_cleaned_text</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">expected</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">equal</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">actual</span><span class="p">))</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org930aa57">
+<h4 id="org930aa57">Hyperlinks</h4>
+<div class="outline-text-4" id="text-org930aa57">
+<div class="highlight">
+<pre><span></span>Scenario: The tweet has a hyperlink
+  Given a tweet with a hyperlink
+  When the tweet is cleaned
+  Then it has the text removed
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: The tweet has a hyperlink</span>
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a tweet with a hyperlink"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_hyperlink</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">faker</span><span class="p">):</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">faker</span><span class="o">.</span><span class="n">sentence</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="n">base</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">to_clean</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="n">faker</span><span class="o">.</span><span class="n">uri</span><span class="p">()</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span> <span class="o">*</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org46f9a92">
+<h4 id="org46f9a92">Hash Symbols</h4>
+<div class="outline-text-4" id="text-org46f9a92">
+<div class="highlight">
+<pre><span></span>Scenario: A tweet has hash symbols in it.
+  Given a tweet with hash symbols
+  When the tweet is cleaned
+  Then it has the text removed
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nd">@given</span><span class="p">(</span><span class="s2">"a tweet with hash symbols"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_hash_symbols</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">faker</span><span class="p">):</span>
+    <span class="n">expected</span> <span class="o">=</span> <span class="n">faker</span><span class="o">.</span><span class="n">sentence</span><span class="p">()</span>
+    <span class="n">tokens</span> <span class="o">=</span> <span class="n">expected</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="n">expected_tokens</span> <span class="o">=</span> <span class="n">expected</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">)):</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">tokens</span><span class="p">))</span>
+        <span class="n">word</span> <span class="o">=</span> <span class="n">faker</span><span class="o">.</span><span class="n">word</span><span class="p">()</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="n">tokens</span><span class="p">[:</span><span class="n">index</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"#</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">"</span><span class="p">]</span> <span class="o">+</span> <span class="n">tokens</span><span class="p">[</span><span class="n">index</span><span class="p">:]</span>
+        <span class="n">expected_tokens</span> <span class="o">=</span> <span class="n">expected_tokens</span><span class="p">[:</span><span class="n">index</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">word</span><span class="p">]</span> <span class="o">+</span> <span class="n">expected_tokens</span><span class="p">[</span><span class="n">index</span><span class="p">:]</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">to_clean</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">expected_tokens</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org874a059">
+<h3 id="org874a059">Implementation</h3>
+<div class="outline-text-3" id="text-org874a059">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="o">&lt;&lt;</span><span class="n">regular</span><span class="o">-</span><span class="n">expressions</span><span class="o">&gt;&gt;</span>
+
+
+<span class="k">class</span> <span class="nc">TwitterProcessor</span><span class="p">:</span>
+    <span class="sd">"""processor for tweets"""</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">processor</span><span class="o">-</span><span class="n">clean</span><span class="o">&gt;&gt;</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># building blocks</span>
+<span class="n">START_OF_LINE</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"^"</span>
+<span class="n">OPTIONAL</span> <span class="o">=</span> <span class="s2">"?"</span>
+<span class="n">ANYTHING</span> <span class="o">=</span> <span class="s2">"."</span>
+<span class="n">ZERO_OR_MORE</span> <span class="o">=</span> <span class="s2">"*"</span>
+<span class="n">ONE_OR_MORE</span> <span class="o">=</span> <span class="s2">"+"</span>
+
+<span class="n">SPACE</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"\s"</span>
+<span class="n">SPACES</span> <span class="o">=</span> <span class="n">SPACE</span> <span class="o">+</span> <span class="n">ONE_OR_MORE</span>
+<span class="n">EVERYTHING_OR_NOTHING</span> <span class="o">=</span> <span class="n">ANYTHING</span> <span class="o">+</span> <span class="n">ZERO_OR_MORE</span>
+
+<span class="n">ERASE</span> <span class="o">=</span> <span class="s2">""</span>
+<span class="n">FORWARD_SLASH</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"\/"</span>
+<span class="n">NEWLINES</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">"[\r\n]"</span>
+
+<span class="c1"># to remove</span>
+<span class="n">RE_TWEET</span> <span class="o">=</span> <span class="n">START_OF_LINE</span> <span class="o">+</span> <span class="s2">"RT"</span> <span class="o">+</span> <span class="n">SPACES</span>
+<span class="n">HYPERLINKS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"http"</span> <span class="o">+</span> <span class="s2">"s"</span> <span class="o">+</span> <span class="n">OPTIONAL</span> <span class="o">+</span> <span class="s2">":"</span> <span class="o">+</span> <span class="n">FORWARD_SLASH</span> <span class="o">+</span> <span class="n">FORWARD_SLASH</span>
+              <span class="o">+</span> <span class="n">EVERYTHING_OR_NOTHING</span> <span class="o">+</span> <span class="n">NEWLINES</span> <span class="o">+</span> <span class="n">ZERO_OR_MORE</span><span class="p">)</span>
+<span class="n">HASH</span> <span class="o">=</span> <span class="s2">"#"</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">clean</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="sd">"""Removes sub-strings from the tweet</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     tweet: string tweet</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     tweet with certain sub-strings removed</span>
+<span class="sd">    """</span>
+    <span class="k">for</span> <span class="n">expression</span> <span class="ow">in</span> <span class="p">(</span><span class="n">RE_TWEET</span><span class="p">,</span> <span class="n">HYPERLINKS</span><span class="p">,</span> <span class="n">HASH</span><span class="p">):</span>
+        <span class="n">tweet</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span> <span class="n">ERASE</span><span class="p">,</span> <span class="n">tweet</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tweet</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">process_tweet</span><span class="p">(</span><span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="sd">"""Pre-processes a tweet</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     tweet: the string text to process</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     a list of processed strings created from the tweet</span>
+<span class="sd">    """</span>
+    <span class="n">tweet</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">RE_TWEET</span><span class="p">,</span> <span class="n">ERASE</span><span class="p">,</span> <span class="n">tweet</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="/posts/keras/flask-tensorflow-and-mnist/">Flask, TensorFlow, Streamlit and the MNIST Dataset</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
@@ -64,44 +622,44 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org7968487">Beginning</a>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org7cf2d59">Beginning</a>
 <ul>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orga0aff42">Set Up</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgf653fe6">The Environment</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org9cc4abd">Plotting</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgdc1ac07">The Random Seed</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org2b098cb">The Data</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org7b2277f">A Note On the Tangling</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org8762be6">Set Up</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org36b3d39">The Environment</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org834cb50">Plotting</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org8a70dab">The Random Seed</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgfa9590a">The Data</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org4e3ecac">A Note On the Tangling</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org56cea66">Middle</a>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org5a06a6a">Middle</a>
 <ul>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgb023a7e">The Data</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org28752fb">The Neural Network Model</a></li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org1db0c03">The Web Page</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org79fa264">The Data</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgf3278fc">The Neural Network Model</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org391aa94">The Web Page</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/flask-tensorflow-and-mnist/#org7a02e0b">End</a></li>
+<li><a href="/posts/keras/flask-tensorflow-and-mnist/#orgd94f3b6">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7968487">
-<h2 id="org7968487">Beginning</h2>
-<div class="outline-text-2" id="text-org7968487">
+<div class="outline-2" id="outline-container-org7cf2d59">
+<h2 id="org7cf2d59">Beginning</h2>
+<div class="outline-text-2" id="text-org7cf2d59">
 <p>This is a re-working of Coursera's <a href="https://www.coursera.org/learn/neural-network-visualizer/home/welcome">Neural Network Vizualizer Web App With Python</a> course. What we'll do is use <a href="https://www.tensorflow.org/">tensorflow</a> to build a model to classify images of handwritten digits from the <a href="http://yann.lecun.com/exdb/mnist/">MNIST Database of Handwritten Digits</a> which tensoflow provides as one of their pre-built datasets. MNIST (according to <a href="https://www.wikiwand.com/en/MNIST_database">wikipedia</a>) stands for <i>Modified <a href="https://www.wikiwand.com/en/National_Institute_of_Standards_and_Technology">National Institute of Standards and Technology</a></i> (so we're using the Modified NIST Database).</p>
 <p>Once we have the model we'll use <a href="https://palletsprojects.com/p/flask/">Flask</a> to serve up the model and <a href="https://www.streamlit.io/">Streamlit</a> to build a web page to view the results.</p>
 </div>
-<div class="outline-3" id="outline-container-orga0aff42">
-<h3 id="orga0aff42">Set Up</h3>
-<div class="outline-text-3" id="text-orga0aff42"></div>
-<div class="outline-4" id="outline-container-org1af1513">
-<h4 id="org1af1513">Parts</h4>
-<div class="outline-text-4" id="text-org1af1513">
+<div class="outline-3" id="outline-container-org8762be6">
+<h3 id="org8762be6">Set Up</h3>
+<div class="outline-text-3" id="text-org8762be6"></div>
+<div class="outline-4" id="outline-container-orgfef4753">
+<h4 id="orgfef4753">Parts</h4>
+<div class="outline-text-4" id="text-orgfef4753">
 <p>These are the libraries that we will use.</p>
 </div>
 <ul class="org-ul">
-<li><a id="orgefd3082"></a>Python<br>
-<div class="outline-text-5" id="text-orgefd3082">
+<li><a id="org0c46e8c"></a>Python<br>
+<div class="outline-text-5" id="text-org0c46e8c">
 <div class="highlight">
 <pre><span></span><span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
@@ -110,8 +668,8 @@
 </pre></div>
 </div>
 </li>
-<li><a id="orgfdd5e80"></a>PyPi<br>
-<div class="outline-text-5" id="text-orgfdd5e80">
+<li><a id="org5b3a70d"></a>PyPi<br>
+<div class="outline-text-5" id="text-org5b3a70d">
 <div class="highlight">
 <pre><span></span><span class="kn">from</span> <span class="nn">bokeh.models</span> <span class="kn">import</span> <span class="n">HoverTool</span>
 <span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
@@ -125,8 +683,8 @@
 </pre></div>
 </div>
 </li>
-<li><a id="org1edecf6"></a>My Stuff<br>
-<div class="outline-text-5" id="text-org1edecf6">
+<li><a id="orgd5ef293"></a>My Stuff<br>
+<div class="outline-text-5" id="text-orgd5ef293">
 <div class="highlight">
 <pre><span></span><span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span>
 </pre></div>
@@ -135,17 +693,17 @@
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgf653fe6">
-<h3 id="orgf653fe6">The Environment</h3>
-<div class="outline-text-3" id="text-orgf653fe6">
+<div class="outline-3" id="outline-container-org36b3d39">
+<h3 id="org36b3d39">The Environment</h3>
+<div class="outline-text-3" id="text-org36b3d39">
 <div class="highlight">
 <pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">".env"</span><span class="p">,</span> <span class="n">override</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9cc4abd">
-<h3 id="org9cc4abd">Plotting</h3>
-<div class="outline-text-3" id="text-org9cc4abd">
+<div class="outline-3" id="outline-container-org834cb50">
+<h3 id="org834cb50">Plotting</h3>
+<div class="outline-text-3" id="text-org834cb50">
 <p>There won't be a lot of plotting, but we'll use matplotlib with seaborn to look at some images to see what they look like and <a href="https://hvplot.holoviz.org/">HVplot</a> to do other visualizations.</p>
 <div class="highlight">
 <pre><span></span><span class="n">get_ipython</span><span class="p">()</span><span class="o">.</span><span class="n">run_line_magic</span><span class="p">(</span><span class="s1">'matplotlib'</span><span class="p">,</span> <span class="s1">'inline'</span><span class="p">)</span>
@@ -165,18 +723,18 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgdc1ac07">
-<h3 id="orgdc1ac07">The Random Seed</h3>
-<div class="outline-text-3" id="text-orgdc1ac07">
+<div class="outline-3" id="outline-container-org8a70dab">
+<h3 id="org8a70dab">The Random Seed</h3>
+<div class="outline-text-3" id="text-org8a70dab">
 <p>Since I'm commenting on the outcomes I'll set the random seed to try and make things more consistent.</p>
 <div class="highlight">
 <pre><span></span><span class="n">tensorflow</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">set_seed</span><span class="p">(</span><span class="mi">2020</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org2b098cb">
-<h3 id="org2b098cb">The Data</h3>
-<div class="outline-text-3" id="text-org2b098cb">
+<div class="outline-3" id="outline-container-orgfa9590a">
+<h3 id="orgfa9590a">The Data</h3>
+<div class="outline-text-3" id="text-orgfa9590a">
 <p>Like I mentioned, tensorflow includes the MNIST data set that we can grab with the <a href="https://www.tensorflow.org/api_docs/python/tf/keras/datasets/mnist/load_data">load_data</a> function. It returns two tuples of numpy arrays.</p>
 <div class="highlight">
 <pre><span></span><span class="p">(</span><span class="n">x_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">),</span> <span class="p">(</span><span class="n">x_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)</span> <span class="o">=</span> <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">datasets</span><span class="o">.</span><span class="n">mnist</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
@@ -191,24 +749,25 @@
 <pre class="example">
 Training:       60,000 images   image = 28 x 28
 Testing:        10,000 images   image = 28 x 28
+
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org7b2277f">
-<h3 id="org7b2277f">A Note On the Tangling</h3>
-<div class="outline-text-3" id="text-org7b2277f">
+<div class="outline-3" id="outline-container-org4e3ecac">
+<h3 id="org4e3ecac">A Note On the Tangling</h3>
+<div class="outline-text-3" id="text-org4e3ecac">
 <p>I'm going to do this as a <a href="https://www.wikiwand.com/en/Literate_programming">literate programming</a> document with the tangle going into a temporary folder. I was creating the temporary folder using python but I'm running the code on a different machine from where I'm editing this document so running python executes on the remote machine but tangling out the files happens on my local machine. Maybe next time it will make more sense to edit the document on the remote machine (note to future self). Although that also introduces problems because then I'd have to run the tests headless… Every solution has a problem.</p>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org56cea66">
-<h2 id="org56cea66">Middle</h2>
-<div class="outline-text-2" id="text-org56cea66"></div>
-<div class="outline-3" id="outline-container-orgb023a7e">
-<h3 id="orgb023a7e">The Data</h3>
-<div class="outline-text-3" id="text-orgb023a7e"></div>
-<div class="outline-4" id="outline-container-org6dcdc70">
-<h4 id="org6dcdc70">The Distribution</h4>
-<div class="outline-text-4" id="text-org6dcdc70">
+<div class="outline-2" id="outline-container-org5a06a6a">
+<h2 id="org5a06a6a">Middle</h2>
+<div class="outline-text-2" id="text-org5a06a6a"></div>
+<div class="outline-3" id="outline-container-org79fa264">
+<h3 id="org79fa264">The Data</h3>
+<div class="outline-text-3" id="text-org79fa264"></div>
+<div class="outline-4" id="outline-container-org0a51214">
+<h4 id="org0a51214">The Distribution</h4>
+<div class="outline-text-4" id="text-org0a51214">
 <p>First, we can look at the distribution of the digits to see if they are equally represented.</p>
 <div class="highlight">
 <pre><span></span><span class="n">labels</span> <span class="o">=</span> <span class="p">(</span><span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">y_train</span><span class="p">)</span><span class="o">.</span><span class="n">value_counts</span><span class="p">(</span><span class="n">sort</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
@@ -242,13 +801,14 @@ Testing:        10,000 images   image = 28 x 28
 </pre></div>
 <pre class="example">
 1,321
+
 </pre>
 <p>But we're doing this as an exercise to get a web-page up more so than build a real model so let's not worry about that for now.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgc19e984">
-<h4 id="orgc19e984">Some Example Digits</h4>
-<div class="outline-text-4" id="text-orgc19e984">
+<div class="outline-4" id="outline-container-orge718f4f">
+<h4 id="orge718f4f">Some Example Digits</h4>
+<div class="outline-text-4" id="text-orge718f4f">
 <p>We'll make a 4 x 4 grid of the first 16 images to see what they look like. Note that our array uses 0-based indexing but matplotlib uses 1-based indexing so we have to make sure that the reference to the cell in the subplot is one ahead of the index for the array.</p>
 <div class="highlight">
 <pre><span></span><span class="n">IMAGES</span> <span class="o">=</span> <span class="mi">16</span>
@@ -268,9 +828,9 @@ Testing:        10,000 images   image = 28 x 28
 <p>So the digits (at least the first 16) seem to be pretty clear.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orga8da8c8">
-<h4 id="orga8da8c8">Normalizing the Data</h4>
-<div class="outline-text-4" id="text-orga8da8c8">
+<div class="outline-4" id="outline-container-org702c859">
+<h4 id="org702c859">Normalizing the Data</h4>
+<div class="outline-text-4" id="text-org702c859">
 <p>One problem we have, though, is that images use values from 0 to 255 to indicate the brightness of a pixel, but neural networks tend to work better with values from 0 to 1, so we'l have to scale the data back. The images are also 28 x 28 squares, but we need to transform them to flat vectors. We can change the shape of the input data using the <a href="https://numpy.org/doc/1.18/reference/generated/numpy.reshape.html">numpy.reshape</a> function, which takes the original data and the shape you want to change it to. In our case we want the same number of rows that there were originally and we want to reduce the images from 2-dimensional images to 1-dimensional images which we can do by passing in the number of total number of pixels in each image as a single number instead of width and height.</p>
 <p>Since we have to do this for both the training and testing data I'll make a helper function.</p>
 <div class="highlight">
@@ -296,12 +856,12 @@ Testing:        10,000 images   image = 28 x 28
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org28752fb">
-<h3 id="org28752fb">The Neural Network Model</h3>
-<div class="outline-text-3" id="text-org28752fb"></div>
-<div class="outline-4" id="outline-container-orgf18e5bb">
-<h4 id="orgf18e5bb">Build and Train It</h4>
-<div class="outline-text-4" id="text-orgf18e5bb">
+<div class="outline-3" id="outline-container-orgf3278fc">
+<h3 id="orgf3278fc">The Neural Network Model</h3>
+<div class="outline-text-3" id="text-orgf3278fc"></div>
+<div class="outline-4" id="outline-container-org3882926">
+<h4 id="org3882926">Build and Train It</h4>
+<div class="outline-text-4" id="text-org3882926">
 <p>Now we'll build the model. It's going to be a simple fully-connected network with three layers (input, hidden, output). To make the visualization simpler we'll use the <a href="https://www.tensorflow.org/api_docs/python/tf/keras/activations/sigmoid">sigmoid activation</a> function.</p>
 <p>Besides the shallowness of the model it's also going to be relatively simple, with only 32 nodes in the hidden layer.</p>
 <p>First we'll build it as a <a href="https://www.tensorflow.org/api_docs/python/tf/keras/Sequential">Sequential</a> (linear stack) model.</p>
@@ -343,9 +903,9 @@ Testing:        10,000 images   image = 28 x 28
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org4649585">
-<h4 id="org4649585">Plot the Training History</h4>
-<div class="outline-text-4" id="text-org4649585">
+<div class="outline-4" id="outline-container-orgbae7bb0">
+<h4 id="orgbae7bb0">Plot the Training History</h4>
+<div class="outline-text-4" id="text-orgbae7bb0">
 <div class="highlight">
 <pre><span></span><span class="n">history</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">history</span><span class="o">.</span><span class="n">history</span><span class="p">)</span>
 <span class="n">history</span> <span class="o">=</span> <span class="n">history</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span>
@@ -390,13 +950,14 @@ Testing:        10,000 images   image = 28 x 28
 (Training Accuracy) Min=0.22 Max= 0.95
 (Validation Loss) Min=0.21 Max= 2.14
 (Validation Accuracy) Min=0.38 Max= 0.94
+
 </pre>
 <p>So our validation accuracy goes from 38 % to 94%, which isn't bad, especially when you consider what a simple model we have.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org6dcafc9">
-<h4 id="org6dcafc9">Save It</h4>
-<div class="outline-text-4" id="text-org6dcafc9">
+<div class="outline-4" id="outline-container-org2912d0d">
+<h4 id="org2912d0d">Save It</h4>
+<div class="outline-text-4" id="text-org2912d0d">
 <p>Now we can save the model to use in our flask application.</p>
 <p><b>Note To Self:</b> Since this is being run on a remote machine, both the <code>.env</code> file and the directory to save the models refers to the remote machine, not the local machine where this file is being edited so you have to copy it to the local machine later on to use it with flask.</p>
 <p>Also note that the you can't see the name since I put it in a <code>.env</code> file but it has <code>.h5</code> as the extension. According to the TensorFlow page on <a href="https://www.tensorflow.org/guide/keras/save_and_serialize">saving and loading a model</a>, H5 is the older format, they've switched to the <a href="https://www.tensorflow.org/guide/saved_model">SavedModel</a> format, you lose some information that would help you resume training, but we're not going to do that anyway, and the H5 format should be a little smaller.</p>
@@ -415,16 +976,16 @@ Testing:        10,000 images   image = 28 x 28
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org1db0c03">
-<h3 id="org1db0c03">The Web Page</h3>
-<div class="outline-text-3" id="text-org1db0c03"></div>
+<div class="outline-3" id="outline-container-org391aa94">
+<h3 id="org391aa94">The Web Page</h3>
+<div class="outline-text-3" id="text-org391aa94"></div>
 <ul class="org-ul">
-<li><a id="orgdddd595"></a>Back-End (The Model Server)<br>
+<li><a id="orgfc03c31"></a>Back-End (The Model Server)<br>
 <ul class="org-ul">
-<li><a id="org1595ec4"></a>Tests<br>
+<li><a id="org8cc5135"></a>Tests<br>
 <ul class="org-ul">
-<li><a id="orge6790a7"></a>Fixtures<br>
-<div class="outline-text-7" id="text-orge6790a7">
+<li><a id="orgabd61f7"></a>Fixtures<br>
+<div class="outline-text-7" id="text-orgabd61f7">
 <p>These are the pytest fixtures to make it easier to create objects.</p>
 <div class="highlight">
 <pre><span></span> <span class="c1"># python</span>
@@ -469,8 +1030,8 @@ Testing:        10,000 images   image = 28 x 28
 </pre></div>
 </div>
 </li>
-<li><a id="org4df9676"></a>Features<br>
-<div class="outline-text-7" id="text-org4df9676">
+<li><a id="org41ecb0b"></a>Features<br>
+<div class="outline-text-7" id="text-org41ecb0b">
 <p>These are the feature files.</p>
 <div class="highlight">
 <pre><span></span> Feature: A Prediction Getter
@@ -492,8 +1053,8 @@ Testing:        10,000 images   image = 28 x 28
 </pre></div>
 </div>
 </li>
-<li><a id="orgd34628c"></a>The Tests<br>
-<div class="outline-text-7" id="text-orgd34628c">
+<li><a id="orga426791"></a>The Tests<br>
+<div class="outline-text-7" id="text-orga426791">
 <p>These are the actual test functions.</p>
 <div class="highlight">
 <pre><span></span> <span class="c1"># python</span>
@@ -634,8 +1195,8 @@ Testing:        10,000 images   image = 28 x 28
 </li>
 </ul>
 </li>
-<li><a id="org065bbb9"></a>The Implementation<br>
-<div class="outline-text-6" id="text-org065bbb9">
+<li><a id="orgee27432"></a>The Implementation<br>
+<div class="outline-text-6" id="text-orgee27432">
 <p>This is where we tangle out a file to run a flask server that will serve up our model's predictions.</p>
 <div class="highlight">
 <pre><span></span> <span class="o">&lt;&lt;</span><span class="n">ml</span><span class="o">-</span><span class="n">server</span><span class="o">-</span><span class="n">imports</span><span class="o">&gt;&gt;</span>
@@ -785,10 +1346,10 @@ flask run
 </li>
 </ul>
 </li>
-<li><a id="org44e429f"></a>Front-End<br>
+<li><a id="orgdf3ffac"></a>Front-End<br>
 <ul class="org-ul">
-<li><a id="orgfd33584"></a>Tests<br>
-<div class="outline-text-6" id="text-orgfd33584">
+<li><a id="org24ac892"></a>Tests<br>
+<div class="outline-text-6" id="text-org24ac892">
 <div class="highlight">
 <pre><span></span>&lt;&lt;front-end-feature-title&gt;&gt;
 
@@ -892,8 +1453,8 @@ flask run
 </pre></div>
 </div>
 </li>
-<li><a id="org0bc43aa"></a>The Features<br>
-<div class="outline-text-6" id="text-org0bc43aa">
+<li><a id="orgf07e274"></a>The Features<br>
+<div class="outline-text-6" id="text-orgf07e274">
 <p>We can start with the imports and basic set up.</p>
 <div class="highlight">
 <pre><span></span> <span class="c1"># pypi</span>
@@ -920,8 +1481,8 @@ flask run
 </pre></div>
 </div>
 <ul class="org-ul">
-<li><a id="org48d1db5"></a>The Initial Text<br>
-<div class="outline-text-7" id="text-org48d1db5">
+<li><a id="orgbae04b4"></a>The Initial Text<br>
+<div class="outline-text-7" id="text-orgbae04b4">
 <div class="highlight">
 <pre><span></span> Feature: The GUI web page to view the model
 
@@ -958,8 +1519,8 @@ flask run
 </pre></div>
 </div>
 </li>
-<li><a id="orge49b42a"></a>Click the Button<br>
-<div class="outline-text-7" id="text-orge49b42a">
+<li><a id="org1e273d2"></a>Click the Button<br>
+<div class="outline-text-7" id="text-org1e273d2">
 <div class="highlight">
 <pre><span></span>Scenario: The user gets a random prediction
   Given a browser on the home page
@@ -987,8 +1548,8 @@ flask run
 </li>
 </ul>
 </li>
-<li><a id="org838d3a9"></a>Streamlit<br>
-<div class="outline-text-6" id="text-org838d3a9">
+<li><a id="org939381a"></a>Streamlit<br>
+<div class="outline-text-6" id="text-org939381a">
 <p>For the front-end we'll use Streamlit, a python library to make creating web-pages for certain types of applications more easily (I think, I'll need to check it out more later).</p>
 <div class="highlight">
 <pre><span></span> <span class="o">&lt;&lt;</span><span class="n">streamlit</span><span class="o">-</span><span class="n">imports</span><span class="o">&gt;&gt;</span>
@@ -1091,8 +1652,8 @@ flask run
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7a02e0b">
-<h2 id="org7a02e0b">End</h2>
+<div class="outline-2" id="outline-container-orgd94f3b6">
+<h2 id="orgd94f3b6">End</h2>
 </div>
 </div>
 </article>
@@ -1109,30 +1670,30 @@ flask run
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgdf835eb">Beginning</a>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgd5dc0f0">Beginning</a>
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgf50eb45">Imports</a>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org1e8fdf5">Imports</a>
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org9f07c2a">Python</a></li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org2b2e3e9">PyPi</a></li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org60a4781">Others</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgd51820c">Python</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgb92a169">PyPi</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org1bd7e41">Others</a></li>
 </ul>
 </li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org28cc130">Setup</a>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org81f5b8e">Setup</a>
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgbe1aac1">Plotting</a></li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org5e54ed1">The Data Set</a></li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org5e3c7a2">The Text List</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgac7d500">Plotting</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org5ba0d69">The Data Set</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org114c9fe">The Text List</a></li>
 </ul>
 </li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgb1d41c7">Creating a Term-Document Matrix</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org50b7916">Creating a Term-Document Matrix</a></li>
 </ul>
 </li>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orga0a53d0">End</a>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org6e23600">End</a>
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#orgb33814d">Reference</a>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org8b54ff6">Reference</a>
 <ul>
-<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org2f8da6e">The Dataset</a></li>
+<li><a href="/posts/fastai/hand-rolling-a-countvectorizer/#org374d386">The Dataset</a></li>
 </ul>
 </li>
 </ul>
@@ -1140,26 +1701,26 @@ flask run
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgdf835eb">
-<h2 id="orgdf835eb">Beginning</h2>
-<div class="outline-text-2" id="text-orgdf835eb">
+<div class="outline-2" id="outline-container-orgd5dc0f0">
+<h2 id="orgd5dc0f0">Beginning</h2>
+<div class="outline-text-2" id="text-orgd5dc0f0">
 <p>This is part of lesson 3 from the <a href="https://github.com/fastai/course-nlp">fastai NLP course</a>.</p>
 </div>
-<div class="outline-3" id="outline-container-orgf50eb45">
-<h3 id="orgf50eb45">Imports</h3>
-<div class="outline-text-3" id="text-orgf50eb45"></div>
-<div class="outline-4" id="outline-container-org9f07c2a">
-<h4 id="org9f07c2a">Python</h4>
-<div class="outline-text-4" id="text-org9f07c2a">
+<div class="outline-3" id="outline-container-org1e8fdf5">
+<h3 id="org1e8fdf5">Imports</h3>
+<div class="outline-text-3" id="text-org1e8fdf5"></div>
+<div class="outline-4" id="outline-container-orgd51820c">
+<h4 id="orgd51820c">Python</h4>
+<div class="outline-text-4" id="text-orgd51820c">
 <div class="highlight">
 <pre><span></span>from collections import Counter
 from functools import partial
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org2b2e3e9">
-<h4 id="org2b2e3e9">PyPi</h4>
-<div class="outline-text-4" id="text-org2b2e3e9">
+<div class="outline-4" id="outline-container-orgb92a169">
+<h4 id="orgb92a169">PyPi</h4>
+<div class="outline-text-4" id="text-orgb92a169">
 <div class="highlight">
 <pre><span></span>from fastai.text import (
     URLs,
@@ -1171,21 +1732,21 @@ import pandas
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org60a4781">
-<h4 id="org60a4781">Others</h4>
-<div class="outline-text-4" id="text-org60a4781">
+<div class="outline-4" id="outline-container-org1bd7e41">
+<h4 id="org1bd7e41">Others</h4>
+<div class="outline-text-4" id="text-org1bd7e41">
 <div class="highlight">
 <pre><span></span>from graeae import CountPercentage, EmbedHoloviews
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org28cc130">
-<h3 id="org28cc130">Setup</h3>
-<div class="outline-text-3" id="text-org28cc130"></div>
-<div class="outline-4" id="outline-container-orgbe1aac1">
-<h4 id="orgbe1aac1">Plotting</h4>
-<div class="outline-text-4" id="text-orgbe1aac1">
+<div class="outline-3" id="outline-container-org81f5b8e">
+<h3 id="org81f5b8e">Setup</h3>
+<div class="outline-text-3" id="text-org81f5b8e"></div>
+<div class="outline-4" id="outline-container-orgac7d500">
+<h4 id="orgac7d500">Plotting</h4>
+<div class="outline-text-4" id="text-orgac7d500">
 <div class="highlight">
 <pre><span></span>Embed = partial(
     EmbedHoloviews,
@@ -1193,9 +1754,9 @@ import pandas
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org5e54ed1">
-<h4 id="org5e54ed1">The Data Set</h4>
-<div class="outline-text-4" id="text-org5e54ed1">
+<div class="outline-4" id="outline-container-org5ba0d69">
+<h4 id="org5ba0d69">The Data Set</h4>
+<div class="outline-text-4" id="text-org5ba0d69">
 <p>The data-set is a collection of 50,000 IMDB reviews <a href="https://course.fast.ai/datasets.html">hosted on AWS Open Datasets</a> as part of the fastai datasets collection. We're going to try and create a classifier that can predict the "sentiment" of reviews. The <a href="http://ai.stanford.edu/~amaas/data/sentiment/">original dataset</a> comes from Stanford University.</p>
 <p>To make it easier to experiment, we'll initially load a sub-set of the dataset that fastai prepared. The <a href="https://docs.fast.ai/datasets.html#URLs">URLs</a> class contains the URLs for the datasets that fastai has uploaded and the <a href="https://docs.fast.ai/datasets.html#untar_data"><code>untar_data</code></a> function downloads data from the URL given to a given (or in this case default) location.</p>
 <div class="highlight">
@@ -1204,6 +1765,7 @@ print(path)
 </pre></div>
 <pre class="example">
 /home/athena/.fastai/data/imdb_sample
+
 </pre>
 <p>The <code>untar_data</code> function doesn't actually load the data for us, so we'll use pandas to do that.</p>
 <div class="highlight">
@@ -1217,6 +1779,7 @@ print(sample_frame.head())
 2  negative  Every once in a long while a movie will come a...     False
 3  positive  Name just says it all. I watched this movie wi...     False
 4  negative  This movie succeeds at being one of the most u...     False
+
 </pre>
 <p>The <code>is_valid</code> column is kind of interesting here especially since the first examples are all false… but I couldn't find an explanation for it on the data-download page.</p>
 <div class="highlight">
@@ -1279,9 +1842,9 @@ print(sample_frame.head())
 <p>Well, so exactly 20% are invalid? Curious.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org5e3c7a2">
-<h4 id="org5e3c7a2">The Text List</h4>
-<div class="outline-text-4" id="text-org5e3c7a2">
+<div class="outline-4" id="outline-container-org114c9fe">
+<h4 id="org114c9fe">The Text List</h4>
+<div class="outline-text-4" id="text-org114c9fe">
 <p>To actually work with the dataset we'll use fastai's <a href="https://docs.fast.ai/text.data.html#The-TextList-input-classes">TextList</a> instead of pandas' dataframe.</p>
 <div class="highlight">
 <pre><span></span>sample_list = TextList.from_csv(path, "texts.csv", cols="text")
@@ -1295,12 +1858,14 @@ sample = (sample_split
 </pre></div>
 <pre class="example">
 xxbos xxmaj un - xxunk - believable ! xxmaj meg xxmaj ryan does n't even look her usual xxunk lovable self in this , which normally makes me forgive her shallow xxunk acting xxunk . xxmaj hard to believe she was the producer on this dog . xxmaj plus xxmaj kevin xxmaj kline : what kind of suicide trip has his career been on ? xxmaj xxunk ... xxmaj xxunk ! ! ! xxmaj finally this was directed by the guy who did xxmaj big xxmaj xxunk ? xxmaj must be a replay of xxmaj jonestown - hollywood style . xxmaj xxunk !
+
 </pre>
 <div class="highlight">
 <pre><span></span>print(sample_frame.text.iloc[0])
 </pre></div>
 <pre class="example">
 Un-bleeping-believable! Meg Ryan doesn't even look her usual pert lovable self in this, which normally makes me forgive her shallow ticky acting schtick. Hard to believe she was the producer on this dog. Plus Kevin Kline: what kind of suicide trip has his career been on? Whoosh... Banzai!!! Finally this was directed by the guy who did Big Chill? Must be a replay of Jonestown - hollywood style. Wooofff!
+
 </pre>
 <p>Here's the category fo that review.</p>
 <div class="highlight">
@@ -1308,6 +1873,7 @@ Un-bleeping-believable! Meg Ryan doesn't even look her usual pert lovable self i
 </pre></div>
 <pre class="example">
 negative
+
 </pre>
 <p>Note that the output looks like a string, but it's actually a fastai "type".</p>
 <div class="highlight">
@@ -1315,25 +1881,26 @@ negative
 </pre></div>
 <pre class="example">
 &lt;class 'fastai.core.Category'&gt;
+
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgb1d41c7">
-<h3 id="orgb1d41c7">Creating a Term-Document Matrix</h3>
-<div class="outline-text-3" id="text-orgb1d41c7">
+<div class="outline-3" id="outline-container-org50b7916">
+<h3 id="org50b7916">Creating a Term-Document Matrix</h3>
+<div class="outline-text-3" id="text-org50b7916">
 <p>Here we'll create a matrix that counts the number of times each token appears in each document.</p>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orga0a53d0">
-<h2 id="orga0a53d0">End</h2>
-<div class="outline-text-2" id="text-orga0a53d0"></div>
-<div class="outline-3" id="outline-container-orgb33814d">
-<h3 id="orgb33814d">Reference</h3>
-<div class="outline-text-3" id="text-orgb33814d"></div>
-<div class="outline-4" id="outline-container-org2f8da6e">
-<h4 id="org2f8da6e">The Dataset</h4>
-<div class="outline-text-4" id="text-org2f8da6e">
+<div class="outline-2" id="outline-container-org6e23600">
+<h2 id="org6e23600">End</h2>
+<div class="outline-text-2" id="text-org6e23600"></div>
+<div class="outline-3" id="outline-container-org8b54ff6">
+<h3 id="org8b54ff6">Reference</h3>
+<div class="outline-text-3" id="text-org8b54ff6"></div>
+<div class="outline-4" id="outline-container-org374d386">
+<h4 id="org374d386">The Dataset</h4>
+<div class="outline-text-4" id="text-org374d386">
 <ul class="org-ul">
 <li>Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and Christopher Potts. 2011. Learning word vectors for sentiment analysis. In Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies - Volume 1 (HLT ’11). Association for Computational Linguistics, USA, 142–150</li>
 </ul>
@@ -1356,69 +1923,69 @@ negative
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org4eae663">Beginning</a>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgc57c9b6">Beginning</a>
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org2c99cac">Related Tutorials</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org64d4eb3">Imports</a>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org5e87bd0">Related Tutorials</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgee4069c">Imports</a>
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org437d1ae">Python</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org060f90d">PyPi</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org7a1b93d">Others</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orga1fc9b7">Python</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org046b63a">PyPi</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org31563b8">Others</a></li>
 </ul>
 </li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org786443f">Set Up</a>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgf630ecd">Set Up</a>
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org5f1a436">The Timer</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orge6cd78d">Plotting</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org1edaec6">The Timer</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org576cecd">Plotting</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org2a4fb1b">Middle</a>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgd9a247f">Middle</a>
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgb5ca70e">The Dataset</a>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org9c8eb50">The Dataset</a>
 <ul>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgdeeb260">Vectorizing</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org491c2cf">Vectorizing</a></li>
 </ul>
 </li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org190be82">Singular Value Decomposition (SVD)</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org244b2ae">Looking At Some Topics</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org7b703d1">Non-negative Matrix Factorization (NMF)</a></li>
-<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org4c95ca1">Term-Frequency/Inverse Document Frequency</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org44da5f7">Singular Value Decomposition (SVD)</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgb9621f5">Looking At Some Topics</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#org0bb20ac">Non-negative Matrix Factorization (NMF)</a></li>
+<li><a href="/posts/fastai/topic-modeling-with-matrix-decomposition/#orgdc6ad4a">Term-Frequency/Inverse Document Frequency</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org4eae663">
-<h2 id="org4eae663">Beginning</h2>
-<div class="outline-text-2" id="text-org4eae663">
+<div class="outline-2" id="outline-container-orgc57c9b6">
+<h2 id="orgc57c9b6">Beginning</h2>
+<div class="outline-text-2" id="text-orgc57c9b6">
 <p>This is part of a walk-through of the <a href="https://github.com/fastai/course-nlp">fastai Code-First Introduction to NLP</a>. In this post I'll be using <a href="https://www.wikiwand.com/en/Singular_value_decomposition">Singular Value Decomposition (SVD)</a> and <a href="https://www.wikiwand.com/en/Non-negative_matrix_factorization">Non-Negative Matrix Factorization (NMF)</a> to group <a href="https://scikit-learn.org/stable/datasets/index.html#newsgroups-dataset">newsgroup posts</a>. Both of these methods are statistical approaches that use the word-counts within documents to decide how similar they are (while ignoring things like word order).</p>
 </div>
-<div class="outline-3" id="outline-container-org2c99cac">
-<h3 id="org2c99cac">Related Tutorials</h3>
-<div class="outline-text-3" id="text-org2c99cac">
+<div class="outline-3" id="outline-container-org5e87bd0">
+<h3 id="org5e87bd0">Related Tutorials</h3>
+<div class="outline-text-3" id="text-org5e87bd0">
 <ul class="org-ul">
 <li><a href="http://scikit-learn.org/stable/auto_examples/applications/plot_out_of_core_classification.html">Out-Of-Core Text Classification with sklearn</a></li>
 <li><a href="https://de.dariah.eu/tatom/index.html)">Text Analysis with Topic Models for the Humanities and Social Sciences</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org64d4eb3">
-<h3 id="org64d4eb3">Imports</h3>
-<div class="outline-text-3" id="text-org64d4eb3"></div>
-<div class="outline-4" id="outline-container-org437d1ae">
-<h4 id="org437d1ae">Python</h4>
-<div class="outline-text-4" id="text-org437d1ae">
+<div class="outline-3" id="outline-container-orgee4069c">
+<h3 id="orgee4069c">Imports</h3>
+<div class="outline-text-3" id="text-orgee4069c"></div>
+<div class="outline-4" id="outline-container-orga1fc9b7">
+<h4 id="orga1fc9b7">Python</h4>
+<div class="outline-text-4" id="text-orga1fc9b7">
 <div class="highlight">
 <pre><span></span>from functools import partial
 import random
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org060f90d">
-<h4 id="org060f90d">PyPi</h4>
-<div class="outline-text-4" id="text-org060f90d">
+<div class="outline-4" id="outline-container-org046b63a">
+<h4 id="org046b63a">PyPi</h4>
+<div class="outline-text-4" id="text-org046b63a">
 <div class="highlight">
 <pre><span></span>from scipy import linalg
 from sklearn import decomposition
@@ -1431,29 +1998,29 @@ import pandas
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org7a1b93d">
-<h4 id="org7a1b93d">Others</h4>
-<div class="outline-text-4" id="text-org7a1b93d">
+<div class="outline-4" id="outline-container-org31563b8">
+<h4 id="org31563b8">Others</h4>
+<div class="outline-text-4" id="text-org31563b8">
 <div class="highlight">
 <pre><span></span>from graeae import EmbedHoloviews, Timer
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org786443f">
-<h3 id="org786443f">Set Up</h3>
-<div class="outline-text-3" id="text-org786443f"></div>
-<div class="outline-4" id="outline-container-org5f1a436">
-<h4 id="org5f1a436">The Timer</h4>
-<div class="outline-text-4" id="text-org5f1a436">
+<div class="outline-3" id="outline-container-orgf630ecd">
+<h3 id="orgf630ecd">Set Up</h3>
+<div class="outline-text-3" id="text-orgf630ecd"></div>
+<div class="outline-4" id="outline-container-org1edaec6">
+<h4 id="org1edaec6">The Timer</h4>
+<div class="outline-text-4" id="text-org1edaec6">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orge6cd78d">
-<h4 id="orge6cd78d">Plotting</h4>
-<div class="outline-text-4" id="text-orge6cd78d">
+<div class="outline-4" id="outline-container-org576cecd">
+<h4 id="org576cecd">Plotting</h4>
+<div class="outline-text-4" id="text-org576cecd">
 <div class="highlight">
 <pre><span></span>Embed = partial(
     EmbedHoloviews,
@@ -1463,12 +2030,12 @@ import pandas
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org2a4fb1b">
-<h2 id="org2a4fb1b">Middle</h2>
-<div class="outline-text-2" id="text-org2a4fb1b"></div>
-<div class="outline-3" id="outline-container-orgb5ca70e">
-<h3 id="orgb5ca70e">The Dataset</h3>
-<div class="outline-text-3" id="text-orgb5ca70e">
+<div class="outline-2" id="outline-container-orgd9a247f">
+<h2 id="orgd9a247f">Middle</h2>
+<div class="outline-text-2" id="text-orgd9a247f"></div>
+<div class="outline-3" id="outline-container-org9c8eb50">
+<h3 id="org9c8eb50">The Dataset</h3>
+<div class="outline-text-3" id="text-org9c8eb50">
 <p>The dataset consists of ~18,000 newsgroup posts with 20 topics. To keep the computation down I'll only use a subset of the categories. I'm also going to only use the body of the posts.</p>
 <div class="highlight">
 <pre><span></span>keep = ("alt.atheism", "comp.graphics", "misc.forsale", "sci.crypt", "talk.politics.guns")
@@ -1484,6 +2051,7 @@ print(f"{training.target.shape[0]:,}")
 <pre class="example">
 2,790
 2,790
+
 </pre>
 <p>So, although the entire dataset has over 18,000 entries, our sub-set has fewer than 3,000.</p>
 <div class="highlight">
@@ -1491,6 +2059,7 @@ print(f"{training.target.shape[0]:,}")
 </pre></div>
 <pre class="example">
 [0 1 2 3 4]
+
 </pre>
 <p>So the categories don't seem to be preserved (I'm assuming that the five I kept weren't the first five in the original set) so you have to check anytime you pull a subset out of the data.</p>
 <p>Lets see what one of the posts looks like.</p>
@@ -1533,9 +2102,9 @@ based on race, religion, national origin, gender, or sexual preference;
 it probably hasn't been tested in court, but it seems like a plausible
 extension of anti-discrimination laws affecting other businesses.
 </pre></div>
-<div class="outline-4" id="outline-container-orgdeeb260">
-<h4 id="orgdeeb260">Vectorizing</h4>
-<div class="outline-text-4" id="text-orgdeeb260">
+<div class="outline-4" id="outline-container-org491c2cf">
+<h4 id="org491c2cf">Vectorizing</h4>
+<div class="outline-text-4" id="text-org491c2cf">
 <p>Here we'll convert the text to a matrix using <a href="https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.CountVectorizer.html">sklearn's CountVectorizer</a>. Interestingly, the <a href="https://nlp.stanford.edu/IR-book/html/htmledition/dropping-common-terms-stop-words-1.html">Introduction to Information Retrieval</a> book says the the trend has been towards not removing the most common words (<i>stop word</i>) but we'll be dropping them. There's a paper called <a href="https://www.aclweb.org/anthology/W18-2502/">Stop Word Lists in Free Open-source Software Packages</a> which points out some problems with stop-word lists in general, but sklearn's list in particular. I don't know if sklearn has done anything to address their concerns since the paper came out, but the sklearn documentation includes a link to the paper so I would assume the problems are still there. Nonetheless, the fastai examples uses them so I will too.</p>
 <div class="highlight">
 <pre><span></span>vectorizer = CountVectorizer(stop_words="english")
@@ -1549,6 +2118,7 @@ extension of anti-discrimination laws affecting other businesses.
 2020-01-01 16:26:48,048 graeae.timers.timer start: Started: 2020-01-01 16:26:48.047927
 2020-01-01 16:26:48,466 graeae.timers.timer end: Ended: 2020-01-01 16:26:48.466285
 2020-01-01 16:26:48,466 graeae.timers.timer end: Elapsed: 0:00:00.418358
+
 </pre>
 <p>That was much quicker than I thought it would be, probably because our dataset is so small.</p>
 <div class="highlight">
@@ -1557,14 +2127,15 @@ print(f"{len(vocabulary):,}")
 </pre></div>
 <pre class="example">
 34,632
+
 </pre>
 <p>So our "vocabulary" is around 35,000 tokens.</p>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org190be82">
-<h3 id="org190be82">Singular Value Decomposition (SVD)</h3>
-<div class="outline-text-3" id="text-org190be82">
+<div class="outline-3" id="outline-container-org44da5f7">
+<h3 id="org44da5f7">Singular Value Decomposition (SVD)</h3>
+<div class="outline-text-3" id="text-org44da5f7">
 <p>Singular Value Decomposition is a linear algebra method to factor a matrix. The math is beyond me at this point, so I'll just try using it as a black box.</p>
 <div class="highlight">
 <pre><span></span>with TIMER:
@@ -1574,6 +2145,7 @@ print(f"{len(vocabulary):,}")
 2020-01-01 16:26:50,508 graeae.timers.timer start: Started: 2020-01-01 16:26:50.508003
 2020-01-01 16:27:23,979 graeae.timers.timer end: Ended: 2020-01-01 16:27:23.978988
 2020-01-01 16:27:23,980 graeae.timers.timer end: Elapsed: 0:00:33.470985
+
 </pre>
 <div class="highlight">
 <pre><span></span>s_frame = pandas.Series(s)
@@ -1584,9 +2156,9 @@ Embed(plot=plot, file_name="s_values")()
 <p>Figure Missing</p>
 </object></div>
 </div>
-<div class="outline-3" id="outline-container-org244b2ae">
-<h3 id="org244b2ae">Looking At Some Topics</h3>
-<div class="outline-text-3" id="text-org244b2ae">
+<div class="outline-3" id="outline-container-orgb9621f5">
+<h3 id="orgb9621f5">Looking At Some Topics</h3>
+<div class="outline-text-3" id="text-orgb9621f5">
 <div class="highlight">
 <pre><span></span>top_words_count = 8
 
@@ -1617,9 +2189,9 @@ for index, topic in enumerate(topics):
 <p>So what we're showing is the most significant words for the top-ten most strongly grouped "topics". It takes a little bit of interpretation to figure out how to map them to the newsgroups we used, and there probably could have been some clean-up of the texts (entry 5 looks suspect) but it's interesting that this linear algebra decomposition method could find these similar groups without any kind of prompting as to what groups might even exist in the first place (this is an unsupervised method, not a supervised method).</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org7b703d1">
-<h3 id="org7b703d1">Non-negative Matrix Factorization (NMF)</h3>
-<div class="outline-text-3" id="text-org7b703d1">
+<div class="outline-3" id="outline-container-org0bb20ac">
+<h3 id="org0bb20ac">Non-negative Matrix Factorization (NMF)</h3>
+<div class="outline-text-3" id="text-org0bb20ac">
 <div class="highlight">
 <pre><span></span>number_of_topics = 5
 classifier = decomposition.NMF(n_components=number_of_topics, random_state=1)
@@ -1634,11 +2206,12 @@ for index, topic in enumerate(show_topics(classified)):
 2: file gun congress control firearms states mr united
 3: jpeg image gif file color images format quality
 4: edu graphics pub image data ftp mail available
+
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org4c95ca1">
-<h3 id="org4c95ca1">Term-Frequency/Inverse Document Frequency</h3>
-<div class="outline-text-3" id="text-org4c95ca1">
+<div class="outline-3" id="outline-container-orgdc6ad4a">
+<h3 id="orgdc6ad4a">Term-Frequency/Inverse Document Frequency</h3>
+<div class="outline-text-3" id="text-orgdc6ad4a">
 <div class="highlight">
 <pre><span></span>tfidf_vectorizer = TfidfVectorizer(stop_words="english")
 tfidf_vectors = tfidf_vectorizer.fit_transform(training.data)
@@ -1654,6 +2227,7 @@ for index, topic in enumerate(show_topics(classified)):
 2: key chip encryption clipper keys escrow government algorithm
 3: graphics thanks file files image program know windows
 4: god atheism believe does atheists belief said exist
+
 </pre></div>
 </div>
 </div>
@@ -1672,19 +2246,19 @@ for index, topic in enumerate(show_topics(classified)):
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/link-collection/#orge90814c">Machine Learning</a>
+<li><a href="/posts/link-collection/#org3785703">Machine Learning</a>
 <ul>
-<li><a href="/posts/link-collection/#org4e2129c">Blogs</a></li>
+<li><a href="/posts/link-collection/#org473ce04">Blogs</a></li>
 </ul>
 </li>
-<li><a href="/posts/link-collection/#org0c25a6f">Visualization</a></li>
-<li><a href="/posts/link-collection/#org2785be9">Natural Language Processing</a>
+<li><a href="/posts/link-collection/#org01d3679">Visualization</a></li>
+<li><a href="/posts/link-collection/#org5c908a3">Natural Language Processing</a>
 <ul>
-<li><a href="/posts/link-collection/#org4e0c66d">Books</a></li>
-<li><a href="/posts/link-collection/#orge92d5c5">Blogs</a></li>
-<li><a href="/posts/link-collection/#org9f00629">Code</a>
+<li><a href="/posts/link-collection/#orgeb5178e">Books</a></li>
+<li><a href="/posts/link-collection/#org0cc04e7">Blogs</a></li>
+<li><a href="/posts/link-collection/#orgcdcd836">Code</a>
 <ul>
-<li><a href="/posts/link-collection/#org51a01b0">FaceBook</a></li>
+<li><a href="/posts/link-collection/#orgdf83835">FaceBook</a></li>
 </ul>
 </li>
 </ul>
@@ -1692,53 +2266,53 @@ for index, topic in enumerate(show_topics(classified)):
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orge90814c">
-<h2 id="orge90814c">Machine Learning</h2>
-<div class="outline-text-2" id="text-orge90814c"></div>
-<div class="outline-3" id="outline-container-org4e2129c">
-<h3 id="org4e2129c">Blogs</h3>
-<div class="outline-text-3" id="text-org4e2129c">
+<div class="outline-2" id="outline-container-org3785703">
+<h2 id="org3785703">Machine Learning</h2>
+<div class="outline-text-2" id="text-org3785703"></div>
+<div class="outline-3" id="outline-container-org473ce04">
+<h3 id="org473ce04">Blogs</h3>
+<div class="outline-text-3" id="text-org473ce04">
 <ul class="org-ul">
 <li><a href="https://smerity.com/">Smerity</a></li>
 </ul>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org0c25a6f">
-<h2 id="org0c25a6f">Visualization</h2>
-<div class="outline-text-2" id="text-org0c25a6f">
+<div class="outline-2" id="outline-container-org01d3679">
+<h2 id="org01d3679">Visualization</h2>
+<div class="outline-text-2" id="text-org01d3679">
 <ul class="org-ul">
 <li><a href="https://jalammar.github.io/">Jay Alamar</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org2785be9">
-<h2 id="org2785be9">Natural Language Processing</h2>
-<div class="outline-text-2" id="text-org2785be9"></div>
-<div class="outline-3" id="outline-container-org4e0c66d">
-<h3 id="org4e0c66d">Books</h3>
-<div class="outline-text-3" id="text-org4e0c66d">
+<div class="outline-2" id="outline-container-org5c908a3">
+<h2 id="org5c908a3">Natural Language Processing</h2>
+<div class="outline-text-2" id="text-org5c908a3"></div>
+<div class="outline-3" id="outline-container-orgeb5178e">
+<h3 id="orgeb5178e">Books</h3>
+<div class="outline-text-3" id="text-orgeb5178e">
 <ul class="org-ul">
 <li><a href="https://web.stanford.edu/~jurafsky/slp3/">Speech and Language Processing</a> by <a href="https://web.stanford.edu/~jurafsky/">Dan Jurafsky</a> and <a href="https://www.cs.colorado.edu/~martin/">James H. Martin</a></li>
 <li><a href="https://nlp.stanford.edu/IR-book/">Introduction to Information Retrieval</a> by Christopher D. Manning, Prabhakar Raghavan & Hinrich Schutze</li>
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orge92d5c5">
-<h3 id="orge92d5c5">Blogs</h3>
-<div class="outline-text-3" id="text-orge92d5c5">
+<div class="outline-3" id="outline-container-org0cc04e7">
+<h3 id="org0cc04e7">Blogs</h3>
+<div class="outline-text-3" id="text-org0cc04e7">
 <ul class="org-ul">
 <li><a href="https://ruder.io/">Sebastian Ruder</a></li>
 <li><a href="http://www.abigailsee.com/">Abigail See</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9f00629">
-<h3 id="org9f00629">Code</h3>
-<div class="outline-text-3" id="text-org9f00629"></div>
-<div class="outline-4" id="outline-container-org51a01b0">
-<h4 id="org51a01b0">FaceBook</h4>
-<div class="outline-text-4" id="text-org51a01b0">
+<div class="outline-3" id="outline-container-orgcdcd836">
+<h3 id="orgcdcd836">Code</h3>
+<div class="outline-text-3" id="text-orgcdcd836"></div>
+<div class="outline-4" id="outline-container-orgdf83835">
+<h4 id="orgdf83835">FaceBook</h4>
+<div class="outline-text-4" id="text-orgdf83835">
 <ul class="org-ul">
 <li><a href="https://github.com/facebookresearch/pytext">pytext</a></li>
 <li><a href="https://fasttext.cc/">fastText</a></li>
@@ -1762,55 +2336,55 @@ for index, topic in enumerate(show_topics(classified)):
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#orgc3ce70f">Beginning</a>
+<li><a href="/posts/keras/nlp-classification-exercise/#org2d05c1d">Beginning</a>
 <ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#org11fd0b7">Imports</a>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgc914fa5">Imports</a>
 <ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#org6e86360">Python</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org9455706">PyPi</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org3d04dc9">Others</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org598f18d">Python</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgcbf7818">PyPi</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org2af2370">Others</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/nlp-classification-exercise/#orgee71724">Set Up</a>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgb1220c0">Set Up</a>
 <ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#orgaff3cd1">The Timer</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org0cb73eb">The Plotting</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org99a7815">The Dataset</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org48e0a19">Some Constants</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org7267bf9">Middle</a>
-<ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#orgea3447c">The Data</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org18320b5">The Tokenizer</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#orgec3a1fa">GloVe</a></li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org5ffcd85">The Models</a>
-<ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#org07a7596">A CNN</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org69dfbcc">The Timer</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org991cc99">The Plotting</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org8cabe97">The Dataset</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org0d32bd0">Some Constants</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/keras/nlp-classification-exercise/#org893acc6">End</a>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgd637ddb">Middle</a>
 <ul>
-<li><a href="/posts/keras/nlp-classification-exercise/#org55e9163">Citations</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgc48f273">The Data</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org381ed83">The Tokenizer</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgfaf9811">GloVe</a></li>
+<li><a href="/posts/keras/nlp-classification-exercise/#orgdcbe780">The Models</a>
+<ul>
+<li><a href="/posts/keras/nlp-classification-exercise/#orga1ce57d">A CNN</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/nlp-classification-exercise/#orge209131">Raw</a></li>
+</ul>
+</li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org6da8f04">End</a>
+<ul>
+<li><a href="/posts/keras/nlp-classification-exercise/#org8cb5cb8">Citations</a></li>
+</ul>
+</li>
+<li><a href="/posts/keras/nlp-classification-exercise/#org15d0926">Raw</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgc3ce70f">
-<h2 id="orgc3ce70f">Beginning</h2>
-<div class="outline-text-2" id="text-orgc3ce70f"></div>
-<div class="outline-3" id="outline-container-org11fd0b7">
-<h3 id="org11fd0b7">Imports</h3>
-<div class="outline-text-3" id="text-org11fd0b7"></div>
-<div class="outline-4" id="outline-container-org6e86360">
-<h4 id="org6e86360">Python</h4>
-<div class="outline-text-4" id="text-org6e86360">
+<div class="outline-2" id="outline-container-org2d05c1d">
+<h2 id="org2d05c1d">Beginning</h2>
+<div class="outline-text-2" id="text-org2d05c1d"></div>
+<div class="outline-3" id="outline-container-orgc914fa5">
+<h3 id="orgc914fa5">Imports</h3>
+<div class="outline-text-3" id="text-orgc914fa5"></div>
+<div class="outline-4" id="outline-container-org598f18d">
+<h4 id="org598f18d">Python</h4>
+<div class="outline-text-4" id="text-org598f18d">
 <div class="highlight">
 <pre><span></span>from argparse import Namespace
 from functools import partial
@@ -1818,9 +2392,9 @@ from pathlib import Path
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org9455706">
-<h4 id="org9455706">PyPi</h4>
-<div class="outline-text-4" id="text-org9455706">
+<div class="outline-4" id="outline-container-orgcbf7818">
+<h4 id="orgcbf7818">PyPi</h4>
+<div class="outline-text-4" id="text-orgcbf7818">
 <div class="highlight">
 <pre><span></span>from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -1832,9 +2406,9 @@ import tensorflow
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org3d04dc9">
-<h4 id="org3d04dc9">Others</h4>
-<div class="outline-text-4" id="text-org3d04dc9">
+<div class="outline-4" id="outline-container-org2af2370">
+<h4 id="org2af2370">Others</h4>
+<div class="outline-text-4" id="text-org2af2370">
 <div class="highlight">
 <pre><span></span>from graeae import (CountPercentage,
                     EmbedHoloviews,
@@ -1845,29 +2419,29 @@ import tensorflow
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgee71724">
-<h3 id="orgee71724">Set Up</h3>
-<div class="outline-text-3" id="text-orgee71724"></div>
-<div class="outline-4" id="outline-container-orgaff3cd1">
-<h4 id="orgaff3cd1">The Timer</h4>
-<div class="outline-text-4" id="text-orgaff3cd1">
+<div class="outline-3" id="outline-container-orgb1220c0">
+<h3 id="orgb1220c0">Set Up</h3>
+<div class="outline-text-3" id="text-orgb1220c0"></div>
+<div class="outline-4" id="outline-container-org69dfbcc">
+<h4 id="org69dfbcc">The Timer</h4>
+<div class="outline-text-4" id="text-org69dfbcc">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org0cb73eb">
-<h4 id="org0cb73eb">The Plotting</h4>
-<div class="outline-text-4" id="text-org0cb73eb">
+<div class="outline-4" id="outline-container-org991cc99">
+<h4 id="org991cc99">The Plotting</h4>
+<div class="outline-text-4" id="text-org991cc99">
 <div class="highlight">
 <pre><span></span>slug = "nlp-classification-exercise"
 Embed = partial(EmbedHoloviews, folder_path=f"../../files/posts/keras/{slug}")
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org99a7815">
-<h4 id="org99a7815">The Dataset</h4>
-<div class="outline-text-4" id="text-org99a7815">
+<div class="outline-4" id="outline-container-org8cabe97">
+<h4 id="org8cabe97">The Dataset</h4>
+<div class="outline-text-4" id="text-org8cabe97">
 <p>It isn't mentioned in the notebook where the data originally came from, but it looks like it's the <a href="http://help.sentiment140.com/home">Sentiment140</a> dataset, which consists of tweets whose sentiment was inferred by emoticons in each tweet.</p>
 <div class="highlight">
 <pre><span></span>url = "http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip"
@@ -1888,9 +2462,9 @@ testing = pandas.read_csv(path/"testdata.manual.2009.06.14.csv",
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org48e0a19">
-<h4 id="org48e0a19">Some Constants</h4>
-<div class="outline-text-4" id="text-org48e0a19">
+<div class="outline-4" id="outline-container-org0d32bd0">
+<h4 id="org0d32bd0">Some Constants</h4>
+<div class="outline-text-4" id="text-org0d32bd0">
 <div class="highlight">
 <pre><span></span>Text = Namespace(
     embedding_dim = 100,
@@ -1911,12 +2485,12 @@ testing = pandas.read_csv(path/"testdata.manual.2009.06.14.csv",
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7267bf9">
-<h2 id="org7267bf9">Middle</h2>
-<div class="outline-text-2" id="text-org7267bf9"></div>
-<div class="outline-3" id="outline-container-orgea3447c">
-<h3 id="orgea3447c">The Data</h3>
-<div class="outline-text-3" id="text-orgea3447c">
+<div class="outline-2" id="outline-container-orgd637ddb">
+<h2 id="orgd637ddb">Middle</h2>
+<div class="outline-text-2" id="text-orgd637ddb"></div>
+<div class="outline-3" id="outline-container-orgc48f273">
+<h3 id="orgc48f273">The Data</h3>
+<div class="outline-text-3" id="text-orgc48f273">
 <div class="highlight">
 <pre><span></span>print(training.sample().iloc[0])
 </pre></div>
@@ -1991,9 +2565,9 @@ counts = CountPercentage(training.polarity)()
 </table>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org18320b5">
-<h3 id="org18320b5">The Tokenizer</h3>
-<div class="outline-text-3" id="text-org18320b5">
+<div class="outline-3" id="outline-container-org381ed83">
+<h3 id="org381ed83">The Tokenizer</h3>
+<div class="outline-text-3" id="text-org381ed83">
 <p>As you can see from the sample, the data is still in text form so we need to convert it to a numeric form with a Tokenizer.</p>
 <p>First I'll Lower-case it.</p>
 <div class="highlight">
@@ -2056,9 +2630,9 @@ testing_dataset = testing_dataset.shuffle(Data.shuffle_buffer_size).batch(Data.b
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgec3a1fa">
-<h3 id="orgec3a1fa">GloVe</h3>
-<div class="outline-text-3" id="text-orgec3a1fa">
+<div class="outline-3" id="outline-container-orgfaf9811">
+<h3 id="orgfaf9811">GloVe</h3>
+<div class="outline-text-3" id="text-orgfaf9811">
 <p>GloVe is short for <i>Global Vectors for Word Representation</i>. It is an <i>unsupervised</i> algorithm that creates vector representations for words. They have a <a href="https://nlp.stanford.edu/projects/glove/">site</a> where you can download pre-trained models or get the code and train one yourself. We're going to use one of their pre-trained models.</p>
 <div class="highlight">
 <pre><span></span>path = Path("~/models/glove/").expanduser()
@@ -2121,15 +2695,15 @@ I1006 18:55:51.377207 140055379531584 timer.py:78] Elapsed: 0:00:04.796851
 
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org5ffcd85">
-<h3 id="org5ffcd85">The Models</h3>
-<div class="outline-text-3" id="text-org5ffcd85"></div>
-<div class="outline-4" id="outline-container-org07a7596">
-<h4 id="org07a7596">A CNN</h4>
-<div class="outline-text-4" id="text-org07a7596"></div>
+<div class="outline-3" id="outline-container-orgdcbe780">
+<h3 id="orgdcbe780">The Models</h3>
+<div class="outline-text-3" id="text-orgdcbe780"></div>
+<div class="outline-4" id="outline-container-orga1ce57d">
+<h4 id="orga1ce57d">A CNN</h4>
+<div class="outline-text-4" id="text-orga1ce57d"></div>
 <ul class="org-ul">
-<li><a id="orgd9ee93c"></a>Build<br>
-<div class="outline-text-5" id="text-orgd9ee93c">
+<li><a id="org67c2f3a"></a>Build<br>
+<div class="outline-text-5" id="text-org67c2f3a">
 <div class="highlight">
 <pre><span></span>convoluted_model = tensorflow.keras.Sequential([
     tensorflow.keras.layers.Embedding(
@@ -2173,8 +2747,8 @@ _________________________________________________________________
 None
 </pre></div>
 </li>
-<li><a id="org57f12aa"></a>Train<br>
-<div class="outline-text-5" id="text-org57f12aa">
+<li><a id="org6b2bbab"></a>Train<br>
+<div class="outline-text-5" id="text-org6b2bbab">
 <div class="highlight">
 <pre><span></span>Training = Namespace(
     size = 0.75,
@@ -2206,8 +2780,8 @@ I1010 10:12:04.382491 140436771002176 timer.py:77] Ended: 2019-10-10 10:12:04.38
 I1010 10:12:04.384716 140436771002176 timer.py:78] Elapsed: 2:44:59.460742
 </pre></div>
 </li>
-<li><a id="org6f7dbb3"></a>Some Plotting<br>
-<div class="outline-text-5" id="text-org6f7dbb3">
+<li><a id="orgd7a9e41"></a>Some Plotting<br>
+<div class="outline-text-5" id="text-orgd7a9e41">
 <div class="highlight">
 <pre><span></span>performance = pandas.DataFrame(cnn_history.history)
 plot = performance.hvplot().opts(title="CNN Twitter Sentiment Training Performance",
@@ -2221,21 +2795,21 @@ Embed(plot=plot, file_name="cnn_training")()
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org893acc6">
-<h2 id="org893acc6">End</h2>
-<div class="outline-text-2" id="text-org893acc6"></div>
-<div class="outline-3" id="outline-container-org55e9163">
-<h3 id="org55e9163">Citations</h3>
-<div class="outline-text-3" id="text-org55e9163">
+<div class="outline-2" id="outline-container-org6da8f04">
+<h2 id="org6da8f04">End</h2>
+<div class="outline-text-2" id="text-org6da8f04"></div>
+<div class="outline-3" id="outline-container-org8cb5cb8">
+<h3 id="org8cb5cb8">Citations</h3>
+<div class="outline-text-3" id="text-org8cb5cb8">
 <ul class="org-ul">
 <li>Jeffrey Pennington, Richard Socher, and Christopher D. Manning. 2014. GloVe: Global Vectors for Word Representation.</li>
 </ul>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orge209131">
-<h2 id="orge209131">Raw</h2>
-<div class="outline-text-2" id="text-orge209131"></div>
+<div class="outline-2" id="outline-container-org15d0926">
+<h2 id="org15d0926">Raw</h2>
+<div class="outline-text-2" id="text-org15d0926"></div>
 </div>
 </div>
 </article>
@@ -2252,61 +2826,61 @@ Embed(plot=plot, file_name="cnn_training")()
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#org4a41309">Beginning</a>
+<li><a href="/posts/keras/embeddings-from-scratch/#orga1caeb1">Beginning</a>
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#org3ff541b">Imports</a>
+<li><a href="/posts/keras/embeddings-from-scratch/#org952ed41">Imports</a>
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#org093f061">Python</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#orgaf6f43a">PyPi</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org36b47f9">Others</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org71ec77e">Python</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org6ce9b88">PyPi</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgce9ee72">Others</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/embeddings-from-scratch/#orgce4084e">Set Up</a>
+<li><a href="/posts/keras/embeddings-from-scratch/#org8abccee">Set Up</a>
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#org5b4728e">Plotting</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org7b49415">The Timer</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org8ecce41">Plotting</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgd0955f0">The Timer</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org4e302e0">Middle</a>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgdf2a643">Middle</a>
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#orgd45e3e4">Some Constants</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org1614462">The Embeddings Layer</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org74c2e38">The Dataset</a>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgcccd476">Some Constants</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgbccfbe2">The Embeddings Layer</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org885612f">The Dataset</a>
 <ul>
-<li><a href="/posts/keras/embeddings-from-scratch/#org5010690">Add Padding</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#orgc7b8673">Checkout a Sample</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgd8167f5">Add Padding</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org01161ec">Checkout a Sample</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org954b9de">Build a Model</a></li>
-<li><a href="/posts/keras/embeddings-from-scratch/#org04d5dbc">Compile and Train</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org52d6324">Build a Model</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#orgc4c6dab">Compile and Train</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/embeddings-from-scratch/#orgda18e8a">End</a></li>
+<li><a href="/posts/keras/embeddings-from-scratch/#org730c720">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org4a41309">
-<h2 id="org4a41309">Beginning</h2>
-<div class="outline-text-2" id="text-org4a41309">
+<div class="outline-2" id="outline-container-orga1caeb1">
+<h2 id="orga1caeb1">Beginning</h2>
+<div class="outline-text-2" id="text-orga1caeb1">
 <p>This is a walk-through of the tensorflow <a href="https://www.tensorflow.org/beta/tutorials/text/word_embeddings">Word Embeddings</a> tutorial, just to make sure I can do it.</p>
 </div>
-<div class="outline-3" id="outline-container-org3ff541b">
-<h3 id="org3ff541b">Imports</h3>
-<div class="outline-text-3" id="text-org3ff541b"></div>
-<div class="outline-4" id="outline-container-org093f061">
-<h4 id="org093f061">Python</h4>
-<div class="outline-text-4" id="text-org093f061">
+<div class="outline-3" id="outline-container-org952ed41">
+<h3 id="org952ed41">Imports</h3>
+<div class="outline-text-3" id="text-org952ed41"></div>
+<div class="outline-4" id="outline-container-org71ec77e">
+<h4 id="org71ec77e">Python</h4>
+<div class="outline-text-4" id="text-org71ec77e">
 <div class="highlight">
 <pre><span></span>from argparse import Namespace
 from functools import partial
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgaf6f43a">
-<h4 id="orgaf6f43a">PyPi</h4>
-<div class="outline-text-4" id="text-orgaf6f43a">
+<div class="outline-4" id="outline-container-org6ce9b88">
+<h4 id="org6ce9b88">PyPi</h4>
+<div class="outline-text-4" id="text-org6ce9b88">
 <div class="highlight">
 <pre><span></span>from tensorflow import keras
 from tensorflow.keras import layers
@@ -2317,21 +2891,21 @@ import tensorflow_datasets
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org36b47f9">
-<h4 id="org36b47f9">Others</h4>
-<div class="outline-text-4" id="text-org36b47f9">
+<div class="outline-4" id="outline-container-orgce9ee72">
+<h4 id="orgce9ee72">Others</h4>
+<div class="outline-text-4" id="text-orgce9ee72">
 <div class="highlight">
 <pre><span></span>from graeae import EmbedHoloviews, Timer
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgce4084e">
-<h3 id="orgce4084e">Set Up</h3>
-<div class="outline-text-3" id="text-orgce4084e"></div>
-<div class="outline-4" id="outline-container-org5b4728e">
-<h4 id="org5b4728e">Plotting</h4>
-<div class="outline-text-4" id="text-org5b4728e">
+<div class="outline-3" id="outline-container-org8abccee">
+<h3 id="org8abccee">Set Up</h3>
+<div class="outline-text-3" id="text-org8abccee"></div>
+<div class="outline-4" id="outline-container-org8ecce41">
+<h4 id="org8ecce41">Plotting</h4>
+<div class="outline-text-4" id="text-org8ecce41">
 <div class="highlight">
 <pre><span></span>prefix = "../../files/posts/keras/"
 slug = "embeddings-from-scratch"
@@ -2340,9 +2914,9 @@ Embed = partial(EmbedHoloviews, folder_path=f"{prefix}{slug}")
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org7b49415">
-<h4 id="org7b49415">The Timer</h4>
-<div class="outline-text-4" id="text-org7b49415">
+<div class="outline-4" id="outline-container-orgd0955f0">
+<h4 id="orgd0955f0">The Timer</h4>
+<div class="outline-text-4" id="text-orgd0955f0">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
@@ -2350,12 +2924,12 @@ Embed = partial(EmbedHoloviews, folder_path=f"{prefix}{slug}")
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org4e302e0">
-<h2 id="org4e302e0">Middle</h2>
-<div class="outline-text-2" id="text-org4e302e0"></div>
-<div class="outline-3" id="outline-container-orgd45e3e4">
-<h3 id="orgd45e3e4">Some Constants</h3>
-<div class="outline-text-3" id="text-orgd45e3e4">
+<div class="outline-2" id="outline-container-orgdf2a643">
+<h2 id="orgdf2a643">Middle</h2>
+<div class="outline-text-2" id="text-orgdf2a643"></div>
+<div class="outline-3" id="outline-container-orgcccd476">
+<h3 id="orgcccd476">Some Constants</h3>
+<div class="outline-text-3" id="text-orgcccd476">
 <div class="highlight">
 <pre><span></span>Text = Namespace(
     vocabulary_size=1000,
@@ -2373,9 +2947,9 @@ Tokens = Namespace(
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org1614462">
-<h3 id="org1614462">The Embeddings Layer</h3>
-<div class="outline-text-3" id="text-org1614462">
+<div class="outline-3" id="outline-container-orgbccfbe2">
+<h3 id="orgbccfbe2">The Embeddings Layer</h3>
+<div class="outline-text-3" id="text-orgbccfbe2">
 <div class="highlight">
 <pre><span></span>print(layers.Embedding.__doc__)
 </pre></div>
@@ -2443,9 +3017,9 @@ Turns positive integers (indexes) into dense vectors of fixed size.
 <p>The ouput of the embeddings layer is a 3D tensor with the shape (<code>number of samples</code>, <code>sequence_length</code>, <code>embedding_dimensionality</code>).</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org74c2e38">
-<h3 id="org74c2e38">The Dataset</h3>
-<div class="outline-text-3" id="text-org74c2e38">
+<div class="outline-3" id="outline-container-org885612f">
+<h3 id="org885612f">The Dataset</h3>
+<div class="outline-text-3" id="text-org885612f">
 <div class="highlight">
 <pre><span></span>(train_data, test_data), info = tensorflow_datasets.load(
     "imdb_reviews/subwords8k",
@@ -2461,9 +3035,9 @@ print(encoder.subwords[:10])
 ['the_', ', ', '. ', 'a_', 'and_', 'of_', 'to_', 's_', 'is_', 'br']
 
 </pre></div>
-<div class="outline-4" id="outline-container-org5010690">
-<h4 id="org5010690">Add Padding</h4>
-<div class="outline-text-4" id="text-org5010690">
+<div class="outline-4" id="outline-container-orgd8167f5">
+<h4 id="orgd8167f5">Add Padding</h4>
+<div class="outline-text-4" id="text-orgd8167f5">
 <div class="highlight">
 <pre><span></span>padded_shapes = ([None], ())
 train_batches = train_data.shuffle(Text.vocabulary_size).padded_batch(
@@ -2474,9 +3048,9 @@ test_batches = test_data.shuffle(Text.vocabulary_size).padded_batch(
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgc7b8673">
-<h4 id="orgc7b8673">Checkout a Sample</h4>
-<div class="outline-text-4" id="text-orgc7b8673">
+<div class="outline-4" id="outline-container-org01161ec">
+<h4 id="org01161ec">Checkout a Sample</h4>
+<div class="outline-text-4" id="text-org01161ec">
 <div class="highlight">
 <pre><span></span>batch, labels = next(iter(train_batches))
 print(batch.numpy())
@@ -2493,9 +3067,9 @@ print(batch.numpy())
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org954b9de">
-<h3 id="org954b9de">Build a Model</h3>
-<div class="outline-text-3" id="text-org954b9de">
+<div class="outline-3" id="outline-container-org52d6324">
+<h3 id="org52d6324">Build a Model</h3>
+<div class="outline-text-3" id="text-org52d6324">
 <div class="highlight">
 <pre><span></span>model = keras.Sequential([
     layers.Embedding(encoder.vocab_size, Text.embeddings_size),
@@ -2524,9 +3098,9 @@ _________________________________________________________________
 None
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org04d5dbc">
-<h3 id="org04d5dbc">Compile and Train</h3>
-<div class="outline-text-3" id="text-org04d5dbc">
+<div class="outline-3" id="outline-container-orgc4c6dab">
+<h3 id="orgc4c6dab">Compile and Train</h3>
+<div class="outline-text-3" id="text-orgc4c6dab">
 <div class="highlight">
 <pre><span></span>model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
 ONCE_PER_EPOCH = 2
@@ -2551,9 +3125,9 @@ I0928 17:17:36.037808 140515023214400 timer.py:78] Elapsed: 0:02:43.271365
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgda18e8a">
-<h2 id="orgda18e8a">End</h2>
-<div class="outline-text-2" id="text-orgda18e8a">
+<div class="outline-2" id="outline-container-org730c720">
+<h2 id="org730c720">End</h2>
+<div class="outline-text-2" id="text-org730c720">
 <div class="highlight">
 <pre><span></span>data = pandas.DataFrame(history.history)
 plot = data.hvplot().opts(title="Training/Validation Performance",
@@ -2582,62 +3156,62 @@ Embed(plot=plot, file_name="training")()
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org7522313">Beginning</a>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org6d6cda9">Beginning</a>
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org1489e63">Imports</a>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgf6d2855">Imports</a>
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org0293677">Python</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgd91cbee">PyPi</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org1f51413">Other</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgad07c5d">Python</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgd0f171b">PyPi</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orga3b0548">Other</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgedf8918">Set Up</a>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgf964884">Set Up</a>
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgb78a946">The Timer</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org2ba920a">Plotting</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org99295e2">The Timer</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgf5b575d">Plotting</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org2bf2feb">Middle</a>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org8deecfb">Middle</a>
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org2edbe0b">Set Up the Data</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org5526922">Building Up the Tokenizer</a>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org580ed5c">Set Up the Data</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org1fe712a">Building Up the Tokenizer</a>
 <ul>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org0e285dc">Split Up the Sentences and Their Labels</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org2783779">Some Constants</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgc8c87dc">Split Up the Sentences and Their Labels</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org179bc92">Some Constants</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgee2f0ee">Build the Tokenizer</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org8f912ea">Decoder Ring</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orgb404e0f">Build the Model</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org60dde02">Train it</a></li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org0ff73a7">Plot It</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org2873b83">Build the Tokenizer</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org8a11b66">Decoder Ring</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org87edafc">Build the Model</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org4d45634">Train it</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org331da32">Plot It</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/imdb-lstm-with-tokenization/#orga02d6d3">Raw</a></li>
+<li><a href="/posts/keras/imdb-lstm-with-tokenization/#org27fb6a3">Raw</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7522313">
-<h2 id="org7522313">Beginning</h2>
-<div class="outline-text-2" id="text-org7522313">
+<div class="outline-2" id="outline-container-org6d6cda9">
+<h2 id="org6d6cda9">Beginning</h2>
+<div class="outline-text-2" id="text-org6d6cda9">
 <p>This is another version of the RNN model to classify the IMDB reviews, but this time we're going to tokenize it ourselves and use a GRU, instead of using the tensorflow-datasets version.</p>
 </div>
-<div class="outline-3" id="outline-container-org1489e63">
-<h3 id="org1489e63">Imports</h3>
-<div class="outline-text-3" id="text-org1489e63"></div>
-<div class="outline-4" id="outline-container-org0293677">
-<h4 id="org0293677">Python</h4>
-<div class="outline-text-4" id="text-org0293677">
+<div class="outline-3" id="outline-container-orgf6d2855">
+<h3 id="orgf6d2855">Imports</h3>
+<div class="outline-text-3" id="text-orgf6d2855"></div>
+<div class="outline-4" id="outline-container-orgad07c5d">
+<h4 id="orgad07c5d">Python</h4>
+<div class="outline-text-4" id="text-orgad07c5d">
 <div class="highlight">
 <pre><span></span>from argparse import Namespace
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgd91cbee">
-<h4 id="orgd91cbee">PyPi</h4>
-<div class="outline-text-4" id="text-orgd91cbee">
+<div class="outline-4" id="outline-container-orgd0f171b">
+<h4 id="orgd0f171b">PyPi</h4>
+<div class="outline-text-4" id="text-orgd0f171b">
 <div class="highlight">
 <pre><span></span>from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -2650,37 +3224,37 @@ import tensorflow_datasets
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org1f51413">
-<h4 id="org1f51413">Other</h4>
-<div class="outline-text-4" id="text-org1f51413">
+<div class="outline-4" id="outline-container-orga3b0548">
+<h4 id="orga3b0548">Other</h4>
+<div class="outline-text-4" id="text-orga3b0548">
 <div class="highlight">
 <pre><span></span>from graeae import Timer, EmbedHoloviews
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgedf8918">
-<h3 id="orgedf8918">Set Up</h3>
-<div class="outline-text-3" id="text-orgedf8918"></div>
-<div class="outline-4" id="outline-container-orgb78a946">
-<h4 id="orgb78a946">The Timer</h4>
-<div class="outline-text-4" id="text-orgb78a946">
+<div class="outline-3" id="outline-container-orgf964884">
+<h3 id="orgf964884">Set Up</h3>
+<div class="outline-text-3" id="text-orgf964884"></div>
+<div class="outline-4" id="outline-container-org99295e2">
+<h4 id="org99295e2">The Timer</h4>
+<div class="outline-text-4" id="text-org99295e2">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org2ba920a">
-<h4 id="org2ba920a">Plotting</h4>
+<div class="outline-4" id="outline-container-orgf5b575d">
+<h4 id="orgf5b575d">Plotting</h4>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org2bf2feb">
-<h2 id="org2bf2feb">Middle</h2>
-<div class="outline-text-2" id="text-org2bf2feb"></div>
-<div class="outline-3" id="outline-container-org2edbe0b">
-<h3 id="org2edbe0b">Set Up the Data</h3>
-<div class="outline-text-3" id="text-org2edbe0b">
+<div class="outline-2" id="outline-container-org8deecfb">
+<h2 id="org8deecfb">Middle</h2>
+<div class="outline-text-2" id="text-org8deecfb"></div>
+<div class="outline-3" id="outline-container-org580ed5c">
+<h3 id="org580ed5c">Set Up the Data</h3>
+<div class="outline-text-3" id="text-org580ed5c">
 <div class="highlight">
 <pre><span></span>imdb, info = tensorflow_datasets.load("imdb_reviews",
                                       with_info=True,
@@ -2696,14 +3270,14 @@ W0924 21:52:10.158111 139862640383808 dataset_builder.py:439] Warning: Setting s
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org5526922">
-<h3 id="org5526922">Building Up the Tokenizer</h3>
-<div class="outline-text-3" id="text-org5526922">
+<div class="outline-3" id="outline-container-org1fe712a">
+<h3 id="org1fe712a">Building Up the Tokenizer</h3>
+<div class="outline-text-3" id="text-org1fe712a">
 <p>Since we didn't pass in a specifier for the configuration we wanted (e.g. <code>imdb/subwords8k</code>) it defaulted to giving us the plain text reviews (and their labels) so we have to build the tokenizer ourselves.</p>
 </div>
-<div class="outline-4" id="outline-container-org0e285dc">
-<h4 id="org0e285dc">Split Up the Sentences and Their Labels</h4>
-<div class="outline-text-4" id="text-org0e285dc">
+<div class="outline-4" id="outline-container-orgc8c87dc">
+<h4 id="orgc8c87dc">Split Up the Sentences and Their Labels</h4>
+<div class="outline-text-4" id="text-orgc8c87dc">
 <p>As you might recall, the data set consists of 50,000 IMDB movie reviews categorized as positive or negative. To build the tokenize we first have to split the sentences from their labels</p>
 <div class="highlight">
 <pre><span></span>training_sentences = []
@@ -2737,9 +3311,9 @@ testing_labels_final = numpy.array(testing_labels)
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org2783779">
-<h4 id="org2783779">Some Constants</h4>
-<div class="outline-text-4" id="text-org2783779">
+<div class="outline-4" id="outline-container-org179bc92">
+<h4 id="org179bc92">Some Constants</h4>
+<div class="outline-text-4" id="text-org179bc92">
 <div class="highlight">
 <pre><span></span>Text = Namespace(
     vocab_size = 10000,
@@ -2752,9 +3326,9 @@ testing_labels_final = numpy.array(testing_labels)
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgee2f0ee">
-<h3 id="orgee2f0ee">Build the Tokenizer</h3>
-<div class="outline-text-3" id="text-orgee2f0ee">
+<div class="outline-3" id="outline-container-org2873b83">
+<h3 id="org2873b83">Build the Tokenizer</h3>
+<div class="outline-text-3" id="text-org2873b83">
 <div class="highlight">
 <pre><span></span>tokenizer = Tokenizer(num_words=Text.vocab_size, oov_token=Text.oov_token)
 with TIMER:
@@ -2777,9 +3351,9 @@ I0924 21:52:32.154620 139862640383808 timer.py:78] Elapsed: 0:00:10.446980
 
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org8f912ea">
-<h3 id="org8f912ea">Decoder Ring</h3>
-<div class="outline-text-3" id="text-org8f912ea">
+<div class="outline-3" id="outline-container-org8a11b66">
+<h3 id="org8a11b66">Decoder Ring</h3>
+<div class="outline-text-3" id="text-org8a11b66">
 <div class="highlight">
 <pre><span></span>index_to_word = {value: key for key, value in word_index.items()}
 
@@ -2788,9 +3362,9 @@ def decode_review(text: numpy.array) -&gt; str:
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgb404e0f">
-<h3 id="orgb404e0f">Build the Model</h3>
-<div class="outline-text-3" id="text-orgb404e0f">
+<div class="outline-3" id="outline-container-org87edafc">
+<h3 id="org87edafc">Build the Model</h3>
+<div class="outline-text-3" id="text-org87edafc">
 <p>This time we're going to build a four-layer model with one Bidirectional layer that uses a <a href="https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/layers/GRU">GRU</a> (<a href="https://www.wikiwand.com/en/Gated_recurrent_unit">Gated Recurrent Unit</a>) instead of a LSTM.</p>
 <div class="highlight">
 <pre><span></span>model = tensorflow.keras.Sequential([
@@ -2824,9 +3398,9 @@ _________________________________________________________________
 None
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org60dde02">
-<h3 id="org60dde02">Train it</h3>
-<div class="outline-text-3" id="text-org60dde02">
+<div class="outline-3" id="outline-container-org4d45634">
+<h3 id="org4d45634">Train it</h3>
+<div class="outline-text-3" id="text-org4d45634">
 <div class="highlight">
 <pre><span></span>EPOCHS = 50
 ONCE_PER_EPOCH = 2
@@ -2839,9 +3413,9 @@ history = model.fit(padded, training_labels_final,
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org0ff73a7">
-<h3 id="org0ff73a7">Plot It</h3>
-<div class="outline-text-3" id="text-org0ff73a7">
+<div class="outline-3" id="outline-container-org331da32">
+<h3 id="org331da32">Plot It</h3>
+<div class="outline-text-3" id="text-org331da32">
 <div class="highlight">
 <pre><span></span>data = pandas.DataFrame(history.history)
 plot = data.hvplot().opts(title="GRU Training Performance", width=1000, height=800)
@@ -2850,9 +3424,9 @@ Embed(plot=plot, file_name="gru_training")()
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orga02d6d3">
-<h2 id="orga02d6d3">Raw</h2>
-<div class="outline-text-2" id="text-orga02d6d3"></div>
+<div class="outline-2" id="outline-container-org27fb6a3">
+<h2 id="org27fb6a3">Raw</h2>
+<div class="outline-text-2" id="text-org27fb6a3"></div>
 </div>
 </div>
 </article>
@@ -2869,63 +3443,63 @@ Embed(plot=plot, file_name="gru_training")()
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#org5876c73">Beginning</a>
+<li><a href="/posts/keras/he-used-sarcasm/#org52e1bf9">Beginning</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#orgeb265d9">Imports</a>
+<li><a href="/posts/keras/he-used-sarcasm/#org841da19">Imports</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#org3d6ddd9">Python</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org9da8e67">PyPi</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org05dcf09">Other</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgd4f62fd">Python</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org37a9180">PyPi</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgdba1522">Other</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/he-used-sarcasm/#org4259e1d">Set Up</a>
+<li><a href="/posts/keras/he-used-sarcasm/#orgf369593">Set Up</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#org396b40c">The Timer</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org71dae2b">The Plotting</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#orgc0f798a">The Data</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgeb3ddd0">The Timer</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org33b8d7a">The Plotting</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org36beae6">The Data</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/keras/he-used-sarcasm/#org450f25b">Middle</a>
+<li><a href="/posts/keras/he-used-sarcasm/#orgf469fab">Middle</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#org458da32">Looking At the Data</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org0ab351d">Set Up the Tokenizing and Training Data</a>
+<li><a href="/posts/keras/he-used-sarcasm/#org3c16e18">Looking At the Data</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgf5f750a">Set Up the Tokenizing and Training Data</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#orgc30deea">The Training and Testing Data</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#orged69300">The Tokenizer</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org1478175">The Training and Testing Data</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgb5a1254">The Tokenizer</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/he-used-sarcasm/#org9b2ed68">Build The Model</a>
+<li><a href="/posts/keras/he-used-sarcasm/#orgf92cba3">Build The Model</a>
 <ul>
-<li><a href="/posts/keras/he-used-sarcasm/#org43edac3">It's a Sequence of Layers</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org014655e">Start With An Embedding Layer</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org340d182">The Convolutional Layer</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org93761a0">A Pooling Layer</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#orga64b22b">The Fully-Connected Layers</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#org5a042fe">Build It</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#orgb53474e">Compile It</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgeedce2f">It's a Sequence of Layers</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org5359832">Start With An Embedding Layer</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgcf6f9ff">The Convolutional Layer</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgcd1e960">A Pooling Layer</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgc3a8a83">The Fully-Connected Layers</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org61d6c92">Build It</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org94dabd0">Compile It</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/he-used-sarcasm/#org7f80ef0">Train It</a></li>
-<li><a href="/posts/keras/he-used-sarcasm/#orgd4912a0">Plot the Performance</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgd1bf738">Train It</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#orgebcd02f">Plot the Performance</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/he-used-sarcasm/#org92fe265">End</a></li>
+<li><a href="/posts/keras/he-used-sarcasm/#org89921bd">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org5876c73">
-<h2 id="org5876c73">Beginning</h2>
-<div class="outline-text-2" id="text-org5876c73">
+<div class="outline-2" id="outline-container-org52e1bf9">
+<h2 id="org52e1bf9">Beginning</h2>
+<div class="outline-text-2" id="text-org52e1bf9">
 <p>This is a look at fitting a model to detect sarcasm using a json blob from Laurence Moroney (<a href="https://storage.googleapis.com/laurencemoroney-blog.appspot.com/sarcasm.json">https://storage.googleapis.com/laurencemoroney-blog.appspot.com/sarcasm.json</a>).</p>
 </div>
-<div class="outline-3" id="outline-container-orgeb265d9">
-<h3 id="orgeb265d9">Imports</h3>
-<div class="outline-text-3" id="text-orgeb265d9"></div>
-<div class="outline-4" id="outline-container-org3d6ddd9">
-<h4 id="org3d6ddd9">Python</h4>
-<div class="outline-text-4" id="text-org3d6ddd9">
+<div class="outline-3" id="outline-container-org841da19">
+<h3 id="org841da19">Imports</h3>
+<div class="outline-text-3" id="text-org841da19"></div>
+<div class="outline-4" id="outline-container-orgd4f62fd">
+<h4 id="orgd4f62fd">Python</h4>
+<div class="outline-text-4" id="text-orgd4f62fd">
 <div class="highlight">
 <pre><span></span>from argparse import Namespace
 from functools import partial
@@ -2936,9 +3510,9 @@ import json
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org9da8e67">
-<h4 id="org9da8e67">PyPi</h4>
-<div class="outline-text-4" id="text-org9da8e67">
+<div class="outline-4" id="outline-container-org37a9180">
+<h4 id="org37a9180">PyPi</h4>
+<div class="outline-text-4" id="text-org37a9180">
 <div class="highlight">
 <pre><span></span>from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.text import Tokenizer
@@ -2949,9 +3523,9 @@ import tensorflow
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org05dcf09">
-<h4 id="org05dcf09">Other</h4>
-<div class="outline-text-4" id="text-org05dcf09">
+<div class="outline-4" id="outline-container-orgdba1522">
+<h4 id="orgdba1522">Other</h4>
+<div class="outline-text-4" id="text-orgdba1522">
 <div class="highlight">
 <pre><span></span>from graeae import (
     CountPercentage,
@@ -2963,29 +3537,29 @@ import tensorflow
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org4259e1d">
-<h3 id="org4259e1d">Set Up</h3>
-<div class="outline-text-3" id="text-org4259e1d"></div>
-<div class="outline-4" id="outline-container-org396b40c">
-<h4 id="org396b40c">The Timer</h4>
-<div class="outline-text-4" id="text-org396b40c">
+<div class="outline-3" id="outline-container-orgf369593">
+<h3 id="orgf369593">Set Up</h3>
+<div class="outline-text-3" id="text-orgf369593"></div>
+<div class="outline-4" id="outline-container-orgeb3ddd0">
+<h4 id="orgeb3ddd0">The Timer</h4>
+<div class="outline-text-4" id="text-orgeb3ddd0">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org71dae2b">
-<h4 id="org71dae2b">The Plotting</h4>
-<div class="outline-text-4" id="text-org71dae2b">
+<div class="outline-4" id="outline-container-org33b8d7a">
+<h4 id="org33b8d7a">The Plotting</h4>
+<div class="outline-text-4" id="text-org33b8d7a">
 <div class="highlight">
 <pre><span></span>SLUG = "he-used-sarcasm"
 Embed = partial(EmbedHoloviews, folder_path=f"../../files/posts/keras/{SLUG}")
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgc0f798a">
-<h4 id="orgc0f798a">The Data</h4>
-<div class="outline-text-4" id="text-orgc0f798a">
+<div class="outline-4" id="outline-container-org36beae6">
+<h4 id="org36beae6">The Data</h4>
+<div class="outline-text-4" id="text-org36beae6">
 <div class="highlight">
 <pre><span></span>URL = "https://storage.googleapis.com/laurencemoroney-blog.appspot.com/sarcasm.json"
 path = Path("~/data/datasets/text/sarcasm/sarcasm.json").expanduser()
@@ -3008,12 +3582,12 @@ I0922 15:05:27.369417 139873020925760 timer.py:78] Elapsed: 0:00:00.065811
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org450f25b">
-<h2 id="org450f25b">Middle</h2>
-<div class="outline-text-2" id="text-org450f25b"></div>
-<div class="outline-3" id="outline-container-org458da32">
-<h3 id="org458da32">Looking At the Data</h3>
-<div class="outline-text-3" id="text-org458da32">
+<div class="outline-2" id="outline-container-orgf469fab">
+<h2 id="orgf469fab">Middle</h2>
+<div class="outline-text-2" id="text-orgf469fab"></div>
+<div class="outline-3" id="outline-container-org3c16e18">
+<h3 id="org3c16e18">Looking At the Data</h3>
+<div class="outline-text-3" id="text-org3c16e18">
 <div class="highlight">
 <pre><span></span>pprint(data[0])
 </pre></div>
@@ -3200,9 +3774,9 @@ assert not any(data[data.site=="www.huffingtonpost.com"].is_sarcastic)
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org0ab351d">
-<h3 id="org0ab351d">Set Up the Tokenizing and Training Data</h3>
-<div class="outline-text-3" id="text-org0ab351d">
+<div class="outline-3" id="outline-container-orgf5f750a">
+<h3 id="orgf5f750a">Set Up the Tokenizing and Training Data</h3>
+<div class="outline-text-3" id="text-orgf5f750a">
 <div class="highlight">
 <pre><span></span>print(f"{len(data):,}")
 </pre></div>
@@ -3228,9 +3802,9 @@ Training = Namespace(
     )
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-orgc30deea">
-<h4 id="orgc30deea">The Training and Testing Data</h4>
-<div class="outline-text-4" id="text-orgc30deea">
+<div class="outline-4" id="outline-container-org1478175">
+<h4 id="org1478175">The Training and Testing Data</h4>
+<div class="outline-text-4" id="text-org1478175">
 <div class="highlight">
 <pre><span></span>x_train, x_test, y_train, y_test = train_test_split(
     data.headline, data.is_sarcastic, train_size=Training.size,
@@ -3238,9 +3812,9 @@ Training = Namespace(
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orged69300">
-<h4 id="orged69300">The Tokenizer</h4>
-<div class="outline-text-4" id="text-orged69300">
+<div class="outline-4" id="outline-container-orgb5a1254">
+<h4 id="orgb5a1254">The Tokenizer</h4>
+<div class="outline-text-4" id="text-orgb5a1254">
 <div class="highlight">
 <pre><span></span>tokenizer = Tokenizer(num_words=Text.vocabulary_size,
                       oov_token=Text.out_of_vocabulary_tok)
@@ -3388,14 +3962,14 @@ testing_padded = pad_sequences(testing_sequences, maxlen=Text.max_length, paddin
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9b2ed68">
-<h3 id="org9b2ed68">Build The Model</h3>
-<div class="outline-text-3" id="text-org9b2ed68">
+<div class="outline-3" id="outline-container-orgf92cba3">
+<h3 id="orgf92cba3">Build The Model</h3>
+<div class="outline-text-3" id="text-orgf92cba3">
 <p>We're going to use a convolutional neural network to try and classify our headlines as sarcastic or not-sarcastic.</p>
 </div>
-<div class="outline-4" id="outline-container-org43edac3">
-<h4 id="org43edac3">It's a Sequence of Layers</h4>
-<div class="outline-text-4" id="text-org43edac3">
+<div class="outline-4" id="outline-container-orgeedce2f">
+<h4 id="orgeedce2f">It's a Sequence of Layers</h4>
+<div class="outline-text-4" id="text-orgeedce2f">
 <div class="highlight">
 <pre><span></span>print(tensorflow.keras.Sequential.__doc__)
 </pre></div>
@@ -3458,9 +4032,9 @@ Linear stack of layers.
   
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org014655e">
-<h4 id="org014655e">Start With An Embedding Layer</h4>
-<div class="outline-text-4" id="text-org014655e">
+<div class="outline-4" id="outline-container-org5359832">
+<h4 id="org5359832">Start With An Embedding Layer</h4>
+<div class="outline-text-4" id="text-org5359832">
 <div class="highlight">
 <pre><span></span>print(tensorflow.keras.layers.Embedding.__doc__)
 </pre></div>
@@ -3521,9 +4095,9 @@ Turns positive integers (indexes) into dense vectors of fixed size.
   
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org340d182">
-<h4 id="org340d182">The Convolutional Layer</h4>
-<div class="outline-text-4" id="text-org340d182">
+<div class="outline-4" id="outline-container-orgcf6f9ff">
+<h4 id="orgcf6f9ff">The Convolutional Layer</h4>
+<div class="outline-text-4" id="text-orgcf6f9ff">
 <div class="highlight">
 <pre><span></span>print(tensorflow.keras.layers.Conv1D.__doc__)
 </pre></div>
@@ -3600,9 +4174,9 @@ Turns positive integers (indexes) into dense vectors of fixed size.
   
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org93761a0">
-<h4 id="org93761a0">A Pooling Layer</h4>
-<div class="outline-text-4" id="text-org93761a0">
+<div class="outline-4" id="outline-container-orgcd1e960">
+<h4 id="orgcd1e960">A Pooling Layer</h4>
+<div class="outline-text-4" id="text-orgcd1e960">
 <div class="highlight">
 <pre><span></span>print(tensorflow.keras.layers.GlobalMaxPooling1D.__doc__)
 </pre></div>
@@ -3631,9 +4205,9 @@ Global max pooling operation for temporal data.
   
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-orga64b22b">
-<h4 id="orga64b22b">The Fully-Connected Layers</h4>
-<div class="outline-text-4" id="text-orga64b22b">
+<div class="outline-4" id="outline-container-orgc3a8a83">
+<h4 id="orgc3a8a83">The Fully-Connected Layers</h4>
+<div class="outline-text-4" id="text-orgc3a8a83">
 <p>Finally our output layers.</p>
 <div class="highlight">
 <pre><span></span>print(tensorflow.keras.layers.Dense.__doc__)
@@ -3694,9 +4268,9 @@ Just your regular densely-connected NN layer.
   
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org5a042fe">
-<h4 id="org5a042fe">Build It</h4>
-<div class="outline-text-4" id="text-org5a042fe">
+<div class="outline-4" id="outline-container-org61d6c92">
+<h4 id="org61d6c92">Build It</h4>
+<div class="outline-text-4" id="text-org61d6c92">
 <p>I originally added the layers using the <code>model.add</code> method, but then when I tried to train it the output said the layers didn't have gradients and it never improved… I'll have to look into that, but in the meantime, passing them all in seems to work.</p>
 <div class="highlight">
 <pre><span></span>model = tensorflow.keras.Sequential([
@@ -3714,9 +4288,9 @@ Just your regular densely-connected NN layer.
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgb53474e">
-<h4 id="orgb53474e">Compile It</h4>
-<div class="outline-text-4" id="text-orgb53474e">
+<div class="outline-4" id="outline-container-org94dabd0">
+<h4 id="org94dabd0">Compile It</h4>
+<div class="outline-text-4" id="text-org94dabd0">
 <div class="highlight">
 <pre><span></span>print(model.compile.__doc__)
 </pre></div>
@@ -3802,9 +4376,9 @@ None
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org7f80ef0">
-<h3 id="org7f80ef0">Train It</h3>
-<div class="outline-text-3" id="text-org7f80ef0">
+<div class="outline-3" id="outline-container-orgd1bf738">
+<h3 id="orgd1bf738">Train It</h3>
+<div class="outline-text-3" id="text-orgd1bf738">
 <div class="highlight">
 <pre><span></span>print(model.fit.__doc__)
 </pre></div>
@@ -4072,9 +4646,9 @@ I0922 16:33:41.091247 139873020925760 timer.py:78] Elapsed: 0:03:20.719519
 <p>Once again it looks like the model is overfitting, I should add a checkpoint or something.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd4912a0">
-<h3 id="orgd4912a0">Plot the Performance</h3>
-<div class="outline-text-3" id="text-orgd4912a0">
+<div class="outline-3" id="outline-container-orgebcd02f">
+<h3 id="orgebcd02f">Plot the Performance</h3>
+<div class="outline-text-3" id="text-orgebcd02f">
 <div class="highlight">
 <pre><span></span>performance = pandas.DataFrame(history.history)
 plot = performance.hvplot().opts(title="CNN Sarcasm Training Performance",
@@ -4092,8 +4666,8 @@ Embed(plot=plot, file_name="cnn_training")()
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org92fe265">
-<h2 id="org92fe265">End</h2>
+<div class="outline-2" id="outline-container-org89921bd">
+<h2 id="org89921bd">End</h2>
 </div>
 </div>
 </article>
@@ -4110,51 +4684,51 @@ Embed(plot=plot, file_name="cnn_training")()
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#orgd994ec2">Beginning</a>
+<li><a href="/posts/keras/multi-layer-lstm/#org7f55763">Beginning</a>
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#orgf3ec838">Imports</a>
+<li><a href="/posts/keras/multi-layer-lstm/#org031869c">Imports</a>
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#org3b50025">Python</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#org0d45145">PyPi</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#orgd79ef7f">Others</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org9c9ab2e">Python</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#orgb3c4e5c">PyPi</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#orgfddf5be">Others</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/multi-layer-lstm/#org37e70b6">Set Up</a>
+<li><a href="/posts/keras/multi-layer-lstm/#org532970a">Set Up</a>
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#orgade859f">The Timer</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#orgb3f6621">Plotting</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#org792f5d6">The Dataset</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org0049ac2">The Timer</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#orgebb6d54">Plotting</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org3779b8b">The Dataset</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="/posts/keras/multi-layer-lstm/#org7a2bc37">Middle</a>
+<li><a href="/posts/keras/multi-layer-lstm/#org0d4fda2">Middle</a>
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#org0ec5523">Set Up the Datasets</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#org0fe8824">The Model</a>
+<li><a href="/posts/keras/multi-layer-lstm/#orgd33e58a">Set Up the Datasets</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org2e9420c">The Model</a>
 <ul>
-<li><a href="/posts/keras/multi-layer-lstm/#org144495a">Embedding</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#orgf9646ef">Bidirectional</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#orgbf69ab5">LSTM</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#org2987b9b">Compile It</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#orgd877a57">Embedding</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#orgdf6eb88">Bidirectional</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org9913ecf">LSTM</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org0c910e3">Compile It</a></li>
 </ul>
 </li>
-<li><a href="/posts/keras/multi-layer-lstm/#org552337b">Train the Model</a></li>
-<li><a href="/posts/keras/multi-layer-lstm/#orgc6932fb">Looking at the Performance</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org070f052">Train the Model</a></li>
+<li><a href="/posts/keras/multi-layer-lstm/#org7876a72">Looking at the Performance</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgd994ec2">
-<h2 id="orgd994ec2">Beginning</h2>
-<div class="outline-text-2" id="text-orgd994ec2"></div>
-<div class="outline-3" id="outline-container-orgf3ec838">
-<h3 id="orgf3ec838">Imports</h3>
-<div class="outline-text-3" id="text-orgf3ec838"></div>
-<div class="outline-4" id="outline-container-org3b50025">
-<h4 id="org3b50025">Python</h4>
-<div class="outline-text-4" id="text-org3b50025">
+<div class="outline-2" id="outline-container-org7f55763">
+<h2 id="org7f55763">Beginning</h2>
+<div class="outline-text-2" id="text-org7f55763"></div>
+<div class="outline-3" id="outline-container-org031869c">
+<h3 id="org031869c">Imports</h3>
+<div class="outline-text-3" id="text-org031869c"></div>
+<div class="outline-4" id="outline-container-org9c9ab2e">
+<h4 id="org9c9ab2e">Python</h4>
+<div class="outline-text-4" id="text-org9c9ab2e">
 <div class="highlight">
 <pre><span></span>from functools import partial
 from pathlib import Path
@@ -4162,9 +4736,9 @@ import pickle
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org0d45145">
-<h4 id="org0d45145">PyPi</h4>
-<div class="outline-text-4" id="text-org0d45145">
+<div class="outline-4" id="outline-container-orgb3c4e5c">
+<h4 id="orgb3c4e5c">PyPi</h4>
+<div class="outline-text-4" id="text-orgb3c4e5c">
 <div class="highlight">
 <pre><span></span>import holoviews
 import hvplot.pandas
@@ -4174,38 +4748,38 @@ import tensorflow_datasets
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgd79ef7f">
-<h4 id="orgd79ef7f">Others</h4>
-<div class="outline-text-4" id="text-orgd79ef7f">
+<div class="outline-4" id="outline-container-orgfddf5be">
+<h4 id="orgfddf5be">Others</h4>
+<div class="outline-text-4" id="text-orgfddf5be">
 <div class="highlight">
 <pre><span></span>from graeae import Timer, EmbedHoloviews
 </pre></div>
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org37e70b6">
-<h3 id="org37e70b6">Set Up</h3>
-<div class="outline-text-3" id="text-org37e70b6"></div>
-<div class="outline-4" id="outline-container-orgade859f">
-<h4 id="orgade859f">The Timer</h4>
-<div class="outline-text-4" id="text-orgade859f">
+<div class="outline-3" id="outline-container-org532970a">
+<h3 id="org532970a">Set Up</h3>
+<div class="outline-text-3" id="text-org532970a"></div>
+<div class="outline-4" id="outline-container-org0049ac2">
+<h4 id="org0049ac2">The Timer</h4>
+<div class="outline-text-4" id="text-org0049ac2">
 <div class="highlight">
 <pre><span></span>TIMER = Timer()
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgb3f6621">
-<h4 id="orgb3f6621">Plotting</h4>
-<div class="outline-text-4" id="text-orgb3f6621">
+<div class="outline-4" id="outline-container-orgebb6d54">
+<h4 id="orgebb6d54">Plotting</h4>
+<div class="outline-text-4" id="text-orgebb6d54">
 <div class="highlight">
 <pre><span></span>Embed = partial(EmbedHoloviews,
                 folder_path="../../files/posts/keras/multi-layer-lstm/")
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org792f5d6">
-<h4 id="org792f5d6">The Dataset</h4>
-<div class="outline-text-4" id="text-org792f5d6">
+<div class="outline-4" id="outline-container-org3779b8b">
+<h4 id="org3779b8b">The Dataset</h4>
+<div class="outline-text-4" id="text-org3779b8b">
 <p>This once again uses the <a href="https://www.tensorflow.org/datasets/catalog/imdb_reviews">IMDB dataset</a> with 50,000 reviews. It has already been converted from strings to integers - each word is encoded as its own integer. Adding <code>with_info=True</code> returns an object that contains the dictionary with the word to integer mapping. Passing in <code>imdb_reviews/subwords8k</code> limits the vocabulary to 8,000 words.</p>
 <p><b>Note:</b> The first time you run this it will download a fairly large dataset so it might appear to hang, but after the first time it is fairly quick.</p>
 <div class="highlight">
@@ -4217,12 +4791,12 @@ import tensorflow_datasets
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7a2bc37">
-<h2 id="org7a2bc37">Middle</h2>
-<div class="outline-text-2" id="text-org7a2bc37"></div>
-<div class="outline-3" id="outline-container-org0ec5523">
-<h3 id="org0ec5523">Set Up the Datasets</h3>
-<div class="outline-text-3" id="text-org0ec5523">
+<div class="outline-2" id="outline-container-org0d4fda2">
+<h2 id="org0d4fda2">Middle</h2>
+<div class="outline-text-2" id="text-org0d4fda2"></div>
+<div class="outline-3" id="outline-container-orgd33e58a">
+<h3 id="orgd33e58a">Set Up the Datasets</h3>
+<div class="outline-text-3" id="text-orgd33e58a">
 <div class="highlight">
 <pre><span></span>train_dataset, test_dataset = dataset["train"], dataset["test"]
 tokenizer = info.features['text'].encoder
@@ -4242,26 +4816,26 @@ test_dataset = test_dataset.padded_batch(BATCH_SIZE, test_dataset.output_shapes)
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org0fe8824">
-<h3 id="org0fe8824">The Model</h3>
-<div class="outline-text-3" id="text-org0fe8824">
+<div class="outline-3" id="outline-container-org2e9420c">
+<h3 id="org2e9420c">The Model</h3>
+<div class="outline-text-3" id="text-org2e9420c">
 <p>The previous model had one Bidirectional layer, this will add a second one.</p>
 </div>
-<div class="outline-4" id="outline-container-org144495a">
-<h4 id="org144495a">Embedding</h4>
-<div class="outline-text-4" id="text-org144495a">
+<div class="outline-4" id="outline-container-orgd877a57">
+<h4 id="orgd877a57">Embedding</h4>
+<div class="outline-text-4" id="text-orgd877a57">
 <p>The <a href="https://www.tensorflow.org/guide/embedding">Embedding layer</a> converts our inputs of integers and converts them to vectors of real-numbers, which is a better input for a neural network.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgf9646ef">
-<h4 id="orgf9646ef">Bidirectional</h4>
-<div class="outline-text-4" id="text-orgf9646ef">
+<div class="outline-4" id="outline-container-orgdf6eb88">
+<h4 id="orgdf6eb88">Bidirectional</h4>
+<div class="outline-text-4" id="text-orgdf6eb88">
 <p>The <a href="https://www.tensorflow.org/api_docs/python/tf/keras/layers/Bidirectional">Bidirectional layer</a> is a wrapper for Recurrent Neural Networks.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgbf69ab5">
-<h4 id="orgbf69ab5">LSTM</h4>
-<div class="outline-text-4" id="text-orgbf69ab5">
+<div class="outline-4" id="outline-container-org9913ecf">
+<h4 id="org9913ecf">LSTM</h4>
+<div class="outline-text-4" id="text-org9913ecf">
 <p>The <a href="https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/keras/layers/LSTM">LSTM layer</a> implements Long-Short-Term Memory. The first argument is the size of the outputs. This is similar to the model that we ran previously on the same data, but it has an extra layer (so it uses more memory).</p>
 <div class="highlight">
 <pre><span></span>model = tensorflow.keras.Sequential([
@@ -4299,9 +4873,9 @@ _________________________________________________________________
 None
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org2987b9b">
-<h4 id="org2987b9b">Compile It</h4>
-<div class="outline-text-4" id="text-org2987b9b">
+<div class="outline-4" id="outline-container-org0c910e3">
+<h4 id="org0c910e3">Compile It</h4>
+<div class="outline-text-4" id="text-org0c910e3">
 <div class="highlight">
 <pre><span></span>model.compile(loss='binary_crossentropy',
               optimizer="adam",
@@ -4310,9 +4884,9 @@ None
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org552337b">
-<h3 id="org552337b">Train the Model</h3>
-<div class="outline-text-3" id="text-org552337b">
+<div class="outline-3" id="outline-container-org070f052">
+<h3 id="org070f052">Train the Model</h3>
+<div class="outline-text-3" id="text-org070f052">
 <div class="highlight">
 <pre><span></span>ONCE_PER_EPOCH = 2
 NUM_EPOCHS = 10
@@ -4354,9 +4928,9 @@ I0921 18:02:56.353781 140275698915136 timer.py:77] Ended: 2019-09-21 18:02:56.35
 I0921 18:02:56.356238 140275698915136 timer.py:78] Elapsed: 0:36:05.958925
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-orgc6932fb">
-<h3 id="orgc6932fb">Looking at the Performance</h3>
-<div class="outline-text-3" id="text-orgc6932fb">
+<div class="outline-3" id="outline-container-org7876a72">
+<h3 id="org7876a72">Looking at the Performance</h3>
+<div class="outline-text-3" id="text-org7876a72">
 <p>To get the history I had to pickle it and then copy it over to the machine with this org-notebook, so you can't just run this notebook and make it work unless everything is run on the same machine (which it wasn't).</p>
 <div class="highlight">
 <pre><span></span>path = Path("~/history.pkl").expanduser()
@@ -4382,316 +4956,6 @@ Embed(plot=plot, file_name="lstm_training")()
 <p>Figure Missing</p>
 </object>
 <p>It looks like the best epoch was the fifth one, with a validation loss of 0.29 and a validation accuracy of 0.88, after that it looks like it overfits. It seems that text might be a harder problem than images.</p>
-</div>
-</div>
-</div>
-</div>
-</article>
-<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
-<header>
-<h1 class="p-name entry-title"><a class="u-url" href="/posts/keras/imdb-reviews-tensorflow-dataset/">IMDB Reviews Tensorflow Dataset</a></h1>
-<div class="metadata">
-<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
-<p class="dateline"><a href="/posts/keras/imdb-reviews-tensorflow-dataset/" rel="bookmark"><time class="published dt-published" datetime="2019-09-09T16:24:46-07:00" itemprop="datePublished" title="2019-09-09 16:24">2019-09-09 16:24</time></a></p>
-</div>
-</header>
-<div class="e-content entry-content">
-<div id="table-of-contents">
-<h2>Table of Contents</h2>
-<div id="text-table-of-contents">
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orge23fb75">Beginning</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgad65138">Imports</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org5b58e19">Python</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgdcddfd8">PyPi</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org9805f61">Graeae</a></li>
-</ul>
-</li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgb570205">Set Up</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org2693d03">Plotting</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgde0647f">Timer</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org5520663">Middle</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org36ab843">Get the Dataset</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org226b164">Load It</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgbc03c79">Split It</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org55e3295">The Tokenizer</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org1c32dba">Set Up Data</a></li>
-</ul>
-</li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org1e2b834">The Model</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orga907404">Compile It</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgd3feb5f">Train It</a></li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org1efc999">Plot the Performance</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#org79f019b">End</a>
-<ul>
-<li><a href="/posts/keras/imdb-reviews-tensorflow-dataset/#orgd827336">Citation</a></li>
-</ul>
-</li>
-</ul>
-</div>
-</div>
-<div class="outline-2" id="outline-container-orge23fb75">
-<h2 id="orge23fb75">Beginning</h2>
-<div class="outline-text-2" id="text-orge23fb75">
-<p>We're going to use the <a href="https://www.tensorflow.org/datasets/catalog/imdb_reviews">IMDB Reviews Dataset</a> (used in <a href="https://www.tensorflow.org/tutorials/keras/basic_text_classification">this tutorial</a>) - a set of 50,000 movie reviews taken from the <a href="https://www.imdb.com/">Internet Movie Database</a> that have been classified as either positive or negative. It looks like the original source is from a page on Stanford University's web sight title <a href="http://ai.stanford.edu/~amaas/data/sentiment/">Large Movie Review Dataset</a>. The dataset seems to be widely available (the Stanford page and <a href="https://www.kaggle.com/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews">Kaggle</a> for instance) but this will serve as practice for using tensorflow datasets as well.</p>
-</div>
-<div class="outline-3" id="outline-container-orgad65138">
-<h3 id="orgad65138">Imports</h3>
-<div class="outline-text-3" id="text-orgad65138"></div>
-<div class="outline-4" id="outline-container-org5b58e19">
-<h4 id="org5b58e19">Python</h4>
-<div class="outline-text-4" id="text-org5b58e19">
-<div class="highlight">
-<pre><span></span><span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgdcddfd8">
-<h4 id="orgdcddfd8">PyPi</h4>
-<div class="outline-text-4" id="text-orgdcddfd8">
-<div class="highlight">
-<pre><span></span><span class="kn">import</span> <span class="nn">hvplot.pandas</span>
-<span class="kn">import</span> <span class="nn">pandas</span>
-<span class="kn">import</span> <span class="nn">tensorflow</span>
-<span class="kn">import</span> <span class="nn">tensorflow_datasets</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org9805f61">
-<h4 id="org9805f61">Graeae</h4>
-<div class="outline-text-4" id="text-org9805f61">
-<div class="highlight">
-<pre><span></span><span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">Timer</span>
-</pre></div>
-</div>
-</div>
-</div>
-<div class="outline-3" id="outline-container-orgb570205">
-<h3 id="orgb570205">Set Up</h3>
-<div class="outline-text-3" id="text-orgb570205"></div>
-<div class="outline-4" id="outline-container-org2693d03">
-<h4 id="org2693d03">Plotting</h4>
-<div class="outline-text-4" id="text-org2693d03">
-<div class="highlight">
-<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"imdb-reviews-tensorflow-dataset"</span>
-<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="n">f</span><span class="s2">"../../files/posts/keras/{SLUG}"</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgde0647f">
-<h4 id="orgde0647f">Timer</h4>
-<div class="outline-text-4" id="text-orgde0647f">
-<div class="highlight">
-<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org5520663">
-<h2 id="org5520663">Middle</h2>
-<div class="outline-text-2" id="text-org5520663"></div>
-<div class="outline-3" id="outline-container-org36ab843">
-<h3 id="org36ab843">Get the Dataset</h3>
-<div class="outline-text-3" id="text-org36ab843"></div>
-<div class="outline-4" id="outline-container-org226b164">
-<h4 id="org226b164">Load It</h4>
-<div class="outline-text-4" id="text-org226b164">
-<p>The <a href="https://www.tensorflow.org/datasets/api_docs/python/tfds/load">load</a> function takes quite a few parameters, in this case we're just passing in three - the name of the dataset, <code>with_info</code> which tells it to return both a <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset">Dataset</a> and a <a href="https://www.tensorflow.org/datasets/api_docs/python/tfds/core/DatasetInfo">DatasetInfo</a> object, and <code>as_supervised</code>, which tells the builder to return the <code>Dataset</code> as a series of <code>(input, label)</code> tuples.</p>
-<div class="highlight">
-<pre><span></span><span class="n">dataset</span><span class="p">,</span> <span class="n">info</span> <span class="o">=</span> <span class="n">tensorflow_datasets</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">'imdb_reviews/subwords8k'</span><span class="p">,</span>
-                                         <span class="n">with_info</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
-                                         <span class="n">as_supervised</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgbc03c79">
-<h4 id="orgbc03c79">Split It</h4>
-<div class="outline-text-4" id="text-orgbc03c79">
-<p>The <code>dataset</code> is a dict with three keys:</p>
-<div class="highlight">
-<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
-</pre></div>
-<pre class="example">
-dict_keys(['test', 'train', 'unsupervised'])
-
-</pre>
-<p>As you might guess, we don't use the <code>unsupervised</code> key.</p>
-<div class="highlight">
-<pre><span></span><span class="n">train_dataset</span><span class="p">,</span> <span class="n">test_dataset</span> <span class="o">=</span> <span class="n">dataset</span><span class="p">[</span><span class="s1">'train'</span><span class="p">],</span> <span class="n">dataset</span><span class="p">[</span><span class="s1">'test'</span><span class="p">]</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org55e3295">
-<h4 id="org55e3295">The Tokenizer</h4>
-<div class="outline-text-4" id="text-org55e3295">
-<p>One of the advantages of using the tensorflow dataset version of this is that it comes with a pre-built tokenizer inside the DatasetInfo object.</p>
-<div class="highlight">
-<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">features</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-FeaturesDict({
-    'label': ClassLabel(shape=(), dtype=tf.int64, num_classes=2),
-    'text': Text(shape=(None,), dtype=tf.int64, encoder=&lt;SubwordTextEncoder vocab_size=8185&gt;),
-})
-
-</pre>
-<div class="highlight">
-<pre><span></span><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">features</span><span class="p">[</span><span class="s1">'text'</span><span class="p">]</span><span class="o">.</span><span class="n">encoder</span>
-<span class="k">print</span><span class="p">(</span><span class="n">tokenizer</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-&lt;SubwordTextEncoder vocab_size=8185&gt;
-
-</pre>
-<p>The <code>tokenizer</code> is a <a href="https://www.tensorflow.org/datasets/api_docs/python/tfds/features/text/SubwordTextEncoder">SubwordTextEncoder</a> with a vocabulary size of 8,185.</p>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org1c32dba">
-<h4 id="org1c32dba">Set Up Data</h4>
-<div class="outline-text-4" id="text-org1c32dba">
-<p>We're going to shuffle the training data and then add padding to both sets so theyre all the same size.</p>
-<div class="highlight">
-<pre><span></span><span class="n">BUFFER_SIZE</span> <span class="o">=</span> <span class="mi">20000</span>
-<span class="n">BATCH_SIZE</span> <span class="o">=</span> <span class="mi">64</span>
-<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">BUFFER_SIZE</span><span class="p">)</span>
-<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">padded_batch</span><span class="p">(</span><span class="n">BATCH_SIZE</span><span class="p">,</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">output_shapes</span><span class="p">)</span>
-<span class="n">test_dataset</span> <span class="o">=</span> <span class="n">test_dataset</span><span class="o">.</span><span class="n">padded_batch</span><span class="p">(</span><span class="n">BATCH_SIZE</span><span class="p">,</span> <span class="n">test_dataset</span><span class="o">.</span><span class="n">output_shapes</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-<div class="outline-3" id="outline-container-org1e2b834">
-<h3 id="org1e2b834">The Model</h3>
-<div class="outline-text-3" id="text-org1e2b834">
-<div class="highlight">
-<pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">Sequential</span><span class="p">([</span>
-    <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">vocab_size</span><span class="p">,</span> <span class="mi">64</span><span class="p">),</span>
-    <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">Bidirectional</span><span class="p">(</span><span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">LSTM</span><span class="p">(</span><span class="mi">64</span><span class="p">)),</span>
-    <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">activation</span><span class="o">=</span><span class="s1">'relu'</span><span class="p">),</span>
-    <span class="n">tensorflow</span><span class="o">.</span><span class="n">keras</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">activation</span><span class="o">=</span><span class="s1">'sigmoid'</span><span class="p">)</span>
-<span class="p">])</span>
-</pre></div>
-<div class="highlight">
-<pre><span></span><span class="n">model</span><span class="o">.</span><span class="n">summary</span><span class="p">()</span>
-</pre></div>
-<pre class="example">
-Model: "sequential"
-_________________________________________________________________
-Layer (type)                 Output Shape              Param #   
-=================================================================
-embedding (Embedding)        (None, None, 64)          523840    
-_________________________________________________________________
-bidirectional (Bidirectional (None, 128)               66048     
-_________________________________________________________________
-dense (Dense)                (None, 64)                8256      
-_________________________________________________________________
-dense_1 (Dense)              (None, 1)                 65        
-=================================================================
-Total params: 598,209
-Trainable params: 598,209
-Non-trainable params: 0
-_________________________________________________________________
-</pre></div>
-<div class="outline-4" id="outline-container-orga907404">
-<h4 id="orga907404">Compile It</h4>
-<div class="outline-text-4" id="text-orga907404">
-<div class="highlight">
-<pre><span></span><span class="n">model</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s1">'binary_crossentropy'</span><span class="p">,</span>
-              <span class="n">optimizer</span><span class="o">=</span><span class="s1">'adam'</span><span class="p">,</span>
-              <span class="n">metrics</span><span class="o">=</span><span class="p">[</span><span class="s1">'accuracy'</span><span class="p">])</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgd3feb5f">
-<h4 id="orgd3feb5f">Train It</h4>
-<div class="outline-text-4" id="text-orgd3feb5f">
-<div class="highlight">
-<pre><span></span><span class="n">EPOCHS</span> <span class="o">=</span> <span class="mi">10</span>
-<span class="n">SILENT</span> <span class="o">=</span> <span class="mi">0</span>
-<span class="n">ONCE_PER_EPOCH</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
-    <span class="n">history</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">,</span>
-                        <span class="n">epochs</span><span class="o">=</span><span class="n">EPOCHS</span><span class="p">,</span>
-                        <span class="n">validation_data</span><span class="o">=</span><span class="n">test_dataset</span><span class="p">,</span>
-                        <span class="n">verbose</span><span class="o">=</span><span class="n">ONCE_PER_EPOCH</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-2019-09-21 15:52:50,469 graeae.timers.timer start: Started: 2019-09-21 15:52:50.469787
-I0921 15:52:50.469841 140086305412928 timer.py:70] Started: 2019-09-21 15:52:50.469787
-Epoch 1/10
-391/391 - 80s - loss: 0.3991 - accuracy: 0.8377 - val_loss: 0.0000e+00 - val_accuracy: 0.0000e+00
-Epoch 2/10
-391/391 - 80s - loss: 0.3689 - accuracy: 0.8571 - val_loss: 0.4595 - val_accuracy: 0.8021
-Epoch 3/10
-391/391 - 80s - loss: 0.3664 - accuracy: 0.8444 - val_loss: 0.5262 - val_accuracy: 0.7228
-Epoch 4/10
-391/391 - 80s - loss: 0.5611 - accuracy: 0.7133 - val_loss: 0.6832 - val_accuracy: 0.6762
-Epoch 5/10
-391/391 - 80s - loss: 0.6151 - accuracy: 0.6597 - val_loss: 0.5164 - val_accuracy: 0.7844
-Epoch 6/10
-391/391 - 80s - loss: 0.3842 - accuracy: 0.8340 - val_loss: 0.4970 - val_accuracy: 0.7996
-Epoch 7/10
-391/391 - 80s - loss: 0.2449 - accuracy: 0.9058 - val_loss: 0.3639 - val_accuracy: 0.8463
-Epoch 8/10
-391/391 - 80s - loss: 0.1896 - accuracy: 0.9306 - val_loss: 0.3698 - val_accuracy: 0.8614
-Epoch 9/10
-391/391 - 80s - loss: 0.1555 - accuracy: 0.9456 - val_loss: 0.3896 - val_accuracy: 0.8535
-Epoch 10/10
-391/391 - 80s - loss: 0.1195 - accuracy: 0.9606 - val_loss: 0.4878 - val_accuracy: 0.8428
-2019-09-21 16:06:09,935 graeae.timers.timer end: Ended: 2019-09-21 16:06:09.935707
-I0921 16:06:09.935745 140086305412928 timer.py:77] Ended: 2019-09-21 16:06:09.935707
-2019-09-21 16:06:09,938 graeae.timers.timer end: Elapsed: 0:13:19.465920
-I0921 16:06:09.938812 140086305412928 timer.py:78] Elapsed: 0:13:19.465920
-</pre></div>
-</div>
-<div class="outline-4" id="outline-container-org1efc999">
-<h4 id="org1efc999">Plot the Performance</h4>
-<div class="outline-text-4" id="text-org1efc999">
-<ul class="org-ul">
-<li><b>Note</b>: This only works if your kernel is on the local machine, running it remotely gives an error, as it tries to save it on the remote machine.</li>
-</ul>
-<div class="highlight">
-<pre><span></span><span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">history</span><span class="o">.</span><span class="n">history</span><span class="p">)</span>
-<span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">"loss"</span><span class="p">:</span> <span class="s2">"Training Loss"</span><span class="p">,</span>
-                            <span class="s2">"accuracy"</span><span class="p">:</span> <span class="s2">"Training Accuracy"</span><span class="p">,</span>
-                            <span class="s2">"val_loss"</span><span class="p">:</span> <span class="s2">"Validation Loss"</span><span class="p">,</span>
-                            <span class="s2">"val_accuracy"</span><span class="p">:</span> <span class="s2">"Validation Accuracy"</span><span class="p">})</span>
-<span class="n">plot</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">hvplot</span><span class="p">()</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"LSTM IMDB Performance"</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="mi">800</span><span class="p">)</span>
-<span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"model_performance"</span><span class="p">)()</span>
-</pre></div>
-<object data="/posts/keras/imdb-reviews-tensorflow-dataset/model_performance.html" height="800" style="width:100%" type="text/html">
-<p>Figure Missing</p>
-</object>
-<p>It looks like I over-trained it, as the loss is getting high. (Also note that I used this notebook to troubleshoot so there was actually one extra epoch that isn't shown).</p>
-</div>
-</div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org79f019b">
-<h2 id="org79f019b">End</h2>
-<div class="outline-text-2" id="text-org79f019b"></div>
-<div class="outline-3" id="outline-container-orgd827336">
-<h3 id="orgd827336">Citation</h3>
-<div class="outline-text-3" id="text-orgd827336">
-<p>This is the paper where the dataset was originally used.</p>
-<ul class="org-ul">
-<li>Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and Christopher Potts. (2011). Learning Word Vectors for Sentiment Analysis. The 49th Annual Meeting of the Association for Computational Linguistics (ACL 2011).</li>
-</ul>
 </div>
 </div>
 </div>

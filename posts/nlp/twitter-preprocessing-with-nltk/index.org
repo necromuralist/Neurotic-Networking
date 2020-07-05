@@ -1,0 +1,525 @@
+#+BEGIN_COMMENT
+.. title: Twitter Preprocessing With NLTK
+.. slug: twitter-preprocessing-with-nltk
+.. date: 2020-07-03 21:23:48 UTC-07:00
+.. tags: nlp,nltk,twitter,preprocessing
+.. category: Data Preprocessing
+.. link: 
+.. description: Preprocessing twitter tweets with NLTK.
+.. type: text
+
+#+END_COMMENT
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3f6fa986-8499-416a-997c-01651c806fd5-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is the first lab in the first course in Coursera's [[https://www.wikiwand.com/en/Natural_language_processing][Natural Language Processing]] Specialization - /Natural Language Processing With Classification and Vector Spaces/.
+ In this lab, we will be exploring how to preprocess tweets for sentiment analysis. We will provide a function for preprocessing tweets during this week's assignment, but it is still good to know what is going on under the hood. By the end of this lecture, you will see how to use the [[http://www.nltk.org][NLTK]] package to perform a preprocessing pipeline for Twitter datasets.
+
+You will be doing sentiment analysis on tweets in the first two weeks of this course. To help with that, we will be using the [[http://www.nltk.org/howto/twitter.html][Natural Language Toolkit (NLTK)]] package, an open-source Python library for natural language processing. It has modules for colle cting, handling, and processing Twitter data, and you will be acquainted with them as we move along the course.
+
+For this exercise, we will use a Twitter dataset that comes with NLTK. This dataset has been manually annotated and serves to establish baselines for models quickly. Let us import them now as well as a few other libraries we will be using.
+
+The [[https://www.nltk.org/howto/corpus.html][NLTK Corpus How To]] has a brief description of the Twitter dataset - it contains 20,000 tweets retrieved from the Twitter API. They also have [[https://www.nltk.org/howto/twitter.html][some documentation]] about how to gather data using the API yourself.
+
+** Set Up
+*** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+import random
+import re
+import string
+
+# from pypi
+from nltk.corpus import stopwords
+from nltk.corpus import twitter_samples
+from nltk.stem import PorterStemmer
+from nltk.tokenize import TweetTokenizer
+
+import nltk
+#+end_src
+*** Data
+    The first thing to do is download the dataset using the [[https://www.nltk.org/data.html][download]] function. If you don't pass an argument to it a dialog will open and you can choose to download any or all of their datasets, but for this exercise we'll just download the Twitter samples.
+
+#+begin_src python :results none
+nltk.download('twitter_samples')
+#+end_src
+
+The data is contained in three files. You can see the file names using the =twitter_samples.fileids= function.
+
+#+begin_src python :results output :exports both
+print(twitter_samples.fileids())
+#+end_src
+
+#+RESULTS:
+: ['negative_tweets.json', 'positive_tweets.json', 'tweets.20150430-223406.json']
+
+As you can see (or maybe guess) two of the files contain tweets that have been categorized as negative or positive. The third file has all the tweets.
+
+To get just the text of the tweets you use the =twitter_samples.strings= function.
+
+#+begin_src python :results output :exports both
+help(twitter_samples.strings)
+#+end_src
+
+#+RESULTS:
+: Help on method strings in module nltk.corpus.reader.twitter:
+: 
+: strings(fileids=None) method of nltk.corpus.reader.twitter.TwitterCorpusReader instance
+:     Returns only the text content of Tweets in the file(s)
+:     
+:     :return: the given file(s) as a list of Tweets.
+:     :rtype: list(str)
+: 
+
+Note that it says that it returns only the given file(s) as a list of tweets but it also makes the =fileids= argument optional. If you don't pass in any argument you end up with the tweets from all the files, which you probably don't want.
+
+#+begin_src python :results none
+all_positive_tweets = twitter_samples.strings('positive_tweets.json')
+all_negative_tweets = twitter_samples.strings('negative_tweets.json')
+all_tweets = twitter_samples.strings("tweets.20150430-223406.json")
+#+end_src
+
+Now we also need to download the stopwords for our pre-processing and setup the english stopwords for use later.
+
+#+begin_src python :results none
+nltk.download('stopwords')
+english_stopwords = stopwords.words("english")
+#+end_src
+*** The Random Seed
+    This just sets the random seed so that we get the same values if we re-run this later on (although this is a little tricky with the notebook, since you can call the same code multiple times).
+
+#+begin_src python :results none
+random.seed(20200704)
+#+end_src
+
+* Middle
+** Explore the Data
+   Let's start by looking at the number of tweets we got and confirming that the =strings= function gave us back a list of strings like the docstring said it would.
+
+#+begin_src python :results output :exports both
+print(f"Number of tweets: {len(all_tweets):,}")
+print(f'Number of positive tweets: {len(all_positive_tweets):,}')
+print(f'Number of negative tweets: {len(all_negative_tweets):,}')
+
+print('\nThe type of all_positive_tweets is: ', type(all_positive_tweets))
+print('The type of a tweet entry is: ', type(all_negative_tweets[0]))
+#+end_src
+
+#+RESULTS:
+: Number of tweets: 20,000
+: Number of positive tweets: 5,000
+: Number of negative tweets: 5,000
+: 
+: The type of all_positive_tweets is:  <class 'list'>
+: The type of a tweet entry is:  <class 'str'>
+
+Note from the original notebook:
+
+#+begin_quote
+It contains 5,000 positive tweets and 5,000 negative tweets exactly. The exact match between these classes is not a coincidence. The intention is to have a balanced dataset. That does not reflect the real distributions of positive and negative classes in live Twitter streams. It is just because balanced datasets simplify the design of most computational methods that are required for sentiment analysis. However, it is better to be aware that this balance of classes is artificial. 
+#+end_quote
+
+We can see that the data for each file is made up of strings stored in a list and there were 20,000 tweets in total but only half of them have been categorized.
+
+*** Looking At Some Examples
+#+begin_src python :results output :exports both
+print(f"Random Positive Tweet: {random.choice(all_positive_tweets)}")
+print(f"Random Negative Tweet: {random.choice(all_negative_tweets)}")
+#+end_src
+
+#+RESULTS:
+: Random Positive Tweet: @Aaliyan_ Lucky me :))
+: Random Negative Tweet: @NotRedbutBlue awww :(
+: at least u never got called luis manzano tho
+
+
+One thing the original exercise noted is that there are [[https://www.wikiwand.com/en/Emoji][Emoticons]] in the dataset that need to be handled.
+
+#+begin_src python :results output :exports both
+print(all_positive_tweets[405])
+#+end_src
+
+#+RESULTS:
+: @fwmkian HAPPY BIRTHDAY BABY 💟💟 I MISS YOU SO MUCH AND LOVE YOU SO MUCH :))
+
+** Processing the Data
+   There are four basic steps for NLP pre-processing:
+   - [[https://nlp.stanford.edu/IR-book/html/htmledition/tokenization-1.html][Tokenization]]
+   - Lower-casing
+   - Removing [[https://www.wikiwand.com/en/Stop_words][stop words]] and punctuation
+   - [[https://www.wikiwand.com/en/Stemming][Stemming]]
+
+We're going to start by taking one tweet and seeing how it is transformed by this process.
+
+#+begin_src python :results output :exports both
+THE_CHOSEN = all_positive_tweets[2277]
+print(THE_CHOSEN)
+#+end_src
+
+#+RESULTS:
+: My beautiful sunflowers on a sunny Friday morning off :) #sunflowers #favourites #happy #Friday off… https://t.co/3tfYom0N1i
+*** Cleaning Up Twitter-Specific Markup
+    Although I listed four steps in the beginning, there's often another step where we remove things that are common or not useful but known in advance. In this case we want to remove old re-tweet tags, hyperlinks, and hashtags. We're going to do that with python's built in [[https://docs.python.org/3/library/re.html][regular expression]] module.
+
+#+begin_src python :results none
+START_OF_LINE = r"^"
+OPTIONAL = "?"
+ANYTHING = "."
+ZERO_OR_MORE = "*"
+ONE_OR_MORE = "+"
+
+SPACE = "\s"
+SPACES = SPACE + ONE_OR_MORE
+EVERYTHING_OR_NOTHING = ANYTHING + ZERO_OR_MORE
+
+ERASE = ""
+FORWARD_SLASH = "\/"
+NEWLINES = r"[\r\n]"
+#+end_src
+**** Re-Tweets
+     None of the positive or negative samples have this tag so I'm going to pull an example from the complete set just to show it working.
+
+#+begin_src python :results output :exports both
+RE_TWEET = START_OF_LINE + "RT" + SPACES
+
+tweet = all_tweets[0]
+print(tweet)
+tweet = re.sub(RE_TWEET, ERASE, tweet)
+print(tweet)
+#+end_src
+
+#+RESULTS:
+: RT @KirkKus: Indirect cost of the UK being in the EU is estimated to be costing Britain £170 billion per year! #BetterOffOut #UKIP
+: @KirkKus: Indirect cost of the UK being in the EU is estimated to be costing Britain £170 billion per year! #BetterOffOut #UKIP
+**** Hyperlinks
+#+begin_src python :results output :exports both
+HYPERLINKS = ("http" + "s" + OPTIONAL + ":" + FORWARD_SLASH + FORWARD_SLASH
+              + EVERYTHING_OR_NOTHING + NEWLINES + ZERO_OR_MORE)
+
+print(THE_CHOSEN)
+re_chosen = re.sub(HYPERLINKS, ERASE, THE_CHOSEN)
+print(re_chosen)
+#+end_src
+**** HashTags
+     We aren't removing the actual hash-tags, just the hash-marks (=#=).
+
+#+begin_src python :results output :exports both
+HASH = "#"
+re_chosen = re.sub(HASH, ERASE, re_chosen)
+print(re_chosen)
+#+end_src
+#+RESULTS:
+: My beautiful sunflowers on a sunny Friday morning off :) sunflowers favourites happy Friday off… 
+*** Tokenize
+    NLTK has a tokenizer specially built for tweets. The =twitter_samples= module actually has a =tokenizer= function that breaks the tweets up, but since we are using regular expressions to clean up the strings a little first, it makes more sense to tokenize the strings afterwards. Also note that one of the steps is to lower-case the letters, which the =TweetTokenizer= will do for us if we set the =preserve_case= argument to =False=.
+
+#+begin_src python :results output :exports both
+print(help(TweetTokenizer))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Help on class TweetTokenizer in module nltk.tokenize.casual:
+
+class TweetTokenizer(builtins.object)
+ |  TweetTokenizer(preserve_case=True, reduce_len=False, strip_handles=False)
+ |  
+ |  Tokenizer for tweets.
+ |  
+ |      >>> from nltk.tokenize import TweetTokenizer
+ |      >>> tknzr = TweetTokenizer()
+ |      >>> s0 = "This is a cooool #dummysmiley: :-) :-P <3 and some arrows < > -> <--"
+ |      >>> tknzr.tokenize(s0)
+ |      ['This', 'is', 'a', 'cooool', '#dummysmiley', ':', ':-)', ':-P', '<3', 'and', 'some', 'arrows', '<', '>', '->', '<--']
+ |  
+ |  Examples using `strip_handles` and `reduce_len parameters`:
+ |  
+ |      >>> tknzr = TweetTokenizer(strip_handles=True, reduce_len=True)
+ |      >>> s1 = '@remy: This is waaaaayyyy too much for you!!!!!!'
+ |      >>> tknzr.tokenize(s1)
+ |      [':', 'This', 'is', 'waaayyy', 'too', 'much', 'for', 'you', '!', '!', '!']
+ |  
+ |  Methods defined here:
+ |  
+ |  __init__(self, preserve_case=True, reduce_len=False, strip_handles=False)
+ |      Initialize self.  See help(type(self)) for accurate signature.
+ |  
+ |  tokenize(self, text)
+ |      :param text: str
+ |      :rtype: list(str)
+ |      :return: a tokenized list of strings; concatenating this list returns        the original string if `preserve_case=False`
+ |  
+ |  ----------------------------------------------------------------------
+ |  Data descriptors defined here:
+ |  
+ |  __dict__
+ |      dictionary for instance variables (if defined)
+ |  
+ |  __weakref__
+ |      list of weak references to the object (if defined)
+
+None
+#+end_example
+
+#+begin_src python :results none
+tokenizer = TweetTokenizer(preserve_case=False, strip_handles=True,
+                           reduce_len=True)
+#+end_src
+
+Now we can tokenize our partly cleaned token.
+
+#+begin_src python :results output :exports both
+print(re_chosen)
+tokens = tokenizer.tokenize(re_chosen)
+print(tokens)
+#+end_src
+
+#+RESULTS:
+: My beautiful sunflowers on a sunny Friday morning off :) sunflowers favourites happy Friday off… 
+: ['my', 'beautiful', 'sunflowers', 'on', 'a', 'sunny', 'friday', 'morning', 'off', ':)', 'sunflowers', 'favourites', 'happy', 'friday', 'off', '…']
+*** Remove Stop Words and Punctuation
+#+begin_src python :results output :exports both
+print(english_stopwords)
+print(string.punctuation)
+#+end_src
+
+#+RESULTS:
+: ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"]
+: !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
+
+#+begin_src python :results output :exports both
+cleaned = [word for word in tokens if (word not in english_stopwords and
+                                       word not in string.punctuation)]
+print(cleaned)
+#+end_src
+
+#+RESULTS:
+: ['beautiful', 'sunflowers', 'sunny', 'friday', 'morning', ':)', 'sunflowers', 'favourites', 'happy', 'friday', '…']
+
+
+The original text noted that things like =:)= and =...= are important in this context but might not be on other contexts so it would probably be a good idea to inspect both the stopwords and the putnctuation you're using and decide if all of what you have is both sufficient and correct.
+*** Stemming
+    We're going to use the [[https://www.nltk.org/_modules/nltk/stem/porter.html][Porter Stemmer]] from NLTK (see [[https://tartarus.org/martin/PorterStemmer/][this]] for the official Porter Stemmer algorithm page).
+
+#+begin_src python :results none
+stemmer = PorterStemmer()
+#+end_src
+
+#+begin_src python :results output :exports both
+stemmed = [stemmer.stem(word) for word in cleaned]
+print(stemmed)
+#+end_src
+
+#+RESULTS:
+: ['beauti', 'sunflow', 'sunni', 'friday', 'morn', ':)', 'sunflow', 'favourit', 'happi', 'friday', '…']
+
+
+* End
+  So now we've seen the basic steps that we're going to need to preprocess our tweets for [[https://www.wikiwand.com/en/Sentiment_analysis][Sentiment Analysis]].
+  The rest of this is outside the scope of the exercise, it's just to get it all into one place. 
+** Tests
+#+begin_src feature :tangle /tmp/twitter-preprocessing/tweet_preprocessing.feature
+Feature: Tweet pre-processor
+
+<<re-tweet-processing>>
+
+<<hyperlink-processing>>
+
+<<hash-processing>>
+#+end_src
+
+#+begin_src python :tangle /tmp/twitter-preprocessing/test_preprocessing.py
+# from python
+import random
+
+# from pypi
+from expects import (
+    equal,
+    expect
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+import pytest
+
+
+# software under test
+from processor import TwitterProcessor
+
+# fixtures
+
+class Katamari:
+    """Something to stick values into"""
+
+@pytest.fixture
+def katamari():
+    return Katamari()
+
+
+@pytest.fixture
+def processor():
+    return TwitterProcessor()
+
+scenarios("tweet_preprocessing.feature")
+
+
+<<test-re-tweet>>
+
+
+<<test-hyperlinks>>
+
+
+<<test-hashtags>>
+#+end_src
+
+*** The Re-tweets
+#+begin_src feature :noweb-ref re-tweet-processing
+Scenario: A re-tweet is cleaned.
+
+  Given a tweet that has been re-tweeted
+  When the tweet is cleaned
+  Then it has the text removed
+#+end_src
+
+#+begin_src python :noweb-ref test-re-tweet
+# Scenario: A re-tweet is cleaned.
+
+@given("a tweet that has been re-tweeted")
+def setup_re_tweet(katamari, faker):
+    katamari.expected = faker.sentence()
+    spaces = " " * random.randrange(1, 10)
+    katamari.to_clean = f"RT{spaces}{katamari.expected}"
+    return
+
+
+@when("the tweet is cleaned")
+def process_tweet(katamari, processor):
+    katamari.actual = processor.clean(katamari.to_clean)
+    return
+
+
+@then("it has the text removed")
+def check_cleaned_text(katamari):
+    expect(katamari.expected).to(equal(katamari.actual))
+    return
+#+end_src
+
+*** Hyperlinks
+#+begin_src feature :noweb-ref hyperlink-processing
+Scenario: The tweet has a hyperlink
+  Given a tweet with a hyperlink
+  When the tweet is cleaned
+  Then it has the text removed
+#+end_src
+
+#+begin_src python :noweb-ref test-hyperlinks
+# Scenario: The tweet has a hyperlink
+
+@given("a tweet with a hyperlink")
+def setup_hyperlink(katamari, faker):
+    base = faker.sentence()
+    katamari.expected = base
+    katamari.to_clean = base + faker.uri() + "\n" * random.randrange(5)
+    return
+#+end_src
+*** Hash Symbols
+#+begin_src feature :noweb-ref hash-processing
+Scenario: A tweet has hash symbols in it.
+  Given a tweet with hash symbols
+  When the tweet is cleaned
+  Then it has the text removed
+#+end_src
+
+#+begin_src python :noweb-ref test-hashtags
+@given("a tweet with hash symbols")
+def setup_hash_symbols(katamari, faker):
+    expected = faker.sentence()
+    tokens = expected.split()
+    expected_tokens = expected.split()
+
+    for count in range(random.randrange(1, 10)):
+        index = random.randrange(len(tokens))
+        word = faker.word()
+        tokens = tokens[:index] + [f"#{word}"] + tokens[index:]
+        expected_tokens = expected_tokens[:index] + [word] + expected_tokens[index:]
+    katamari.to_clean = " ".join(tokens)
+    katamari.expected = " ".join(expected_tokens)
+    return
+#+end_src
+** Implementation
+
+#+begin_src python :tangle /tmp/twitter-preprocessing/processor.py
+# python
+import re
+
+<<regular-expressions>>
+
+
+class TwitterProcessor:
+    """processor for tweets"""
+
+    <<processor-clean>>
+#+end_src
+
+#+begin_src python :noweb-ref regular-expressions
+# building blocks
+START_OF_LINE = r"^"
+OPTIONAL = "?"
+ANYTHING = "."
+ZERO_OR_MORE = "*"
+ONE_OR_MORE = "+"
+
+SPACE = r"\s"
+SPACES = SPACE + ONE_OR_MORE
+EVERYTHING_OR_NOTHING = ANYTHING + ZERO_OR_MORE
+
+ERASE = ""
+FORWARD_SLASH = r"\/"
+NEWLINES = r"[\r\n]"
+
+# to remove
+RE_TWEET = START_OF_LINE + "RT" + SPACES
+HYPERLINKS = ("http" + "s" + OPTIONAL + ":" + FORWARD_SLASH + FORWARD_SLASH
+              + EVERYTHING_OR_NOTHING + NEWLINES + ZERO_OR_MORE)
+HASH = "#"
+#+end_src
+
+#+begin_src python :noweb-ref processor-clean
+def clean(self, tweet: str) -> str:
+    """Removes sub-strings from the tweet
+
+    Args:
+     tweet: string tweet
+
+    Returns:
+     tweet with certain sub-strings removed
+    """
+    for expression in (RE_TWEET, HYPERLINKS, HASH):
+        tweet = re.sub(expression, ERASE, tweet)
+    return tweet
+#+end_src
+
+#+begin_src python :results none
+def process_tweet(tweet: str) -> list:
+    """Pre-processes a tweet
+
+    Args:
+     tweet: the string text to process
+
+    Returns:
+     a list of processed strings created from the tweet
+    """
+    tweet = re.sub(RE_TWEET, ERASE, tweet)
+#+end_src
