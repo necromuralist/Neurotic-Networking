@@ -1,0 +1,128 @@
+# from python
+import random
+
+# from pypi
+from expects import (
+    contain_exactly,
+    equal,
+    expect
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+And = when
+
+
+# fixtures
+from fixtures import katamari, processor
+
+scenarios("../../features/twitter-preprocessing/tweet_preprocessing.feature")
+
+
+# Scenario: A re-tweet is cleaned.
+
+@given("a tweet that has been re-tweeted")
+def setup_re_tweet(katamari, faker):
+    katamari.expected = faker.sentence()
+    spaces = " " * random.randrange(1, 10)
+    katamari.to_clean = f"RT{spaces}{katamari.expected}"
+    return
+
+
+@when("the tweet is cleaned")
+def process_tweet(katamari, processor):
+    katamari.actual = processor.clean(katamari.to_clean)
+    return
+
+
+@then("it has the text removed")
+def check_cleaned_text(katamari):
+    expect(katamari.expected).to(equal(katamari.actual))
+    return
+
+
+# Scenario: The tweet has a hyperlink
+
+@given("a tweet with a hyperlink")
+def setup_hyperlink(katamari, faker):
+    base = faker.sentence()
+    katamari.expected = base
+    katamari.to_clean = base + faker.uri() + "\n" * random.randrange(5)
+    return
+
+
+@given("a tweet with hash symbols")
+def setup_hash_symbols(katamari, faker):
+    expected = faker.sentence()
+    tokens = expected.split()
+    expected_tokens = expected.split()
+
+    for count in range(random.randrange(1, 10)):
+        index = random.randrange(len(tokens))
+        word = faker.word()
+        tokens = tokens[:index] + [f"#{word}"] + tokens[index:]
+        expected_tokens = expected_tokens[:index] + [word] + expected_tokens[index:]
+    katamari.to_clean = " ".join(tokens)
+    katamari.expected = " ".join(expected_tokens)
+    return
+
+
+# Scenario: The text is tokenized
+
+
+@given("a string of text")
+def setup_text(katamari):
+    katamari.text = "Time flies like an Arrow, fruit flies like a BANANAAAA!"
+    katamari.expected = ("time flies like an arrow , "
+                         "fruit flies like a bananaaa !").split()
+    return
+
+
+@when("the text is tokenized")
+def tokenize(katamari, processor):
+    katamari.actual = processor.tokenizer.tokenize(katamari.text)
+    return
+
+
+@then("it is the expected list of strings")
+def check_tokens(katamari):
+    expect(katamari.actual).to(contain_exactly(*katamari.expected))
+    return
+
+
+#Scenario: The user removes stop words and punctuation
+
+
+@given("a tokenized string")
+def setup_tokenized_string(katamari):
+    katamari.source = ("now is the winter of our discontent , "
+                       "made glorious summer by this son of york ;").split()
+    katamari.expected = ("winter discontent made glorious "
+                         "summer son york".split())
+    return
+
+
+@when("the string is un-stopped")
+def un_stop(katamari, processor):
+    katamari.actual = processor.remove_useless_tokens(katamari.source)
+    return
+#  Then it is the expected list of strings
+
+
+# Scenario: The user stems the tokens
+#  Given a tokenized string
+#  When the string is un-stopped
+ 
+
+@And("tokens are stemmed")
+def stem_tokens(katamari, processor):
+    katamari.actual = processor.stem(katamari.actual)
+    katamari.expected = "winter discont made gloriou summer son york".split()
+    return
+
+
+#  Then it is the expected list of strings

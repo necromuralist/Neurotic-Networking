@@ -9,7 +9,7 @@
 .. type: text
 
 #+END_COMMENT
-#+PROPERTY: header-args :session athena-check
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-49038d39-ef15-4468-aaf2-8cb657645dfb.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -17,13 +17,9 @@
 #+END_SRC
 * Beginning
   This is the first lab in the first course in Coursera's [[https://www.wikiwand.com/en/Natural_language_processing][Natural Language Processing]] Specialization - /Natural Language Processing With Classification and Vector Spaces/.
- In this lab, we will be exploring how to preprocess tweets for sentiment analysis. We will provide a function for preprocessing tweets during this week's assignment, but it is still good to know what is going on under the hood. By the end of this lecture, you will see how to use the [[http://www.nltk.org][NLTK]] package to perform a preprocessing pipeline for Twitter datasets.
+ It uses a corpus of [[https://twitter.com/explore][Twitter]] data gathered as part of the [[https://www.nltk.org/][Natural Language Toolkit (NLTK)]]. The goal is to learn how to create a preprocessor for a [[https://www.wikiwand.com/en/Sentiment_analysis][Sentiment Analysis]] pipeline. This dataset has entries that were annotated by hand so we can use it to quickly create a baseline for modelling.
 
-You will be doing sentiment analysis on tweets in the first two weeks of this course. To help with that, we will be using the [[http://www.nltk.org/howto/twitter.html][Natural Language Toolkit (NLTK)]] package, an open-source Python library for natural language processing. It has modules for colle cting, handling, and processing Twitter data, and you will be acquainted with them as we move along the course.
-
-For this exercise, we will use a Twitter dataset that comes with NLTK. This dataset has been manually annotated and serves to establish baselines for models quickly. Let us import them now as well as a few other libraries we will be using.
-
-The [[https://www.nltk.org/howto/corpus.html][NLTK Corpus How To]] has a brief description of the Twitter dataset - it contains 20,000 tweets retrieved from the Twitter API. They also have [[https://www.nltk.org/howto/twitter.html][some documentation]] about how to gather data using the API yourself.
+The [[https://www.nltk.org/howto/corpus.html][NLTK Corpus How To]] has a brief description of the Twitter dataset and they also have [[https://www.nltk.org/howto/twitter.html][some documentation]] about how to gather data using the Twitter API yourself.
 
 ** Set Up
 *** Imports
@@ -280,7 +276,7 @@ top_ten()
 #+begin_src python :results none
 plot = top_ten.table.hvplot.bar(y="Percent (%)", x="First Token").opts(
     title="Top Ten Tweet First Tokens", 
-   width=1000,
+    width=900,
     height=800)
 output = Embed(plot=plot, file_name="top_ten", create_folder=False)
 #+end_src
@@ -499,7 +495,7 @@ print(stemmed)
 ** Tests
    I'm going to use [[https://github.com/pytest-dev/pytest-bdd][pytest-bdd]] to run the tests for the pre-processor but I'm also going to take advantage of org-babel tand keep the scenario definitions and the test functions together, even though they will exist in two different files (=tweet_preprocessing.featuer= and =test_preprocessing.py=) when tangled out of this file.
 
-#+begin_src feature :tangle /tmp/twitter-preprocessing/tweet_preprocessing.feature
+#+begin_src feature :tangle ../../tests/features/twitter-preprocessing/tweet_preprocessing.feature
 Feature: Tweet pre-processor
 
 <<re-tweet-processing>>
@@ -509,31 +505,18 @@ Feature: Tweet pre-processor
 <<hash-processing>>
 
 <<tokenization-preprocessing>>
+
+<<stop-word-preprocessing>>
+
+<<stem-preprocessing>>
 #+end_src
 
-#+begin_src python :tangle /tmp/twitter-preprocessing/test_preprocessing.py
-# from python
-import random
-
+#+begin_src python :tangle ../../tests/functional/twitter-preprocessing/fixtures.py
 # from pypi
-from expects import (
-    equal,
-    expect
-)
-from pytest_bdd import (
-    given,
-    scenarios,
-    then,
-    when,
-)
-
 import pytest
 
-
 # software under test
-from processor import TwitterProcessor
-
-# fixtures
+from neurotic.nlp.twitter_preprocessing.processor import TwitterProcessor
 
 class Katamari:
     """Something to stick values into"""
@@ -546,8 +529,32 @@ def katamari():
 @pytest.fixture
 def processor():
     return TwitterProcessor()
+#+end_src
 
-scenarios("tweet_preprocessing.feature")
+#+begin_src python :tangle ../../tests/functional/twitter-preprocessing/test_preprocessing.py
+# from python
+import random
+
+# from pypi
+from expects import (
+    contain_exactly,
+    equal,
+    expect
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+And = when
+
+
+# fixtures
+from fixtures import katamari, processor
+
+scenarios("../../features/twitter-preprocessing/tweet_preprocessing.feature")
 
 
 <<test-re-tweet>>
@@ -557,6 +564,15 @@ scenarios("tweet_preprocessing.feature")
 
 
 <<test-hashtags>>
+
+
+<<test-tokenization>>
+
+
+<<test-unstopping>>
+
+
+<<test-stem>>
 #+end_src
 
 *** The Re-tweets
@@ -638,53 +654,155 @@ def setup_hash_symbols(katamari, faker):
     return
 #+end_src
 *** Tokenization
+    This is being done by NLTK, so it might not really make sense to test it, but I figured adding a test would make it more likely that I'd slow down enough to understand what it's doing.
+
 #+begin_src feature :noweb-ref tokenization-preprocessing
 Scenario: The text is tokenized
+  Given a string of text
+  When the text is tokenized
+  Then it is the expected list of strings
+#+end_src
+
+#+begin_src python :noweb-ref test-tokenization
+# Scenario: The text is tokenized
+
+
+@given("a string of text")
+def setup_text(katamari):
+    katamari.text = "Time flies like an Arrow, fruit flies like a BANANAAAA!"
+    katamari.expected = ("time flies like an arrow , "
+                         "fruit flies like a bananaaa !").split()
+    return
+
+
+@when("the text is tokenized")
+def tokenize(katamari, processor):
+    katamari.actual = processor.tokenizer.tokenize(katamari.text)
+    return
+
+
+@then("it is the expected list of strings")
+def check_tokens(katamari):
+    expect(katamari.actual).to(contain_exactly(*katamari.expected))
+    return
 #+end_src
 *** Stop Word Removal
+#+begin_src feature :noweb-ref stop-word-preprocessing
+Scenario: The user removes stop words and punctuation
+  Given a tokenized string
+  When the string is un-stopped
+  Then it is the expected list of strings
+#+end_src
+
+#+begin_src python :noweb-ref test-unstopping
+#Scenario: The user removes stop words and punctuation
+
+
+@given("a tokenized string")
+def setup_tokenized_string(katamari):
+    katamari.source = ("now is the winter of our discontent , "
+                       "made glorious summer by this son of york ;").split()
+    katamari.expected = ("winter discontent made glorious "
+                         "summer son york".split())
+    return
+
+
+@when("the string is un-stopped")
+def un_stop(katamari, processor):
+    katamari.actual = processor.remove_useless_tokens(katamari.source)
+    return
+#  Then it is the expected list of strings
+#+end_src
 *** Stemming
+#+begin_src feature :noweb-ref stem-preprocessing
+Scenario: The user stems the tokens
+  Given a tokenized string
+  When the string is un-stopped
+  And tokens are stemmed
+  Then it is the expected list of strings
+#+end_src
+
+#+begin_src python :noweb-ref test-stem
+# Scenario: The user stems the tokens
+#  Given a tokenized string
+#  When the string is un-stopped
+ 
+
+@And("tokens are stemmed")
+def stem_tokens(katamari, processor):
+    katamari.actual = processor.stem(katamari.actual)
+    katamari.expected = "winter discont made gloriou summer son york".split()
+    return
+
+
+#  Then it is the expected list of strings
+#+end_src
 ** Implementation
    I'm going to implement it as a class rather than a function just so that all this stuff that's floating around in the notebook as global variables is collected in one place.
 
-#+begin_src python :tangle /tmp/twitter-preprocessing/processor.py
+#+begin_src python :tangle ../../neurotic/nlp/twitter_preprocessing/processor.py
 # python
 import re
+import string
+
+# pypi
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
+from nltk.tokenize import TweetTokenizer
+
+import attr
+import nltk
 
 <<regular-expressions>>
 
 
+@attr.s
 class TwitterProcessor:
     """processor for tweets"""
+    _tokenizer = attr.ib(default=None)
+    _stopwords = attr.ib(default=None)
+    _stemmer = attr.ib(default=None)
 
     <<processor-clean>>
-#+end_src
 
+    <<processor-tokenizer>>
+
+    <<processor-un-stop>>
+
+    <<processor-stopwords>>
+
+    <<processor-stemmer>>
+
+    <<processor-stem>>
+#+end_src
+*** A Regular Expression Helper
 #+begin_src python :noweb-ref regular-expressions
 class WheatBran:
-    # building blocks
+    """This is a holder for the regular expressions"""
     START_OF_LINE = r"^"
-    OPTIONAL = "?"
+    OPTIONAL = "{}?"
     ANYTHING = "."
-    ZERO_OR_MORE = "*"
-    ONE_OR_MORE = "+"
+    ZERO_OR_MORE = "{}*"
+    ONE_OR_MORE = "{}+"
+    ONE_OF_THESE = "[{}]"
 
     SPACE = r"\s"
-    SPACES = SPACE + ONE_OR_MORE
-    EVERYTHING_OR_NOTHING = ANYTHING + ZERO_OR_MORE
+    SPACES = ONE_OR_MORE.format(SPACE)
+    EVERYTHING_OR_NOTHING = ZERO_OR_MORE.format(ANYTHING)
 
     ERASE = ""
-    FORWARD_SLASH = r"\/"
-    NEWLINES = r"[\r\n]"
+    FORWARD_SLASHES = r"\/\/"
+    NEWLINES = ONE_OF_THESE.format(r"\r\n")
 
     # to remove
     RE_TWEET = START_OF_LINE + "RT" + SPACES
-    HYPERLINKS = ("http" + "s" + OPTIONAL + ":" + FORWARD_SLASH + FORWARD_SLASH
-                  + EVERYTHING_OR_NOTHING + NEWLINES + ZERO_OR_MORE)
+    HYPERLINKS = ("http" + OPTIONAL.format("s") + ":" + FORWARD_SLASHES
+                  + EVERYTHING_OR_NOTHING + ZERO_OR_MORE.format(NEWLINES))
     HASH = "#"
 
     remove = [RE_TWEET, HYPERLINKS, HASH]
 #+end_src
-
+*** The Clean Method
 #+begin_src python :noweb-ref processor-clean
 def clean(self, tweet: str) -> str:
     """Removes sub-strings from the tweet
@@ -698,4 +816,64 @@ def clean(self, tweet: str) -> str:
     for expression in WheatBran.remove:
         tweet = re.sub(expression, WheatBran.ERASE, tweet)
     return tweet
+#+end_src
+*** The Tokenizer
+#+begin_src python :noweb-ref processor-tokenizer
+@property
+def tokenizer(self) -> TweetTokenizer:
+    """The NLTK Tweet Tokenizer
+
+    It will:
+     - tokenize a string
+     - remove twitter handles
+     - remove repeated characters after the first three
+    """
+    if self._tokenizer is None:
+        self._tokenizer = TweetTokenizer(preserve_case=False,
+                                         strip_handles=True,
+                                         reduce_len=True)
+    return self._tokenizer
+#+end_src
+*** Stopwords
+    This might make more sense to be done at the module level, but I'll see how it goes.
+
+#+begin_src python :noweb-ref processor-stopwords
+@property
+def stopwords(self) -> list:
+    """NLTK English stopwords
+    
+    Warning:
+     if the stopwords haven't been downloaded this also tries too download them
+    """
+    if self._stopwords is None:
+        nltk.download('stopwords')
+        self._stopwords =  stopwords.words("english")
+    return self._stopwords
+#+end_src
+*** Un-Stop the Tokens
+#+begin_src python :noweb-ref processor-un-stop
+def remove_useless_tokens(self, tokens: list) -> list:
+    """Remove stopwords and punctuation
+
+    Args:
+     tokens: list of strings
+
+    Returns:
+     tokens with unuseful tokens removed
+    """    
+    return [word for word in tokens if (word not in self.stopwords and
+                                        word not in string.punctuation)]
+#+end_src
+*** Stem the Tokens
+#+begin_src python :noweb-ref processor-stemmer
+@property
+def stemmer(self) -> PorterStemmer:
+    """Porter Stemmer for the tokens"""
+    if self._stemmer is None:
+        self._stemmer = PorterStemmer()
+    return self._stemmer
+#+end_src
+#+begin_src python :noweb-ref processor-stem
+def stem(self, tokens: list) -> list:
+    return [self.stemmer.stem(word) for word in tokens]
 #+end_src
