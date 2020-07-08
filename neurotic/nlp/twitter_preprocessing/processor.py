@@ -104,3 +104,15 @@ class TwitterProcessor:
 
     def stem(self, tokens: list) -> list:
         return [self.stemmer.stem(word) for word in tokens]
+
+    def __call__(self, tweet: str) -> list:
+        """does all the processing in one step
+    
+        Args:
+         tweet: string to process
+        """
+        cleaned = self.clean(tweet)    
+        cleaned = self.tokenizer.tokenize(cleaned)
+        cleaned = self.stem(cleaned)
+        cleaned = self.remove_useless_tokens(cleaned)
+        return cleaned

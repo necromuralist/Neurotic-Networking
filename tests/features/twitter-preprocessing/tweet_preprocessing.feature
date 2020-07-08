@@ -31,3 +31,8 @@ Scenario: The user stems the tokens
   When the string is un-stopped
   And tokens are stemmed
   Then it is the expected list of strings
+
+Scenario: The user calls the processor
+  Given a tweet
+  When the processor is called with the tweet
+  Then it returns the cleaned, tokenized, and stemmed list

@@ -126,3 +126,26 @@ def stem_tokens(katamari, processor):
 
 
 #  Then it is the expected list of strings
+
+
+# Scenario: The user calls the processor
+
+
+@given("a tweet")
+def setup_tweet(katamari, faker):
+    katamari.words = "How now, brown cow? Whither and dither the smelly laulau. Boooooow Wooooow!"
+    katamari.tweet = f"RT {katamari.words}  #bocceballs {faker.uri()}"
+    katamari.expected = "brown cow whither dither smelli laulau booow wooow boccebal".split()
+    return
+
+
+@when("the processor is called with the tweet")
+def process_tweet(katamari, processor):
+    katamari.actual = processor(katamari.tweet)
+    return
+
+
+@then("it returns the cleaned, tokenized, and stemmed list")
+def check_processed_tweet(katamari):
+    expect(katamari.actual).to(contain_exactly(*katamari.expected))
+    return
