@@ -2,7 +2,7 @@
 import pytest
 
 # software under test
-from neurotic.nlp.twitter_preprocessing.processor import TwitterProcessor
+from neurotic.nlp.twitter.processor import TwitterProcessor
 
 class Katamari:
     """Something to stick values into"""

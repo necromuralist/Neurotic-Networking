@@ -1,5 +1,6 @@
 # from python
 import random
+import string
 
 # from pypi
 from expects import (
@@ -20,7 +21,26 @@ And = when
 # fixtures
 from fixtures import katamari, processor
 
-scenarios("../../features/twitter-preprocessing/tweet_preprocessing.feature")
+scenarios("../../features/twitter/tweet_preprocessing.feature")
+
+
+#Scenario: A tweet with a stock symbol is cleaned
+
+
+@given("a tweet with a stock symbol in it")
+def setup_stock_symbol(katamari, faker):
+    symbol = "".join(random.choices(string.ascii_uppercase, k=4))
+    head, tail = faker.sentence(), faker.sentence()
+    katamari.to_clean = (f"{head} ${symbol} "
+                         f"{tail}")
+
+    # the cleaner ignores spaces so there's going to be two spaces between
+    # the head and tail after the symbol is removed
+    katamari.expected = f"{head}  {tail}"
+    return
+
+#   When the tweet is cleaned
+#   Then it has the text removed
 
 
 # Scenario: A re-tweet is cleaned.

@@ -21,19 +21,24 @@ class WheatBran:
 
     SPACE = r"\s"
     SPACES = ONE_OR_MORE.format(SPACE)
+    PART_OF_A_WORD = r"\w"
     EVERYTHING_OR_NOTHING = ZERO_OR_MORE.format(ANYTHING)
 
     ERASE = ""
     FORWARD_SLASHES = r"\/\/"
     NEWLINES = ONE_OF_THESE.format(r"\r\n")
+    # a dollar is a special regular expression character meaning end of line
+    # so escape it
+    DOLLAR_SIGN = r"\$"
 
     # to remove
+    STOCK_SYMBOL = DOLLAR_SIGN + ZERO_OR_MORE.format(PART_OF_A_WORD)
     RE_TWEET = START_OF_LINE + "RT" + SPACES
     HYPERLINKS = ("http" + OPTIONAL.format("s") + ":" + FORWARD_SLASHES
                   + EVERYTHING_OR_NOTHING + ZERO_OR_MORE.format(NEWLINES))
     HASH = "#"
 
-    remove = [RE_TWEET, HYPERLINKS, HASH]
+    remove = [STOCK_SYMBOL, RE_TWEET, HYPERLINKS, HASH]
 
 
 @attr.s

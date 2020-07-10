@@ -1,5 +1,10 @@
 Feature: Tweet pre-processor
 
+Scenario: A tweet with a stock symbol is cleaned
+  Given a tweet with a stock symbol in it
+  When the tweet is cleaned
+  Then it has the text removed
+
 Scenario: A re-tweet is cleaned.
 
   Given a tweet that has been re-tweeted
