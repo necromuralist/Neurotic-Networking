@@ -9,7 +9,10 @@
 .. type: text
 
 #+END_COMMENT
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-49038d39-ef15-4468-aaf2-8cb657645dfb.json
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-5ad9c362-4446-4c87-8aed-8772124bdb58.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -484,12 +487,17 @@ print(stemmed)
 
 * End
   So now we've seen the basic steps that we're going to need to preprocess our tweets for [[https://www.wikiwand.com/en/Sentiment_analysis][Sentiment Analysis]].
+
+**Note:** This is a re-write of an exercise taken from Coursera's [[https://www.deeplearning.ai/natural-language-processing-specialization/][Natural Language Processing]] specialization.
+
   The rest of this is outside the scope of the exercise, it's just to get it all into one place. 
 ** Tests
    I'm going to use [[https://github.com/pytest-dev/pytest-bdd][pytest-bdd]] to run the tests for the pre-processor but I'm also going to take advantage of org-babel and keep the scenario definitions and the test functions grouped by what they do, even though they will exist in two different files (=tweet_preprocessing.feature= and =test_preprocessing.py=) when tangled out of this file.
 *** The Tangles
-#+begin_src feature :tangle ../../tests/features/twitter-preprocessing/tweet_preprocessing.feature
+#+begin_src feature :tangle ../../tests/features/twitter/tweet_preprocessing.feature
 Feature: Tweet pre-processor
+
+<<stock-processing>>
 
 <<re-tweet-processing>>
 
@@ -506,12 +514,12 @@ Feature: Tweet pre-processor
 <<whole-shebang-preprocessing>>
 #+end_src
 
-#+begin_src python :tangle ../../tests/functional/twitter-preprocessing/fixtures.py
+#+begin_src python :tangle ../../tests/functional/twitter/fixtures.py
 # from pypi
 import pytest
 
 # software under test
-from neurotic.nlp.twitter_preprocessing.processor import TwitterProcessor
+from neurotic.nlp.twitter.processor import TwitterProcessor
 
 class Katamari:
     """Something to stick values into"""
@@ -526,9 +534,10 @@ def processor():
     return TwitterProcessor()
 #+end_src
 
-#+begin_src python :tangle ../../tests/functional/twitter-preprocessing/test_preprocessing.py
+#+begin_src python :tangle ../../tests/functional/twitter/test_preprocessing.py
 # from python
 import random
+import string
 
 # from pypi
 from expects import (
@@ -549,7 +558,10 @@ And = when
 # fixtures
 from fixtures import katamari, processor
 
-scenarios("../../features/twitter-preprocessing/tweet_preprocessing.feature")
+scenarios("../../features/twitter/tweet_preprocessing.feature")
+
+
+<<test-stock-symbol>>
 
 
 <<test-re-tweet>>
@@ -574,7 +586,34 @@ scenarios("../../features/twitter-preprocessing/tweet_preprocessing.feature")
 #+end_src
 
 Now on to the sections that go into the tangles.
+*** Stock Symbols
+    Twitter has a special symbol for stocks which is a dollar sign followed by the stock ticker name (e.g. =$HOG= for Harley Davidson) that I'll remove. This is going to assume anything with a dollar sign immediately followed by a letter, number, or underscore is a stock symbol.
+#+begin_src feature :noweb-ref stock-processing
+Scenario: A tweet with a stock symbol is cleaned
+  Given a tweet with a stock symbol in it
+  When the tweet is cleaned
+  Then it has the text removed
+#+end_src
 
+#+begin_src python :noweb-ref test-stock-symbol
+#Scenario: A tweet with a stock symbol is cleaned
+
+
+@given("a tweet with a stock symbol in it")
+def setup_stock_symbol(katamari, faker):
+    symbol = "".join(random.choices(string.ascii_uppercase, k=4))
+    head, tail = faker.sentence(), faker.sentence()
+    katamari.to_clean = (f"{head} ${symbol} "
+                         f"{tail}")
+
+    # the cleaner ignores spaces so there's going to be two spaces between
+    # the head and tail after the symbol is removed
+    katamari.expected = f"{head}  {tail}"
+    return
+
+#   When the tweet is cleaned
+#   Then it has the text removed
+#+end_src
 *** The Re-tweets
     This tests that we can remove the RT tag.
 #+begin_src feature :noweb-ref re-tweet-processing
@@ -776,7 +815,7 @@ def check_processed_tweet(katamari):
 ** Implementation
    I'm going to implement it as a class rather than a function just so that all this stuff that's floating around in the notebook as global variables is collected in one place.
 
-#+begin_src python :tangle ../../neurotic/nlp/twitter_preprocessing/processor.py
+#+begin_src python :tangle ../../neurotic/nlp/twitter/processor.py
 # python
 import re
 import string
@@ -826,19 +865,24 @@ class WheatBran:
 
     SPACE = r"\s"
     SPACES = ONE_OR_MORE.format(SPACE)
+    PART_OF_A_WORD = r"\w"
     EVERYTHING_OR_NOTHING = ZERO_OR_MORE.format(ANYTHING)
 
     ERASE = ""
     FORWARD_SLASHES = r"\/\/"
     NEWLINES = ONE_OF_THESE.format(r"\r\n")
+    # a dollar is a special regular expression character meaning end of line
+    # so escape it
+    DOLLAR_SIGN = r"\$"
 
     # to remove
+    STOCK_SYMBOL = DOLLAR_SIGN + ZERO_OR_MORE.format(PART_OF_A_WORD)
     RE_TWEET = START_OF_LINE + "RT" + SPACES
     HYPERLINKS = ("http" + OPTIONAL.format("s") + ":" + FORWARD_SLASHES
                   + EVERYTHING_OR_NOTHING + ZERO_OR_MORE.format(NEWLINES))
     HASH = "#"
 
-    remove = [RE_TWEET, HYPERLINKS, HASH]
+    remove = [STOCK_SYMBOL, RE_TWEET, HYPERLINKS, HASH]
 #+end_src
 *** The Clean Method
 #+begin_src python :noweb-ref processor-clean
