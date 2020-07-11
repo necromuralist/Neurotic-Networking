@@ -11,37 +11,38 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b358e4b5-3c88-49d4-8402-f6d86bb2eae5.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b24fd539-4f8d-40a5-b57c-daddaf0a0d11.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
- Building and Visualizing word frequencies
-
- In this lab, we will focus on the `build_freqs()` helper function and visualizing a dataset fed into it. In our goal of tweet sentiment analysis, this function will build a dictionary where we can lookup how many times a word appears in the lists of positive or negative tweets. This will be very helpful when extracting the features of the dataset in the week's programming assignment. Let's see how this function is implemented under the hood in this notebook.
-
 ** Setup
 *** Imports
 #+begin_src python :results none
-# from pypi
-from nltk.corpus import twitter_samples
+# from python
+from argparse import Namespace
+from functools import partial
 
+# from pypi
+from bokeh.models import HoverTool
+from nltk.corpus import twitter_samples
+from tabulate import tabulate
+
+import holoviews
+import hvplot.pandas
 import nltk
 import numpy
+import pandas
 
 # this project
 from neurotic.nlp.twitter.processor import TwitterProcessor
+from neurotic.nlp.twitter.counter import WordCounter
+
+# some helper stuff
+from graeae import EmbedHoloviews
 #+end_src
-
-
-# #### Import some helper functions that we provided in the utils.py file:
-# * `process_tweet()`: Cleans the text, tokenizes it into separate words, removes stopwords, and converts words to stems.
-# * `build_freqs()`: This counts how often a word in the 'corpus' (the entire set of tweets) was associated with a positive label `1` or a negative label `0`. It then builds the `freqs` dictionary, where each key is a `(word,label)` tuple, and the value is the count of its frequency within the corpus of tweets.
-
-# In[2]:
-
 *** The Data
     First we'll download the categorized tweets and then create a single list with both of them.
 #+begin_src python :results none
@@ -50,173 +51,398 @@ negative_tweets = twitter_samples.strings('negative_tweets.json')
 tweets = positive_tweets + negative_tweets
 #+end_src
 
-Now we need to make the labels for the tweets. We're going to label positive tweets with a =1= and negative tweets with a =0=. Since we concatenated the two sets of tweets we know that the first half will be all ones and the second half will be all zeros and we can create this master labels array using [[https://numpy.org/doc/stable/reference/generated/numpy.ones.html][numpy.ones]] for the positive labels, [[https://numpy.org/doc/stable/reference/generated/numpy.zeros.html][numpy.zeros]] to create the negative labels, and [[https://numpy.org/doc/stable/reference/generated/numpy.append.html][numpy.append]] to combine them. Note that when we make our counts we're going to convert the labels array back to a list so this sort of doesn't make sense, since you can create the list directly, but, oh, well...
+Now we need to make the labels for the tweets. We're going to label positive tweets with a =1= and negative tweets with a =0=. Since we concatenated the two sets of tweets we know that the first half will be all ones and the second half will be all zeros and we can create this master labels array using lists.
 
 #+begin_src python :results output :exports both
-labels = numpy.append(numpy.ones(len(positive_tweets)), numpy.zeros(len(negative_tweets)))
-print(labels.shape)
+NEGATIVE, POSITIVE = 0, 1
+SENTIMENT = {
+    POSITIVE:"positive",
+    NEGATIVE:"negative",
+}
+labels = [1] * len(positive_tweets) + [0] * len(negative_tweets)
+print(f"{len(labels):,}")
 #+end_src
 
 #+RESULTS:
-: (10000,)
+: 10,000
+
+*** Plotting and Printing
+    Just some preliminary setup of the plotter and table-printer so I don't have to keep typing the same things over and over.
+
+#+begin_src python :results none
+Embed = partial(EmbedHoloviews,
+                folder_path="../../files/posts/nlp/twitter-word-frequencies")
+
+Plot = Namespace(
+    width=1000,
+    height=800
+)
+#+end_src
+
+#+begin_src python :results none
+TABLE = partial(tabulate, tablefmt="orgtbl", headers="keys", showindex=False)
+#+end_src
 * Middle
 ** Word Frequencies
    We're going to build up a dictionary of frequencies. The keys will be =(token, sentiment)= tuples and the values will be the counts for the token-sentiment pairs.
-* End
-* Raw
-#+begin_src python
-# ## Word frequency dictionary
-
-# Now that we know the building blocks, let's finally take a look at the **build_freqs()** function in **utils.py**. This is the function that creates the dictionary containing the word counts from each corpus.
-
-# ```python
-# def build_freqs(tweets, ys):
-#     """Build frequencies.
-#     Input:
-#         tweets: a list of tweets
-#         ys: an m x 1 array with the sentiment label of each tweet
-#             (either 0 or 1)
-#     Output:
-#         freqs: a dictionary mapping each (word, sentiment) pair to its
-#         frequency
-#     """
-#     # Convert np array to list since zip needs an iterable.
-#     # The squeeze is necessary or the list ends up with one element.
-#     # Also note that this is just a NOP if ys is already a list.
-#     yslist = np.squeeze(ys).tolist()
-# 
-#     # Start with an empty dictionary and populate it by looping over all tweets
-#     # and over all processed words in each tweet.
-#     freqs = {}
-#     for y, tweet in zip(yslist, tweets):
-#         for word in process_tweet(tweet):
-#             pair = (word, y)
-#             if pair in freqs:
-#                 freqs[pair] += 1
-#             else:
-#                 freqs[pair] = 1    
-#     return freqs
-# ```
-
-# You can also do the for loop like this to make it a bit more compact:
-# 
-# ```python
-#     for y, tweet in zip(yslist, tweets):
-#         for word in process_tweet(tweet):
-#             pair = (word, y)
-#             freqs[pair] = freqs.get(pair, 0) + 1
-# ```
-
-# As shown above, each key is a 2-element tuple containing a `(word, y)` pair. The `word` is an element in a processed tweet while `y` is an integer representing the corpus: `1` for the positive tweets and `0` for the negative tweets. The value associated with this key is the number of times that word appears in the specified corpus. For example: 
-# 
-# ``` 
-# # "folowfriday" appears 25 times in the positive tweets
-# ('followfriday', 1.0): 25
-# 
-# # "shame" appears 19 times in the negative tweets
-# ('shame', 0.0): 19 
-# ```
-
-# Now, it is time to use the dictionary returned by the `build_freqs()` function. First, let us feed our `tweets` and `labels` lists then print a basic report:
-
-# In[11]:
-
-
-# create frequency dictionary
-freqs = build_freqs(tweets, labels)
-
-# check data type
-print(f'type(freqs) = {type(freqs)}')
-
-# check length of the dictionary
-print(f'len(freqs) = {len(freqs)}')
-
-
-# Now print the frequency of each word depending on its class.
-
-# In[12]:
-
-
-print(freqs)
-
-
-# Unfortunately, this does not help much to understand the data. It would be better to visualize this output to gain better insights.
-
-# ## Table of word counts
-
-# We will select a set of words that we would like to visualize. It is better to store this temporary information in a table that is very easy to use later.
-
-# In[13]:
-
-
-# select some words to appear in the report. we will assume that each word is unique (i.e. no duplicates)
-keys = ['happi', 'merri', 'nice', 'good', 'bad', 'sad', 'mad', 'best', 'pretti',
-        '❤', ':)', ':(', '😒', '😬', '😄', '😍', '♛',
-        'song', 'idea', 'power', 'play', 'magnific']
-
-# list representing our table of word counts.
-# each element consist of a sublist with this pattern: [<word>, <positive_count>, <negative_count>]
-data = []
-
-# loop through our selected words
-for word in keys:
-    
-    # initialize positive and negative counts
-    pos = 0
-    neg = 0
-    
-    # retrieve number of positive counts
-    if (word, 1) in freqs:
-        pos = freqs[(word, 1)]
-        
-    # retrieve number of negative counts
-    if (word, 0) in freqs:
-        neg = freqs[(word, 0)]
-        
-    # append the word counts to the table
-    data.append([word, pos, neg])
-    
-data
-
-
-# We can then use a scatter plot to inspect this table visually. Instead of plotting the raw counts, we will plot it in the logarithmic scale to take into account the wide discrepancies between the raw counts (e.g. `:)` has 3568 counts in the positive while only 2 in the negative). The red line marks the boundary between positive and negative areas. Words close to the red line can be classified as neutral. 
-
-# In[14]:
-
-
-fig, ax = plt.subplots(figsize = (8, 8))
-
-# convert positive raw counts to logarithmic scale. we add 1 to avoid log(0)
-x = np.log([x[1] + 1 for x in data])  
-
-# do the same for the negative counts
-y = np.log([x[2] + 1 for x in data]) 
-
-# Plot a dot for each pair of words
-ax.scatter(x, y)  
-
-# assign axis labels
-plt.xlabel("Log Positive count")
-plt.ylabel("Log Negative count")
-
-# Add the word as the label at the same position as you added the points just before
-for i in range(0, len(data)):
-    ax.annotate(data[i][0], (x[i], y[i]), fontsize=12)
-
-ax.plot([0, 9], [0, 9], color = 'red') # Plot the red line that divides the 2 areas.
-plt.show()
-
-
-# This chart is straightforward to interpret. It shows that emoticons `:)` and `:(` are very important for sentiment analysis. Thus, we should not let preprocessing steps get rid of these symbols!
-# 
-# Furthermore, what is the meaning of the crown symbol? It seems to be very negative!
-
-# ### That's all for this lab! We've seen how to build a word frequency dictionary and this will come in handy when extracting the features of a list of tweets. Next up, we will be reviewing Logistic Regression. Keep it up!
-#+end_src
-* End
-** The Frequencies
-*** Testing
-**** Tangles
+*** Tests
+**** The Tangles
 #+begin_src feature :tangle ../../tests/features/twitter/word_frequencies.feature
+Feature: A Word Frequency Counter
+
+In order to get a sense of how the words correlate with sentiment
+I want to be able to count word-sentiment pairs.
+
+<<counter-feature>>
+
+<<call-feature>>
+#+end_src
+
+#+begin_src python :tangle ../../tests/functional/twitter/test_word_frequencies.py
+# pypi
+from expects import (
+    be,
+    equal,
+    expect
+    )
+
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when
+)
+
+# testing setup
+from fixtures import katamari
+
+# software under test
+from neurotic.nlp.twitter.counter import WordCounter
+from neurotic.nlp.twitter.processor import TwitterProcessor
+
+scenarios("../../features/twitter/word_frequencies.feature")
+
+<<test-creation>>
+
+
+<<test-call>>
+#+end_src
+**** Setup
+#+begin_src feature :noweb-ref counter-feature
+Scenario: The Word Counter is created
+  Given a word counter class
+  When the word counter is created
+  Then it has the expected attributes
+#+end_src
+
+#+begin_src python :noweb-ref test-creation
+# Scenario: The Word Counter is created
+
+
+@given("a word counter class")
+def setup_class(katamari):
+    katamari.definition = WordCounter
+    return
+
+
+@when("the word counter is created")
+def create_word_counter(katamari, faker, mocker):
+    katamari.tweets = mocker.Mock(list)
+    katamari.labels = mocker.Mock(list)
+    katamari.processor = mocker.Mock()
+    katamari.counter = katamari.definition(tweets=katamari.tweets,
+                                           labels=katamari.labels)
+    katamari.counter._process = katamari.processor
+    return
+
+
+@then("it has the expected attributes")
+def check_attributes(katamari):
+    expect(katamari.counter.tweets).to(be(katamari.tweets))
+    expect(katamari.counter.labels).to(be(katamari.labels))
+    expect(katamari.counter.process).to(be(katamari.processor))
+    return
+#+end_src
+**** The Call
+#+begin_src feature :noweb-ref call-feature
+Scenario: The Word Frequency counter is called
+  Given a word frequency counter
+  When the counter is called
+  Then the counts are the expected
+#+end_src
+
+#+begin_src python :noweb-ref test-call
+# Scenario: The Word Frequency counter is called
+
+
+@given("a word frequency counter")
+def setup_word_frequency_counter(katamari, mocker):
+    processor = TwitterProcessor()
+    katamari.tweets = ["a b aab a b c"]
+    katamari.labels = [1] * len(katamari.tweets)
+    katamari.counter = WordCounter(tweets=katamari.tweets,
+                                   labels=katamari.labels)
+
+    bad_sentiment = ["c aab aab"]
+    katamari.tweets += bad_sentiment
+    katamari.labels += [0]
+    # since the tokenizer removes and changes words
+    # I'm going to mock it out
+    katamari.counter._process = mocker.MagicMock(TwitterProcessor)
+    katamari.counter.process.side_effect = lambda x: x.split()
+    katamari.expected = {("a", 1): 2, ("b", 1): 2, ("c", 1): 1, ("aab", 1):1,
+                         ("c", 0): 1, ("aab", 0): 2}
+    return
+
+
+@when("the counter is called")
+def call_counter(katamari):
+    katamari.counts = katamari.counter.counts
+    return
+
+
+@then("the counts are the expected")
+def check_counts(katamari):
+    for key, value in katamari.counts.items():
+        expect(katamari.expected[key]).to(equal(value))
+    return
 #+end_src
 *** Implementation
+    This is going to be a counter class that pre-processes the tweet and then counts the frequency of word-sentiment pairs.
+
+#+begin_src python :tangle ../../neurotic/nlp/twitter/counter.py
+# A Word Counter
+
+# from python
+from collections import Counter
+import typing
+
+# from pypi
+import attr
+
+# this project
+from .processor import TwitterProcessor
+
+@attr.s(auto_attribs=True)
+class WordCounter:
+    """A word-sentiment counter
+
+    Args:
+     tweets: list of unprocessed tweets
+     labels: list of 1's (positive) and 0's that identifies sentiment for each tweet
+    """
+    tweets: typing.List[str]
+    labels: typing.List[int]
+    _process: TwitterProcessor = None
+    _counts: Counter = None
+
+    @property
+    def process(self) -> TwitterProcessor:
+        """A callable to process tweets to lists of words"""
+        if self._process is None:
+            self._process = TwitterProcessor()
+        return self._process
+
+    @property
+    def counts(self) -> Counter:
+        """Processes the tweets and labels
+
+        Returns:
+         counts of word-sentiment pairs
+        """
+        if self._counts is None:
+            assert len(self.tweets) == len(self.labels), \
+                f"Tweets: {len(self.tweets)}, Labels: {len(self.labels)}"
+            self._counts = Counter()
+            for tweet, label in zip(self.tweets, self.labels):
+                for word in self.process(tweet):
+                    self._counts[(word, label)] += 1
+        return self._counts
+#+end_src
+** Counting
+   Now we can do some counting.
+
+#+begin_src python :results output :exports both
+counter = WordCounter(tweets=tweets, labels=labels)
+counts = counter.counts
+print(f"Total token-sentiment pairs: {len(counts):,}")
+#+end_src
+
+#+RESULTS:
+: [nltk_data] Downloading package stopwords to /home/athena/nltk_data...
+: [nltk_data]   Package stopwords is already up-to-date!
+: Total token-sentiment pairs: 13,069
+
+What are the most common? To make the rest of the post easier I'm going to set up a pandas DataFrame.
+
+#+begin_src python :results none
+tokens = []
+top_counts = []
+sentiments = []
+
+for key, count in counts.most_common():
+    token, sentiment = key
+    tokens.append(token)
+    sentiments.append(sentiment)
+    top_counts.append(count)
+
+top_counts = pandas.DataFrame.from_dict(dict(
+    token=tokens,
+    count=top_counts,
+    sentiment=sentiments,
+))
+
+top_counts.loc[:, "sentiment"] = top_counts.sentiment.apply(lambda row: SENTIMENT[row])
+#+end_src
+
+#+begin_src python :results output :exports both
+print(TABLE(top_counts.iloc[:20]))
+#+end_src
+
+| token   |   count | sentiment   |
+|---------+---------+-------------|
+| :(      |    4571 | negative    |
+| :)      |    3568 | positive    |
+| :-)     |     692 | positive    |
+| :D      |     629 | positive    |
+| thank   |     620 | positive    |
+| :-(     |     493 | negative    |
+| love    |     400 | positive    |
+| follow  |     381 | positive    |
+| i'm     |     343 | negative    |
+| ...     |     331 | negative    |
+| thi     |     318 | negative    |
+| thi     |     303 | positive    |
+| miss    |     301 | negative    |
+| ...     |     289 | positive    |
+| pleas   |     275 | negative    |
+| follow  |     262 | negative    |
+| day     |     246 | positive    |
+| want    |     246 | negative    |
+| wa      |     241 | negative    |
+| good    |     238 | positive    |
+
+
+It's interesting that the only repeated tokens in the top 20 are ellipses and "follow" and that the four most common tokens were smileys, although that's not surprising, perhaps. I didn't notice this at first, but the most common token is a negative one.
+
+** Plotting
+   The counts themselves are interesting, but it might be more informative to look at their distribution as well as whether some tokens are more positive or negative.
+*** Positive Vs Negative
+#+begin_src python :results none
+plot = top_counts.hvplot(kind="bar", x="sentiment", y="count").opts(
+    width=Plot.width,
+    height= Plot.height,
+    title="Positive and Negative"
+)
+embedded = Embed(plot=plot, file_name="positive_negative_distribution")
+output = embedded()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_distribution.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split. Suggesting that the negative tweets had either more uncommon words or a greater diversity of words.
+
+*** Distribution
+#+begin_src python :results none
+tooltips = [
+    ("Token", "@token"),
+    ("Sentiment", "@sentiment"),
+    ("Count", "@count"),
+]
+
+hover = HoverTool(tooltips=tooltips)
+
+CUTOFF = 150
+
+plot = top_counts[:CUTOFF].hvplot.bar(y="count", hover_cols=["token", "sentiment"],
+                                      loglog=True).opts(
+    tools=[hover],
+    width=Plot.width,
+    height=Plot.height,
+    title=f"Log-Log Count Distribution (top {CUTOFF})")
+output = Embed(plot=plot, file_name="count_distribution")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="count_distribution.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+This shows how steep the drop is from the two most common tokens which are then followed by a long tail. Without the logarithmic axes the drop is even more pronounced.
+
+*** Positive Vs Negative by Tweet
+#+begin_src python :results none
+CUTOFF = 250
+
+top_counts.loc[:, "positive"] = top_counts.apply(
+    lambda row: row["count"] if row.sentiment=="positive" else 0,
+    axis="columns")
+
+top_counts.loc[:, "negative"] = top_counts.apply(
+    lambda row: row["count"] if row.sentiment=="negative" else 0,
+    axis="columns"
+)
+
+tooltips = [
+    ("Token", "@token"),
+    ("Positive", "@positive"),
+    ("Negative", "@negative"),
+]
+
+hover = HoverTool(tooltips=tooltips)
+
+grouped = top_counts.groupby("token").agg({"positive": "sum", "negative": "sum"})
+to_plot = grouped.reset_index()
+
+# log plots can't have zero values
+for column in ("positive", "negative"):
+    to_plot.loc[:, column] = to_plot.apply(
+        lambda row: row[column] if row[column] else 1, axis="columns")
+MAX = to_plot.negative.max()
+# line = holoviews.Curve(([0, MAX], [0, MAX])).opts(color="red")
+scatter = to_plot.hvplot.scatter(
+    x="positive", y="negative",
+    loglog=True,
+    hover_cols=["token"])
+plot = (scatter).opts(
+        tools=[hover],
+        width=Plot.width,
+        height=Plot.height,
+        title=f"Log-Log Positive vs Negative")
+output = Embed(plot=plot, file_name="scatter_plot")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="scatter_plot.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So, we basically end up with two types of groupings - some tokens are lopsided to be either very negative or very positive and the show up in the straight line columns or rows, while other tokens are more evenly split, and they show up in the more distributed blob along the diagonal of the plot.
+
+We can also see which tokens are the most negative (the highest along the y-axis) and the most positive (furthest along the x-axis).
+
+There are some unexpectedly negative tokens like "love" (400, 152) and "thank" (620, 107), but at this point we haven't really started to look at the sentiment yet so I'll leave further exploration for later.
+* End
+**Note:** This is a re-working of an exercise from Coursera's Natural Language Processing specialization.
+
