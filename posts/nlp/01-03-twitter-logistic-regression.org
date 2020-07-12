@@ -1,0 +1,233 @@
+#+BEGIN_COMMENT
+.. title: Twitter Logistic Regression
+.. slug: twitter-logistic-regression
+.. date: 2020-07-10 23:08:03 UTC-07:00
+.. tags: nlp,twitter,logistic regression,sentiment analysis
+.. category: NLP
+.. link: 
+.. description: Creating a Logistic Regression Model to predict tweet sentiment.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-a8a6cced-c95e-4cbd-be77-e86960086f7e.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  We are going to extend our previous plotting of the word frequencies by creating a [[https://www.wikiwand.com/en/Logistic_regression][Logistic Regression]] model of the tweet sentiment and then plot the output of the model along with the counts.
+** Set Up
+*** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+import os
+
+# from pypi
+from dotenv import load_dotenv
+from nltk.corpus import twitter_samples 
+from sklearn.model_selection import train_test_split
+
+import holoviews
+import hvplot.pandas
+import nltk
+import pandas
+
+# This project
+from neurotic.nlp.twitter.counter import WordCounter
+
+# Some helper code
+from graeae import EmbedHoloviews
+#+end_src
+*** Plotting
+#+begin_src python :results none
+SLUG = "twitter-logistic-regression"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"../../files/posts/nlp/{SLUG}")
+
+Plot = Namespace(
+    width=990,
+    height=780,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+    font_scale=2,
+    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
+)
+
+#+end_src
+*** The Data
+    First we'll load the data and make a label set.
+#+begin_src python :results output :exports both
+RANDOM_SEED = 20200711
+positive_tweets = twitter_samples.strings('positive_tweets.json')
+negative_tweets = twitter_samples.strings('negative_tweets.json')
+tweets = positive_tweets + negative_tweets
+
+NEGATIVE, POSITIVE = 0, 1
+SENTIMENT = {
+    POSITIVE:"positive",
+    NEGATIVE:"negative",
+}
+positive_labels = [1] * len(positive_tweets) 
+negative_labels = [0] * len(negative_tweets)
+labels =  positive_labels + negative_labels
+print(f"{len(labels):,}")
+#+end_src
+
+#+RESULTS:
+: 10,000
+
+Now we'll split the data into training and testing sets. I was going to use a random selection, but we're being provided weights for the logistic regression and I assume they need to match the data that was originally loaded so it's going to be a straight slice of the first 4,000 entries for the each of the training sets.
+
+#+begin_src python :results output :exports both
+TRAINING = 4000
+train_positive = positive_tweets[:4000]
+
+train_negative = negative_tweets[:4000]
+
+x_train = train_positive + train_negative
+print(f"Training Tweets: {len(x_train):,}")
+#+end_src
+
+#+RESULTS:
+: Training Tweets: 8,000
+
+** The Counts
+   In the previous post we built a dictionary-like set to count the number of times each token was in a positive tweet and in a negative tweet. To represent a tweet as a vector for training the model you then sum the total counts for the tokens in the tweet when they are positive and when they are positive. We're skipping that step and just loading a prepared set.
+
+#+begin_src python :results output :exports both
+load_dotenv(override=True)
+FEATURES = Path(os.environ["TWITTER_REGRESSION_DATA"]).expanduser()
+data = pandas.read_csv(FEATURES)
+print(data.iloc[0])
+#+end_src
+
+#+RESULTS:
+: bias            1.0
+: positive     3020.0
+: negative       61.0
+: sentiment       1.0
+: Name: 0, dtype: float64
+
+This first row is the vector representation for a tweet that I was talking about (plus a label column). The =bias= is always one, the =positive= value is the sum of the positive tweet counts for each token in the tweet and the =negative= values is the sum of the negative tweet counts for each of the tokens.
+
+Since the =data= has the label column mixed in with the other columns we'll split them apart next.
+
+#+begin_src python :results output :exports both
+x_data = data[["bias", "positive", "negative"]]
+y_data = data["sentiment"]
+print(x_data.shape)
+#+end_src
+
+#+RESULTS:
+: (8000, 3)
+
+*** The Weights
+    Okay, we're just given the weights for the model next. Presumably this was gained by training the model on the data we loaded just now.
+
+#+begin_src python :results none
+theta = [7e-08, 0.0005239, -0.00055517]
+#+end_src
+* Middle
+** Plot The Samples
+#+begin_src python :results none
+plot = data.hvplot.scatter(x="positive", y="negative", by="sentiment", color=Plot.color_cycle).opts(
+    height=Plot.height,
+    width=Plot.width,
+    title="Positive vs Negative",
+)
+
+output = Embed(plot=plot, file_name="positive_negative_scatter")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Looking at the plot you can see that representing the tweets this way seems to have created a fairly linearly separable dataset (there's some mixing when the counts are low).
+* End
+* Raw
+#+begin_src python
+# ## Plot the model alongside the data
+# 
+# We will draw a gray line to show the cutoff between the positive and negative regions. In other words, the gray line marks the line where $$ z = \theta * x = 0.$$
+# To draw this line, we have to solve the above equation in terms of one of the independent variables.
+# 
+# $$ z = \theta * x = 0$$
+# $$ x = [1, pos, neg] $$
+# $$ z(\theta, x) = \theta_0+ \theta_1 * pos + \theta_2 * neg = 0 $$
+# $$ neg = (-\theta_0 - \theta_1 * pos) / \theta_2 $$
+# 
+# The red and green lines that point in the direction of the corresponding sentiment are calculated using a perpendicular line to the separation line calculated in the previous equations(neg function). It must point in the same direction as the derivative of the Logit function, but the magnitude may differ. It is only for a visual representation of the model. 
+# 
+# $$direction = pos * \theta_2 / \theta_1$$
+
+# In[ ]:
+
+
+# Equation for the separation plane
+# It give a value in the negative axe as a function of a positive value
+# f(pos, neg, W) = w0 + w1 * pos + w2 * neg = 0
+# s(pos, W) = (w0 - w1 * pos) / w2
+def neg(theta, pos):
+    return (-theta[0] - pos * theta[1]) / theta[2]
+
+# Equation for the direction of the sentiments change
+# We don't care about the magnitude of the change. We are only interested 
+# in the direction. So this direction is just a perpendicular function to the 
+# separation plane
+# df(pos, W) = pos * w2 / w1
+def direction(theta, pos):
+    return    pos * theta[2] / theta[1]
+
+
+# The green line in the chart points in the direction where z > 0 and the red line points in the direction where z < 0. The direction of these lines are given by the weights $\theta_1$ and $\theta_2$
+
+# In[ ]:
+
+
+# Plot the samples using columns 1 and 2 of the matrix
+fig, ax = plt.subplots(figsize = (8, 8))
+
+colors = ['red', 'green']
+
+# Color base on the sentiment Y
+ax.scatter(X[:,1], X[:,2], c=[colors[int(k)] for k in Y], s = 0.1)  # Plot a dot for each pair of words
+plt.xlabel("Positive")
+plt.ylabel("Negative")
+
+# Now lets represent the logistic regression model in this chart. 
+maxpos = np.max(X[:,1])
+
+offset = 5000 # The pos value for the direction vectors origin
+
+# Plot a gray line that divides the 2 areas.
+ax.plot([0,  maxpos], [neg(theta, 0),   neg(theta, maxpos)], color = 'gray') 
+
+# Plot a green line pointing to the positive direction
+ax.arrow(offset, neg(theta, offset), offset, direction(theta, offset), head_width=500, head_length=500, fc='g', ec='g')
+# Plot a red line pointing to the negative direction
+ax.arrow(offset, neg(theta, offset), -offset, -direction(theta, offset), head_width=500, head_length=500, fc='r', ec='r')
+
+plt.show()
+
+
+# **Note that more critical than the Logistic regression itself, are the features extracted from tweets that allow getting the right results in this exercise.**
+# 
+# That is all, folks. Hopefully, now you understand better what the Logistic regression model represents, and why it works that well for this specific problem. 
+
+#+end_src

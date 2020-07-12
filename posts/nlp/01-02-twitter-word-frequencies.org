@@ -74,8 +74,9 @@ Embed = partial(EmbedHoloviews,
                 folder_path="../../files/posts/nlp/twitter-word-frequencies")
 
 Plot = Namespace(
-    width=1000,
-    height=800
+    width=990,
+    height=780,
+    color="#ddb377",
 )
 #+end_src
 
@@ -208,7 +209,7 @@ def check_counts(katamari):
     return
 #+end_src
 *** Implementation
-    This is going to be a counter class that pre-processes the tweet and then counts the frequency of word-sentiment pairs.
+    This is going to be a counter class that pre-processes the tweets and then counts the frequency of word-sentiment pairs.
 
 #+begin_src python :tangle ../../neurotic/nlp/twitter/counter.py
 # A Word Counter
@@ -323,7 +324,7 @@ print(TABLE(top_counts.iloc[:20]))
 | good    |     238 | positive    |
 
 
-It's interesting that the only repeated tokens in the top 20 are ellipses and "follow" and that the four most common tokens were smileys, although that's not surprising, perhaps. I didn't notice this at first, but the most common token is a negative one.
+It's interesting that the only repeated tokens in the top 20 are ellipses, "follow" and "thi" and that the four most common tokens were smileys, although that's not surprising, perhaps. I didn't notice this at first, but the most common token is a negative one.
 
 ** Plotting
    The counts themselves are interesting, but it might be more informative to look at their distribution as well as whether some tokens are more positive or negative.
@@ -332,7 +333,9 @@ It's interesting that the only repeated tokens in the top 20 are ellipses and "f
 plot = top_counts.hvplot(kind="bar", x="sentiment", y="count").opts(
     width=Plot.width,
     height= Plot.height,
-    title="Positive and Negative"
+    title="Positive and Negative",
+    fontscale=2,
+    color=Plot.color,
 )
 embedded = Embed(plot=plot, file_name="positive_negative_distribution")
 output = embedded()
@@ -349,7 +352,7 @@ print(output)
 </object>
 #+end_export
 
-So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split. Suggesting that the negative tweets had either more uncommon words or a greater diversity of words.
+So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split, suggesting that the negative tweets had a greater diversity of words.
 
 *** Distribution
 #+begin_src python :results none
@@ -363,12 +366,17 @@ hover = HoverTool(tooltips=tooltips)
 
 CUTOFF = 150
 
-plot = top_counts[:CUTOFF].hvplot.bar(y="count", hover_cols=["token", "sentiment"],
-                                      loglog=True).opts(
-    tools=[hover],
-    width=Plot.width,
-    height=Plot.height,
-    title=f"Log-Log Count Distribution (top {CUTOFF})")
+plot = top_counts[:CUTOFF].hvplot.bar(
+    y="count", hover_cols=["token", "sentiment"],
+    loglog=True).opts(
+        tools=[hover],
+        width=Plot.width,
+        height=Plot.height,
+        fontscale=2,
+        color=Plot.color,
+        line_color=Plot.color,
+        xaxis=None,
+        title=f"Log-Log Count Distribution (top {CUTOFF})")
 output = Embed(plot=plot, file_name="count_distribution")()
 #+end_src
 
@@ -410,20 +418,27 @@ grouped = top_counts.groupby("token").agg({"positive": "sum", "negative": "sum"}
 to_plot = grouped.reset_index()
 
 # log plots can't have zero values
+MIN = 1
 for column in ("positive", "negative"):
-    to_plot.loc[:, column] = to_plot.apply(
-        lambda row: row[column] if row[column] else 1, axis="columns")
-MAX = to_plot.negative.max()
-# line = holoviews.Curve(([0, MAX], [0, MAX])).opts(color="red")
+    to_plot.loc[:, column] = to_plot[column] + 1
+#    to_plot.loc[:, column] = to_plot.apply(
+#        lambda row: row[column] if row[column] else MIN, axis="columns")
+MAX = to_plot.negative.max() + 1
+line = holoviews.Curve(([MIN, MAX], [MIN, MAX])).opts(color="#ce7b6d")
 scatter = to_plot.hvplot.scatter(
+    color="#4687b7",
     x="positive", y="negative",
-    loglog=True,
     hover_cols=["token"])
-plot = (scatter).opts(
+plot = (line * scatter ).opts(
         tools=[hover],
         width=Plot.width,
         height=Plot.height,
-        title=f"Log-Log Positive vs Negative")
+        logx=True,
+        logy=True,
+        xlabel="Positive",
+        ylabel="Negative",
+        fontscale=2,
+        title="Log-Log Positive vs Negative")
 output = Embed(plot=plot, file_name="scatter_plot")()
 #+end_src
 
@@ -438,9 +453,11 @@ print(output)
 </object>
 #+end_export
 
-So, we basically end up with two types of groupings - some tokens are lopsided to be either very negative or very positive and the show up in the straight line columns or rows, while other tokens are more evenly split, and they show up in the more distributed blob along the diagonal of the plot.
+So, we basically end up with two types of groupings - some tokens are lopsided to be either very negative or very positive and they show up in the straight line columns or rows, while other tokens are more evenly split, and they show up in the more distributed blob along the diagonal of the plot.
 
 We can also see which tokens are the most negative (the highest along the y-axis) and the most positive (furthest along the x-axis).
+
+The tokens along or around the red diagonal are evenly positive and negative so they probably aren't useful indicators of sentiment in and of themselves, while those furthest from the diagonal are the most biased to one side or the other so we might expect them to be useful in guessing a tweet's sentiment.
 
 There are some unexpectedly negative tokens like "love" (400, 152) and "thank" (620, 107), but at this point we haven't really started to look at the sentiment yet so I'll leave further exploration for later.
 * End
