@@ -1,0 +1,242 @@
+#+BEGIN_COMMENT
+.. title: Twitter Logistic Regression Visualization
+.. slug: twitter-logistic-regression
+.. date: 2020-07-10 23:08:03 UTC-07:00
+.. tags: nlp,twitter,logistic regression,sentiment analysis
+.. category: NLP
+.. link: 
+.. description: Creating a Logistic Regression Model to predict tweet sentiment.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-cb29eaab-1ac8-4147-bd7e-a39d50d4bec7.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  We are going to extend our previous plotting of the word frequencies by creating a [[https://www.wikiwand.com/en/Logistic_regression][Logistic Regression]] model of the tweet sentiment and then plot the output of the model along with the counts.
+** Set Up
+*** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+import os
+
+# from pypi
+from bokeh.models.tools import HoverTool
+from dotenv import load_dotenv
+from nltk.corpus import twitter_samples 
+from sklearn.model_selection import train_test_split
+
+
+import hvplot.pandas
+import nltk
+import pandas
+
+# This project
+from neurotic.nlp.twitter.counter import WordCounter
+
+# Some helper code
+from graeae import EmbedHoloviews
+#+end_src
+*** Plotting
+#+begin_src python :results none
+SLUG = "twitter-logistic-regression"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"../../files/posts/nlp/{SLUG}")
+
+Plot = Namespace(
+    width=990,
+    height=780,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+    font_scale=2,
+    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
+)
+
+#+end_src
+** The Tweet Vectors
+   In the previous post we built a dictionary-like set to count the number of times each token was in a positive tweet and in a negative tweet. To represent a tweet as a vector for training the model you then sum the total counts for the tokens in the tweet when they are positive and when they are positive. 
+
+Come again?
+
+Lets say you have a tweet ="a b c"= which tokenizes to =a, b, c=. Look up the positive and negative tweet counts for each token and then add them:
+
+| Token | Positive | Negative |
+|-------+----------+----------|
+| a     |        1 |        4 |
+| b     |        2 |        5 |
+| c     |        3 |        6 |
+|-------+----------+----------|
+| Total |        6 | 15       |
+
+So to represent this tweet you would create a vector of the form:
+
+\begin{align}
+\hat{v} &= \langle bias, positive, negative \rangle\\
+&= \langle 1, 6, 15\rangle\\
+\end{align}
+
+**Note:** The bias is always one (it just is).
+
+We're skipping the step where we actually create the vectors and just loading a prepared set.
+
+#+begin_src python :results output :exports both
+load_dotenv(override=True)
+FEATURES = Path(os.environ["TWITTER_REGRESSION_DATA"]).expanduser()
+data = pandas.read_csv(FEATURES)
+print(data.iloc[0])
+#+end_src
+
+#+RESULTS:
+: bias            1.0
+: positive     3020.0
+: negative       61.0
+: sentiment       1.0
+: Name: 0, dtype: float64
+
+This first row is the vector representation for a tweet that I was talking about (plus a label column). The =bias= is always one, the =positive= value is the sum of the positive tweet counts for each token in the tweet and the =negative= values is the sum of the negative tweet counts for each of the tokens.
+
+Since we're using this for plotting I'm going to make the =sentiment= into a string column to make it easier to interpret.
+
+#+begin_src python :results output :exports both
+sentiment = {
+    0: "Negative",
+    1:"Positive"
+}
+data.loc[:, "sentiment"] = data.sentiment.map(sentiment)
+
+print(data.sentiment.value_counts())
+
+#+end_src
+
+#+RESULTS:
+: Negative    4000
+: Positive    4000
+: Name: sentiment, dtype: int64
+
+
+*** The Weights
+    Okay, we're just given the weights for the model next. Presumably this was gained by training the model on the data we loaded just now.
+
+#+begin_src python :results none
+theta = [7e-08, 0.0005239, -0.00055517]
+
+# 'weights' is just something to make it easier to remember which column is which
+Weights = Namespace(
+    bias=0,
+    positive=1,
+    negative=2
+)
+#+end_src
+* Middle
+** Plot The Vectors
+   We can plot the positive vs negative counts for each tweet to see how correlated they seem to be.
+
+#+begin_src python :results none
+hover = HoverTool(
+    tooltips = [
+        ("Positive", "@positive{0,0}"),
+        ("Negative", "@negative{0,0}"),
+        ("Sentiment", "@sentiment"),
+    ]
+)
+
+plot = data.hvplot.scatter(x="positive", y="negative", by="sentiment",
+                           color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               title="Positive vs Negative",
+                           )
+
+output = Embed(plot=plot, file_name="positive_negative_scatter")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Looking at the plot you can see that representing the tweets this way seems to have created a fairly separable dataset (although there's some mixing when the counts are low).
+*** Add the Model
+    Since we've been given the model's weights we can plot its output when fed the vectors to see how it separates the data. To get the equation for the separation line we need to solve for the positive or negative terms when the product of the weights and the vector is 0 ($\theta \times x = 0$, where /x/ is our vector $\langle bias, positive, negative \rangle$).
+
+Get ready for some algebra.
+
+\begin{align}
+\theta \times x &= 0\\
+\theta \times \langle bias, positive, negative \rangle &= 0\\
+\theta \times \langle 1, positive, negative \rangle &= 0\\
+\theta_0 + \theta_1 \times positive + \theta_2 \times negative &= 0\\
+\theta_2 \times negative &= -\theta_0 - \theta_1 \times positive\\
+negative &= \frac{-\theta_0 - \theta_1 \times positive}{\theta_2}\\
+\end{align}
+
+This is the equation for our separation line (on our plot =positive= is the /x-axis/ and =negative= is the /y-axis()), which we can translate to a function to apply to our data.
+
+#+begin_src python :results none
+def negative(theta: list, positive: float) -> float:
+    """Calculate the negative value
+
+    This calculates the value for the separation line
+
+    Args:
+     theta: list of weights for the logistic regression
+     positive: count of positive tweets matching tweet
+
+    Returns:
+     the calculated negative value for the separation line
+    """
+    return (-theta[Weights.bias]
+            - positive * theta[Weights.positive])/theta[Weights.negative]
+
+negative_ = partial(negative, theta=theta)
+#+end_src
+*** Plot Again
+#+begin_src python :results none
+data["separation"] = data.positive.apply(lambda positive: negative_(positive=positive))
+scatter = data.hvplot.scatter(x="positive", y="negative", by="sentiment", color=Plot.color_cycle)
+
+most_positive = data.positive.max()
+# line = holoviews.Curve([(0, 0),
+#                        (negative(theta, most_positive), negative(theta, most_positive))],
+#                        color="gray")
+line = data.hvplot(x="positive", y="separation", color="gray")
+plot = (scatter * line).opts(
+    height=Plot.height,
+    width=Plot.width,
+    fontscale=Plot.font_scale,
+    title="Positive vs Negative",
+)
+output = Embed(plot=plot, file_name="positive_negative_separated")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_separated.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So, the model basically creates a diagonal line that separates the positive and negative tweets.
+* End
+And that's it, not a lot here, just an intuitive look at the model and a demonstration of how this representation of the tweets makes them easily separable.
