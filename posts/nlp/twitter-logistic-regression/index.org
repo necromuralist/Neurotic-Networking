@@ -7,18 +7,18 @@
 .. link: 
 .. description: Creating a Logistic Regression Model to predict tweet sentiment.
 .. type: text
-
+.. updated: 2020-07-23 23:08:03 UTC-07:00
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-cb29eaab-1ac8-4147-bd7e-a39d50d4bec7.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8f00099f-5408-4a3c-aefe-d889b96e7923.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
-  We are going to extend our previous plotting of the word frequencies by creating a [[https://www.wikiwand.com/en/Logistic_regression][Logistic Regression]] model of the tweet sentiment and then plot the output of the model along with the counts.
+  Having created our logistic regression model for tweet sentiment we're going to visualize what it's doing.
 ** Set Up
 *** Imports
 #+begin_src python :results none
@@ -33,24 +33,20 @@ import os
 from bokeh.models.tools import HoverTool
 from dotenv import load_dotenv
 from nltk.corpus import twitter_samples 
-from sklearn.model_selection import train_test_split
 
-
+import holoviews
 import hvplot.pandas
-import nltk
 import pandas
-
-# This project
-from neurotic.nlp.twitter.counter import WordCounter
 
 # Some helper code
 from graeae import EmbedHoloviews
 #+end_src
 *** Plotting
+    Some constants for the plotting.
 #+begin_src python :results none
 SLUG = "twitter-logistic-regression"
 Embed = partial(EmbedHoloviews,
-                folder_path=f"../../files/posts/nlp/{SLUG}")
+                folder_path=f"files/posts/nlp/{SLUG}")
 
 Plot = Namespace(
     width=990,
@@ -90,18 +86,18 @@ So to represent this tweet you would create a vector of the form:
 We're skipping the step where we actually create the vectors and just loading a prepared set.
 
 #+begin_src python :results output :exports both
-load_dotenv(override=True)
+load_dotenv("posts/nlp/.env")
 FEATURES = Path(os.environ["TWITTER_REGRESSION_DATA"]).expanduser()
 data = pandas.read_csv(FEATURES)
 print(data.iloc[0])
 #+end_src
 
 #+RESULTS:
-: bias            1.0
-: positive     3020.0
-: negative       61.0
-: sentiment       1.0
-: Name: 0, dtype: float64
+: bias            1
+: positive     3117
+: negative       67
+: sentiment       1
+: Name: 0, dtype: int64
 
 This first row is the vector representation for a tweet that I was talking about (plus a label column). The =bias= is always one, the =positive= value is the sum of the positive tweet counts for each token in the tweet and the =negative= values is the sum of the negative tweet counts for each of the tokens.
 
@@ -119,16 +115,20 @@ print(data.sentiment.value_counts())
 #+end_src
 
 #+RESULTS:
-: Negative    4000
 : Positive    4000
+: Negative    4000
 : Name: sentiment, dtype: int64
 
+If you followed the previous post you can probably figure out that this is the training set.
 
 *** The Weights
-    Okay, we're just given the weights for the model next. Presumably this was gained by training the model on the data we loaded just now.
+    Since I saved the weights for our Logistic Regression model we can load it now
 
-#+begin_src python :results none
-theta = [7e-08, 0.0005239, -0.00055517]
+#+begin_src python :results output :exports both
+weights_path = Path(os.environ["TWITTER_REGRESSION_WEIGHTS"]).expanduser()
+assert weights_path.is_file()
+theta = pandas.read_csv(weights_path)
+print(theta)
 
 # 'weights' is just something to make it easier to remember which column is which
 Weights = Namespace(
@@ -137,6 +137,11 @@ Weights = Namespace(
     negative=2
 )
 #+end_src
+
+#+RESULTS:
+:            bias  positive  negative
+: 0  6.369479e-08  0.000537 -0.000558
+
 * Middle
 ** Plot The Vectors
    We can plot the positive vs negative counts for each tweet to see how correlated they seem to be.
@@ -187,7 +192,7 @@ Get ready for some algebra.
 negative &= \frac{-\theta_0 - \theta_1 \times positive}{\theta_2}\\
 \end{align}
 
-This is the equation for our separation line (on our plot =positive= is the /x-axis/ and =negative= is the /y-axis()), which we can translate to a function to apply to our data.
+This is the equation for our separation line (on our plot =positive= is the /x-axis/ and =negative= is the /y-axis/, which we can translate to a function to apply to our data.
 
 #+begin_src python :results none
 def negative(theta: list, positive: float) -> float:
@@ -202,21 +207,20 @@ def negative(theta: list, positive: float) -> float:
     Returns:
      the calculated negative value for the separation line
     """
-    return (-theta[Weights.bias]
-            - positive * theta[Weights.positive])/theta[Weights.negative]
+    return (-theta.bias
+            - positive * theta.positive)/theta.negative
 
 negative_ = partial(negative, theta=theta)
 #+end_src
 *** Plot Again
+    So now we can plot the separation live with our data
+
 #+begin_src python :results none
-data["separation"] = data.positive.apply(lambda positive: negative_(positive=positive))
+data["regression negative"] = data.positive.apply(lambda positive: negative_(positive=positive))
 scatter = data.hvplot.scatter(x="positive", y="negative", by="sentiment", color=Plot.color_cycle)
 
 most_positive = data.positive.max()
-# line = holoviews.Curve([(0, 0),
-#                        (negative(theta, most_positive), negative(theta, most_positive))],
-#                        color="gray")
-line = data.hvplot(x="positive", y="separation", color="gray")
+line = data.hvplot(x="positive", y="regression negative", color="gray")
 plot = (scatter * line).opts(
     height=Plot.height,
     width=Plot.width,
