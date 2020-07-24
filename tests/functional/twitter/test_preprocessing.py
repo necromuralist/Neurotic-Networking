@@ -70,8 +70,8 @@ def check_cleaned_text(katamari):
 @given("a tweet with a hyperlink")
 def setup_hyperlink(katamari, faker):
     base = faker.sentence()
-    katamari.expected = base
-    katamari.to_clean = base + faker.uri() + "\n" * random.randrange(5)
+    katamari.expected = base + " :)"
+    katamari.to_clean = base + faker.uri() + " :)"
     return
 
 
@@ -153,9 +153,9 @@ def stem_tokens(katamari, processor):
 
 @given("a tweet")
 def setup_tweet(katamari, faker):
-    katamari.words = "How now, brown cow? Whither and dither the smelly laulau. Boooooow Wooooow!"
-    katamari.tweet = f"RT {katamari.words}  #bocceballs {faker.uri()}"
-    katamari.expected = "brown cow whither dither smelli laulau booow wooow boccebal".split()
+    katamari.words = "#FollowFriday @France_Inte @PKuchly57 @Milipol_Paris for being top engaged members in my community this week :)"
+    katamari.tweet = f"RT {katamari.words} {faker.uri()}"
+    katamari.expected =  ['followfriday', 'top', 'engag', 'member', 'commun', 'week', ':)']
     return
 
 

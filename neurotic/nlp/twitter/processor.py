@@ -19,10 +19,13 @@ class WheatBran:
     ONE_OR_MORE = "{}+"
     ONE_OF_THESE = "[{}]"
 
+    NOT = "^"
     SPACE = r"\s"
     SPACES = ONE_OR_MORE.format(SPACE)
     PART_OF_A_WORD = r"\w"
     EVERYTHING_OR_NOTHING = ZERO_OR_MORE.format(ANYTHING)
+    EVERYTHING_BUT_SPACES = ZERO_OR_MORE.format(
+        ONE_OF_THESE.format(NOT + SPACE))
 
     ERASE = ""
     FORWARD_SLASHES = r"\/\/"
@@ -35,7 +38,7 @@ class WheatBran:
     STOCK_SYMBOL = DOLLAR_SIGN + ZERO_OR_MORE.format(PART_OF_A_WORD)
     RE_TWEET = START_OF_LINE + "RT" + SPACES
     HYPERLINKS = ("http" + OPTIONAL.format("s") + ":" + FORWARD_SLASHES
-                  + EVERYTHING_OR_NOTHING + ZERO_OR_MORE.format(NEWLINES))
+                  + EVERYTHING_BUT_SPACES + ZERO_OR_MORE.format(NEWLINES))
     HASH = "#"
 
     remove = [STOCK_SYMBOL, RE_TWEET, HYPERLINKS, HASH]
@@ -96,7 +99,7 @@ class TwitterProcessor:
          if the stopwords haven't been downloaded this also tries too download them
         """
         if self._stopwords is None:
-            nltk.download('stopwords')
+            nltk.download('stopwords', quiet=True)
             self._stopwords =  stopwords.words("english")
         return self._stopwords
 
@@ -116,8 +119,9 @@ class TwitterProcessor:
         Args:
          tweet: string to process
         """
-        cleaned = self.clean(tweet)    
+        cleaned = self.clean(tweet.strip())
         cleaned = self.tokenizer.tokenize(cleaned)
-        cleaned = self.stem(cleaned)
+        # the stopwords are un-stemmed so this has to come before stemming
         cleaned = self.remove_useless_tokens(cleaned)
+        cleaned = self.stem(cleaned)
         return cleaned

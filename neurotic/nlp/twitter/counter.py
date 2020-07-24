@@ -21,6 +21,7 @@ class WordCounter:
     tweets: typing.List[str]
     labels: typing.List[int]
     _process: TwitterProcessor = None
+    _processed: list = None
     _counts: Counter = None
 
     @property
@@ -29,6 +30,13 @@ class WordCounter:
         if self._process is None:
             self._process = TwitterProcessor()
         return self._process
+
+    @property
+    def processed(self) -> list:
+        """The processed and tokenized tweets"""
+        if self._processed is None:
+            self._processed = [self.process(tweet) for tweet in self.tweets]
+        return self._processed
 
     @property
     def counts(self) -> Counter:
@@ -41,7 +49,7 @@ class WordCounter:
             assert len(self.tweets) == len(self.labels), \
                 f"Tweets: {len(self.tweets)}, Labels: {len(self.labels)}"
             self._counts = Counter()
-            for tweet, label in zip(self.tweets, self.labels):
-                for word in self.process(tweet):
+            for tweet, label in zip(self.processed, self.labels):
+                for word in tweet:
                     self._counts[(word, label)] += 1
         return self._counts

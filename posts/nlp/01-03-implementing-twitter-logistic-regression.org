@@ -1,0 +1,1246 @@
+#+BEGIN_COMMENT
+.. title: Implementing Logistic Regression for Tweet Classification
+.. slug: implementing-twitter-logistic-regression
+.. date: 2020-07-14 16:16:22 UTC-07:00
+.. tags: nlp,sentiment analysis,logistic regression,twitter
+.. category: NLP
+.. link: 
+.. description: Implementing Logistic Regression for twitter sentiment analysis.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3c98716c-d867-4d85-bdf9-b08a532dd748.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This will implement a Logistic Regression model to train on our word counts to classify tweets by sentiment.
+** Set Up
+*** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+from typing import Union
+
+import math
+import os
+
+# from pypi
+from dotenv import load_dotenv
+from expects import (
+    be_true,
+    expect,
+    equal
+)
+from nltk.corpus import twitter_samples
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegressionCV
+
+import holoviews
+import hvplot.pandas
+import nltk
+import numpy
+import pandas
+
+# this package
+from neurotic.nlp.twitter.counter import WordCounter
+from neurotic.nlp.twitter.sentiment import TweetSentiment
+from neurotic.nlp.twitter.vectorizer import TweetVectorizer
+
+# for plotting
+from graeae import EmbedHoloviews
+#+end_src
+*** The Data
+    Download the data (if it hasn't been downloaded before).
+
+#+begin_src python :results none
+nltk.download("twitter_samples")
+#+end_src
+
+#+begin_src python :results none
+positive = twitter_samples.strings("positive_tweets.json")
+negative = twitter_samples.strings("negative_tweets.json")
+
+Sentiment = Namespace(
+    positive = 1,
+    negative = 0,
+)
+positive_labels = [Sentiment.positive] * len(positive)
+negative_labels = [Sentiment.negative] * len(negative)
+#+end_src
+*** For Plotting
+#+begin_src python :results none
+SLUG = "implementing-twitter-logistic-regression"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{SLUG}")
+
+Plot = Namespace(
+    width=990,
+    height=780,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+    font_scale=2,
+    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
+)
+#+end_src
+*** Types
+    Some stuff for type hinting.
+
+#+begin_src python :results none
+Tweet = Union[numpy.ndarray, float]
+PositiveProbability = Tweet
+#+end_src
+* Middle
+** The Tweet Vectorizer
+*** The Testing
+#+begin_src feature :tangle ../../tests/features/twitter/tweet_vectorizer.feature
+Feature: A Tweet Count Vectorizer
+
+<<extract-features-feature>>
+
+<<get-vectors-feature>>
+
+<<reset-vectors-feature>>
+
+<<check-rep-vectorizer-tweets-feature>>
+
+<<check-rep-vectorizer-counter-feature>>
+#+end_src
+
+#+begin_src python :tangle ../../tests/functional/twitter/test_vectorizer.py
+# from python
+from collections import Counter
+
+import random
+
+# from pypi
+from expects import (
+    be,
+    be_true,
+    contain_exactly,
+    expect,
+    raise_error,
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    when,
+    then
+)
+
+import numpy
+
+# this testing
+from fixtures import katamari
+
+# software under test
+from neurotic.nlp.twitter.vectorizer import Columns, TweetVectorizer
+from neurotic.nlp.twitter.counter import WordCounter
+
+and_also = then
+scenarios("../../features/twitter/tweet_vectorizer.feature")
+
+<<test-extract-features>>
+
+<<test-vectors>>
+
+<<test-reset-vectors>>
+
+<<test-vectorizer-tweets-check-rep>>
+
+<<test-vectorizer-counter-check-rep>>
+#+end_src
+**** Extract Features
+     I don't really like the way the coursera people code - but to get a method closer to what's in the assignment I'm going to add this method and call in it the vectors property.
+
+#+begin_src feature :noweb-ref extract-features-feature
+Scenario: A user converts a tweet to a feature-vector
+
+Given a Tweet Vectorizer
+When the user converts a tweet to a feature-vector
+Then it's the expected feature-vector
+#+end_src
+
+#+begin_src python :noweb-ref test-extract-features
+# Scenario: A user converts a tweet to a feature-vector
+
+
+@given("a Tweet Vectorizer")
+def setup_tweet_vectorizer(katamari, mocker):
+    katamari.bias = random.randrange(100) * random.random()
+    TWEETS = 1
+
+    TOKENS = "A B C".split()
+    katamari.tweets = [TOKENS for tweet in range(TWEETS)]
+    katamari.counter = mocker.MagicMock(spec=WordCounter)
+    katamari.counter.processed = katamari.tweets
+    katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
+                                          counter=katamari.counter,
+                                          bias=katamari.bias)
+
+    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
+                                                  ('B', 1):2,
+                                                  ('C', 0):3})
+    katamari.vectorizer._process = mocker.MagicMock()
+    katamari.vectorizer._process.return_value = "A B C".split()
+    return
+
+
+@when("the user converts a tweet to a feature-vector")
+def extract_features(katamari):
+    katamari.actual = katamari.vectorizer.extract_features("A B C")
+    katamari.actual_array = katamari.vectorizer.extract_features("A B C", as_array=True)
+    katamari.expected = [katamari.bias, 2, 4]
+    katamari.expected_array = numpy.array(katamari.expected)
+    return
+
+
+@then("it's the expected feature-vector")
+def check_feature_vectors(katamari):
+    expect(numpy.allclose(katamari.actual_array, katamari.expected_array)).to(be_true)
+    expect(katamari.actual).to(contain_exactly(*katamari.expected))
+
+    expect(katamari.actual_array.shape).to(contain_exactly(1, 3))
+    return
+#+end_src
+**** Get the Vectors
+
+#+begin_src feature :noweb-ref get-vectors-feature
+Scenario: A user retrieves the count vectors
+Given a user sets up the Count Vectorizer with tweets
+When the user checks the count vectors
+Then the first column is the bias colum
+And the positive counts are correct
+And the negative counts are correct
+#+end_src
+
+#+begin_src python :noweb-ref test-vectors
+# Feature: A Tweet Count Vectorizer
+
+# Scenario: A user retrieves the count vectors
+
+@given("a user sets up the Count Vectorizer with tweets")
+def setup_vectorizer(katamari, faker, mocker):
+    katamari.bias = random.randrange(100) * random.random()
+    TWEETS = 3
+
+    TOKENS = "A B C"
+    katamari.tweets = [TOKENS for tweet in range(TWEETS)]
+    katamari.counter = mocker.MagicMock(spec=WordCounter)
+
+    katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
+                                          counter=katamari.counter,
+                                          bias=katamari.bias)
+
+    katamari.vectorizer._process = mocker.MagicMock()
+    katamari.vectorizer._process.return_value = TOKENS.split()
+    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
+                                                  ('B', 1):2,
+                                                  ('C', 0):3})
+    katamari.negative = numpy.array([sum([katamari.counter.counts[(token, 0)]
+                                      for token in TOKENS])
+                                      for row in range(TWEETS)])
+    katamari.positive = numpy.array([sum([katamari.counter.counts[(token, 1)]
+                                      for token in TOKENS])
+                                     for row in range(TWEETS)])
+    return
+
+
+@when("the user checks the count vectors")
+def check_count_vectors(katamari):
+    # kind of silly, but useful for troubleshooting
+    katamari.actual_vectors = katamari.vectorizer.vectors
+    return
+
+
+@then("the first column is the bias colum")
+def check_bias(katamari):
+    expect(all(katamari.actual_vectors[:, Columns.bias]==katamari.bias)).to(be_true)
+    return
+
+
+@and_also("the positive counts are correct")
+def check_positive_counts(katamari):
+    positive = katamari.actual_vectors[:, Columns.positive]
+    expect(numpy.allclose(positive, katamari.positive)).to(be_true)
+    return
+
+
+@and_also("the negative counts are correct")
+def check_negative_counts(katamari):
+    negative = katamari.actual_vectors[:, Columns.negative]
+    expect(numpy.allclose(negative, katamari.negative)).to(be_true)
+    return
+#+end_src
+
+**** Reset the Vectors
+#+begin_src feature :noweb-ref reset-vectors-feature
+Scenario: The vectors are reset
+Given a Tweet Vectorizer with the vectors set
+When the user calls the reset method
+Then the vectors are gone
+#+end_src
+
+#+begin_src python :noweb-ref test-reset-vectors
+# Scenario: The vectors are reset
+
+
+@given("a Tweet Vectorizer with the vectors set")
+def setup_vectors(katamari, faker, mocker):
+    katamari.vectors = mocker.MagicMock()
+    katamari.vectorizer = TweetVectorizer(tweets = [faker.sentence()], counter=None)
+    katamari.vectorizer._vectors = katamari.vectors
+    return
+
+
+@when("the user calls the reset method")
+def call_reset(katamari):
+    expect(katamari.vectorizer.vectors).to(be(katamari.vectors))
+    katamari.vectorizer.reset()
+    return
+
+
+@then("the vectors are gone")
+def check_vectors_gone(katamari):
+    expect(katamari.vectorizer._vectors).to(be(None))
+    return
+#+end_src
+**** Check Rep
+#+begin_src feature :noweb-ref check-rep-vectorizer-tweets-feature
+Scenario: the check-rep is called with bad tweets
+Given a Tweet Vectorizer with bad tweets
+When check-rep is called
+Then it raises an AssertionError
+#+end_src
+
+#+begin_src python :noweb-ref test-vectorizer-tweets-check-rep
+# Scenario: the check-rep is called with bad tweets
+
+
+@given("a Tweet Vectorizer with bad tweets")
+def setup_bad_tweets(katamari):
+    katamari.vectorizer = TweetVectorizer(tweets=[5],
+                                          counter=WordCounter(
+                                              tweets=None, labels=None))
+    return
+
+
+@when("check-rep is called")
+def call_check_rep(katamari):
+    def bad_call():
+        katamari.vectorizer.check_rep()
+    katamari.bad_call = bad_call
+    return
+
+
+@then("it raises an AssertionError")
+def check_assertion_error(katamari):
+    expect(katamari.bad_call).to(raise_error(AssertionError))
+    return
+#+end_src
+
+#+begin_src feature :noweb-ref check-rep-vectorizer-counter-feature
+Scenario: the check-rep is called with a bad word-counter
+Given a Tweet Vectorizer with the wrong counter object
+When check-rep is called
+Then it raises an AssertionError
+#+end_src
+
+#+begin_src python :noweb-ref test-vectorizer-counter-check-rep
+# Scenario: the check-rep is called with a bad word-counter
+
+
+@given("a Tweet Vectorizer with the wrong counter object")
+def setup_bad_counter(katamari, mocker):
+    katamari.vectorizer = TweetVectorizer(tweets=["apple"], counter=mocker.MagicMock())
+    return
+
+# When check-rep is called
+# Then it raises an AssertionError
+#+end_src
+*** The Implementation
+#+begin_src python :tangle ../../neurotic/nlp/twitter/vectorizer.py
+# python
+from argparse import Namespace
+from typing import List, Union
+
+# pypi
+import numpy
+import attr
+
+
+# this package
+from neurotic.nlp.twitter.processor import TwitterProcessor
+from neurotic.nlp.twitter.counter import WordCounter
+
+Columns = Namespace(
+    bias=0,
+    positive=1,
+    negative=2
+)
+
+TweetClass = Namespace(
+    positive=1,
+    negative=0
+)
+
+# some types
+Tweets = List[List[str]]
+Vector = Union[numpy.ndarray, list]
+
+
+@attr.s(auto_attribs=True)
+class TweetVectorizer:
+    """A tweet vectorizer
+
+    Args:
+     tweets: the pre-processed/tokenized tweets to vectorize
+     counter: the word counter with the tweet token counts
+     bias: constant to use for the bias
+    """
+    tweets: Tweets
+    counter: WordCounter
+    bias: float=1
+    _process: TwitterProcessor=None
+    _vectors: numpy.ndarray=None
+
+    @property
+    def process(self) -> TwitterProcessor:
+        """Processes tweet strings to tokens"""
+        if self._process is None:
+            self._process = TwitterProcessor()
+        return self._process
+
+    @property
+    def vectors(self) -> numpy.ndarray:
+        """The vectorized tweet counts"""
+        if self._vectors is None:
+            rows = [self.extract_features(tweet) for tweet in self.tweets]
+            self._vectors = numpy.array(rows)
+        return self._vectors
+
+    def extract_features(self, tweet: str, as_array: bool=False) -> Vector:
+        """converts a single tweet to an array of counts
+
+        Args:
+         tweet: a string tweet to count up
+         as_array: whether to match the assignment format or not
+
+        Returns:
+         either a list of floats or a 1 x 3 array
+        """
+        tokens = self.process(tweet)
+        vector = [
+            self.bias,
+            sum((self.counter.counts[(token, TweetClass.positive)]
+                 for token in tokens)),
+            sum((self.counter.counts[(token, TweetClass.negative)]
+                                for token in tokens))
+        ]
+        vector = numpy.array([vector]) if as_array else vector
+        return vector
+
+    def reset(self) -> None:
+        """Removes the vectors"""
+        self._vectors = None
+        return
+
+    def check_rep(self) -> None:
+        """Checks that the tweets and word-counter are set
+
+        Raises:
+         AssertionError if one of them isn't right
+        """
+        for tweet in self.tweets:
+            assert type(tweet) is str
+        assert type(self.counter) is WordCounter
+        return
+#+end_src
+
+** Setup the Training and Testing Sets
+   This is a new step in the process. In the previous explorations we used the entire tweet sets but since we're going to train a model we need to split it into training and testing sets.
+
+#+begin_src python :results none
+TRAINING_SIZE = 4000
+SEED = 20200714
+positive_x_train, positive_x_test, positive_y_train, positive_y_test = train_test_split(
+    positive, positive_labels, train_size=TRAINING_SIZE, random_state=SEED)
+
+negative_x_train, negative_x_test, negative_y_train, negative_y_test = train_test_split(
+    negative, negative_labels, train_size=TRAINING_SIZE, random_state=SEED)
+
+x_train = positive_x_train + negative_x_train
+x_test = positive_x_test + negative_x_test
+
+# the initial code I wrote assumes that we're using lists for the tweets and labels
+# so later on convert the y-data to arrays, but keep them al lists for now
+SHAPE = (-1, 1)
+y_train = positive_y_train + negative_y_train
+y_test = positive_y_test + negative_y_test
+
+x_check = positive[:TRAINING_SIZE] + negative[:TRAINING_SIZE]
+y_check = positive_labels[:TRAINING_SIZE] + negative_labels[:TRAINING_SIZE]
+#+end_src
+
+#+begin_src python :results none
+TRAIN_SIZE = 2 * TRAINING_SIZE
+TEST_SIZE = 2 * len(positive) - TRAIN_SIZE
+expect(len(x_train)).to(equal(TRAIN_SIZE))
+expect(len(x_test)).to(equal(TEST_SIZE))
+expect(len(y_train)).to(equal(TRAIN_SIZE))
+expect(len(y_test)).to(equal(TEST_SIZE))
+#+end_src
+*** Build the Counts
+    Now we'll build the counts for the training set.
+
+#+begin_src python :results output :exports both
+counter = WordCounter(tweets=x_train, labels=y_train) 
+
+print(f"{len(counter.counts):,}")
+#+end_src
+
+#+RESULTS:
+: 11,443
+
+
+#+begin_src python :results output :exports both
+print(counter.counts.most_common(1))
+#+end_src
+
+#+RESULTS:
+: [((':(', 0), 3670)]
+
+So, as a reminder, the =counts= is a dictionary-like object that holds =(token, sentiment)= pairs as keys mapped to the number of tweets that had the token and were classified as having that sentiment. So in the sample given, the token is =:(= and it was in 3,661 negative tweets (because 0 indicates a negative tweet).
+
+*** Try the Vectorizer
+    *Note:* I changed the regular expression tweet cleaner to only remove URIs up to a whitespace, because it was wiping out emoticons that came after them so my numbers no longer match the Coursera numbers exactly.
+
+#+begin_src python :results output :exports both
+check_counter = WordCounter(tweets=x_check, labels=y_check)
+vectorizer = TweetVectorizer(tweets=x_check, counter=check_counter)
+
+print(f"First Tweet: {x_check[0]}")
+print(f"First count vector: {vectorizer.vectors[0]}")
+
+actual = vectorizer.extract_features("nunya noa agar", as_array=True)
+expected = [[1., 0., 0.]]
+expect(numpy.allclose(expected, actual)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: First Tweet: #FollowFriday @France_Inte @PKuchly57 @Milipol_Paris for being top engaged members in my community this week :)
+: First count vector: [   1 3133   61]
+
+** Logistic Regression
+   Now that we have the data it's time to implement the [[https://www.wikiwand.com/en/Logistic_regression][Logistic Regression]] model to classify tweets as positive or negative.
+*** The Sigmoid
+    Logistic Regression uses a version of [[https://www.wikiwand.com/en/Sigmoid_function][the Sigmoid Function]] called the Standard [[https://www.wikiwand.com/en/Logistic_function][Logistic Function]] to measure whether an entry has passed the threshold for classification. This is the mathematical definition:
+
+\[
+\sigma(z) = \frac{1}{1 + e^{-x \cdot \theta}}
+\]
+
+The numerator (1) determines the maximum value for the function, so in this case the range is from 0 to 1 and we can interpret $\sigma(z)$ as the probability that a tweet (/z/) is positive (/1/). The interpretation of $\sigma(z)$ is it's the probability that /z/ (a vector representation of a tweet times the weights) is classified as 1 (having a positive sentiment). So we could re-write this as:
+
+\[
+P(Y=1 | z) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x_1 + \beta_2 x_2)}}
+\]
+
+Where $x_1$ is the sum of the positive tweet counts for the tokens in $x$ and $x_2$ is the sum of the negative tweet counts for the tokens. $\beta_0$ is our bias and $\beta_1$ and $\beta_2$ are the weights that we're going to find by training our model.
+
+#+begin_src python :results none
+def sigmoid(z: Tweet) -> PositiveProbability:
+    """Calculates the logistic function value
+
+    Args:
+     z: input to the logistic function (float or array)
+
+    Returns:
+     calculated sigmoid for z
+    """
+    return 1/(1 + numpy.exp(-z))
+#+end_src
+
+**** A Little Test
+    We have a couple of given values to test that our sigmoid is correct.
+
+#+begin_src python :results none
+expect(sigmoid(0)).to(equal(0.5))
+
+expect(math.isclose(sigmoid(4.92), 0.9927537604041685)).to(be_true)
+
+expected = numpy.array([0.5, 0.9927537604041685])
+actual = sigmoid(numpy.array([0, 4.92]))
+
+expect(all(actual==expected)).to(be_true)
+#+end_src
+
+**** Plotting It
+    Let's see what the output looks like.
+
+#+begin_src python :results none
+min_x = -6
+max_x = 6
+
+x = numpy.linspace(min_x, max_x)
+y = sigmoid(x)
+halfway = sigmoid(0)
+
+plot_data = pandas.DataFrame.from_dict(dict(x=x, y=y))
+curve = plot_data.hvplot(x="x", y="y", color=Plot.color_cycle)
+
+line = holoviews.Curve([(min_x, halfway), (max_x, halfway)], color=Plot.tan)
+
+plot = (curve * line).opts(
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.font_scale,
+    title="Sigmoid",
+    show_grid=True,
+)
+
+embedded = Embed(plot=plot, file_name="sigmoid_function")
+output = embedded()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="sigmoid_function.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Looking at the plot you can see that the probability that a tweet is positive is 0.5 when the input is 0, becomes more likely the more positive the input is, and is less likely the more negative an input is. Next we'll need to look at how to train our model.
+
+*** The Loss Function
+    To train our model we need a way to measure how well (or in this case poorly) it's doing. For this we'll use the [[http://wiki.fast.ai/index.php/Log_Loss][Log Loss]] function which is the negative logarithm of our probability - so for each tweet, we'll calculate $\sigma$ (which is the probability that it's positive) and take the negative logarithm of it to get the log-loss.
+
+The formula for loss:
+
+\[
+ Loss = - \left( y\log (p) + (1-y)\log (1-p) \right)
+\]
+
+$y$ is the classification of the tweet (1 or 0) so when the tweet is classified 1 (positive) the right term becomes 0 and when the tweet is classified 0 (negative) the left term becomes 0 so this is the equivalent of:
+
+#+begin_src python
+if y == 1:
+    loss = -log(p)
+else:
+    loss = -log(1 - p)
+#+end_src
+
+Where $p$ is the probability that the tweet is positive and $1 - p$ is the probability that it isn't (so it's negative since that's the only alternative).  We take the negative of the logarithm because $log(p)$ is negative (all the values of $p$ are between 0 and 1) so negating it makes the output positive.
+
+We can fill it in to make it match what we're going to actually calculate - for the $i^{th}$ item in our dataset $p = \sigma(z^i \cdot \theta)$ and the equation becomes:
+
+\[
+ Loss = - \left( y^{(i)}\log (\sigma(z^{(i)} \cdot \theta)) + (1-y^{(i)})\log (1-\sigma(z^{(i)} \cdot \theta)) \right)
+\]
+
+
+#+begin_src python :results none
+epsilon = 1e-3
+steps = 10**3
+probabilities = numpy.linspace(epsilon, 1, num=steps)
+losses = -1 * numpy.log(probabilities)
+data = pandas.DataFrame.from_dict({
+    "p": probabilities,
+    "Log-Loss": losses 
+})
+
+plot = data.hvplot(x="p", y="Log-Loss", color=Plot.blue).opts(
+    title="Log-Loss (Y=1)",
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.font_scale,
+    ylim=(0, losses.max())
+)
+
+output = Embed(plot=plot, file_name="log_loss_example")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="log_loss_example.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So what is this telling us? This is for the case where a tweet is labeled positive and at the far left, near 0 (=log(0)= is undefined so you can use a really small probability but not 0) our model is saying that it probably isn't a positive tweet, so the log-loss is fairly high, then as we move along the x-axis our model is saying that it is more and more likely that the tweet is positive so our log-loss goes down, until we reach the point where our model says that it's 100% guaranteed to be a positive tweet, at which point our log-loss drops to zero. Fairly intuitive.
+
+Let's look at the case where the tweet is actually negative (/y=0/). Since /p/ is the probability that it's positive, when the label is 0 we need to take the log of /1-p/ to see what the model thinks the probability is that it's negative.
+
+#+begin_src python :results none
+epsilon = 1e-3
+steps = 10**3
+probabilities = numpy.linspace(epsilon, 1-epsilon, num=steps)
+losses = -1 * (numpy.log(1 - probabilities))
+data = pandas.DataFrame.from_dict({
+    "p": probabilities,
+    "Log-Loss": losses 
+})
+
+plot = data.hvplot(x="p", y="Log-Loss", color=Plot.blue).opts(
+    title="Log-Loss (Y=0)",
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.font_scale,
+    ylim=(0, losses.max())
+)
+
+output = Embed(plot=plot, file_name="log_loss_y_0_example")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="log_loss_y_0_example.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So now we have basically the opposite loss. In this case the tweet is not positive so when the model puts a low likelihood that the tweet is positive the log-loss is small, but as you move along the x-axis the model is giving more probability to the notion that the tweet is positive so the log-loss gets larger.
+*** Training the Model
+    To train the model we're going to use [[https://www.wikiwand.com/en/Gradient_descent][Gradient Descent]]. What this means is that we're going to use the /gradient/ of our loss function to figure out how to update our weights. The /gradient/ is just the slope of the loss-function (but generalized to multiple dimensions).
+
+How do we do this? First we calculate our model's estimate of the input being positive, then we calculate the gradient of its loss. If you remember from calculus the slope of a line is the derivative of its function so instead of calculating the loss, we'll calculate the derivative of the loss-function which is given as:
+
+\[
+\nabla_{\theta}L_{\theta} = \left [ \sigma(x \cdot \theta) - y \right] x_j
+\]
+
+The rightmost term $x_j$ represents one term in the input vector, the one that matches the weight - this has to be repeated for each $\beta$ in $\theta$ so in our case it will be repeated three times, with $x$ being 1 for the bias term.
+
+It's called stochastic gradient descent because the inputs are chosen randomly from our training set. This turns out to not give you a smooth descent so we're going to do **batch  training** which changes our gradient a little.
+
+\[
+\nabla_{\theta_j}L_{\theta} = \frac{1}{m} \sum_{i=1}^m(\sigma(x \cdot \theta)-y)x_j
+\]
+
+Our gradient is now the average of the gradients for each of the inputs in our training set. We update the weights by subtracting a fraction of the difference between the current weights and the gradient. The fraction $\eta$ is called the /learning rate/ and it controls how much the weights change, representng how fast our model will learn. If it is too large we can miss the minimum and if it's too large it will take too long to train the model, so we need to choose the right value for it to reach the minima within a feasible time. 
+
+Here's the algorithm in the rough.
+
+ - /L/: Loss Function
+ - $\sigma$: probability function parameterized by $\theta$
+ - /x/: set of training inputs
+ - /y/: set of training labels
+
+#+begin_export html
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+        tex2jax: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    });
+</script>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js">
+</script>
+
+<pre id="gradientdescent" style="display:hidden">
+\begin{algorithm}
+\caption{Stochastic Gradient Descent}
+\begin{algorithmic}
+\STATE $\theta \gets 0$
+\WHILE{not done}
+
+ \FOR{each $(x^{(i)},y^{(i)})$ in training data}
+  \State $\hat{y} \gets \sigma(x^{(i)}; \theta)$
+  \State $loss \gets L(\hat{y}^{(i)}, y^{(i)})$
+  \State $g \gets \nabla_{\theta} L(\hat{y}^{(i)}, y^{(i)})$
+  \State $\theta \gets \theta - \eta g$
+ \ENDFOR
+
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+</pre>
+#+end_export
+
+We can translate this a little more.
+
+#+begin_export html
+<pre id="gradientdescentengrish" style="display:hidden">
+\begin{algorithm}
+\caption{Stochastic Gradient Descent}
+\begin{algorithmic}
+\STATE Initialize the weights
+\WHILE{the loss is still too high}
+
+ \FOR{each $(x^{(i)},y^{(i)})$ in training data}
+  \State What is our probability that the input is positive?
+  \State How far off are we?
+  \State What direction would we need to head to maximize the error?
+  \State Let's go in the opposite direction.
+ \ENDFOR
+
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+</pre>
+
+<script>
+    pseudocode.renderElement(document.getElementById("gradientdescent"));
+    pseudocode.renderElement(document.getElementById("gradientdescentengrish"));
+</script>
+#+end_export
+
+Note that the losses aren't needed for the algorithm to train the model, just for assessing how well the model did.
+*** Implement It
+**** The Function
+#+begin_src python :results none
+def gradient_descent(x: numpy.ndarray, y: numpy.ndarray,
+                     weights: numpy.ndarray, learning_rate: float,
+                     iterations: int=1):
+    """Finds the weights for the model
+
+    Args:
+     x: the tweet vectors
+     y: the positive/negative labels
+     weights: the regression weights
+     learning_rate: (eta) how much to update the weights
+     iterations: the number of times to repeat training
+    """
+    assert len(x) == len(y)
+    rows = len(x)
+    losses = []
+    learning_rate /= rows
+    for iteration in range(iterations):
+        y_hat = sigmoid(x.dot(weights))
+        # average loss
+        loss = numpy.squeeze(-((y.T.dot(numpy.log(y_hat))) +
+                               (1 - y.T).dot(numpy.log(1 - y_hat))))/rows
+        losses.append(loss)
+        gradient = ((y_hat - y).T.dot(x)).sum(axis=0, keepdims=True)
+        weights -= learning_rate * gradient.T
+    return loss, weights, losses
+#+end_src
+
+If you look at the implementation you can see that there are some changes made to it from what I wrote earlier. This is because the algorithm I wrote in pseudocode came from a book while the implementation that I made came from a Coursera assignment. The main differences being that we use a set number of iterations to train the model and the learning rate is divided by the number of training examples. Of course, you could just divide the learning rate before passing it in to the function so it doesn't really change it that much. I also had to take into account the fact that you can't just take a dot product of two matrices if their shapes aren't compatible - the rows of the left hand matrix has to match the columns of the right hand matrix) so there's some transposing of matrices being done. Our actual implementation might be more like this.
+
+#+begin_export html
+<pre id="gradientdescentimplementation" style="display:hidden">
+\begin{algorithm}
+\caption{Stochastic Gradient Descent Implemented}
+\begin{algorithmic}
+\STATE $\theta \gets 0$
+\STATE $m \gets rows(X)$
+\FOR{$iteration \in$ \{0 $\ldots iterations-1$ \}}
+  \STATE $\hat{Y} \gets \sigma(X \cdot \theta)$
+  \STATE $loss \gets -\frac{1}{m}(Y^T \cdot \ln \hat{Y}) + (1 - Y)^T \cdot (\ln 1 - \hat{Y})$
+  \STATE $\nabla \gets \sum (\hat{Y} - Y)^T \cdot x$
+  \STATE $\theta \gets \theta - \frac{\eta}{m} \nabla^T$
+ \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+</pre>
+
+<script>
+    pseudocode.renderElement(document.getElementById("gradientdescentimplementation"));
+</script>
+#+end_export
+
+**** Test It
+     First we'll make a fake (random) input set.
+#+begin_src python :results none
+numpy.random.seed(1)
+bias = numpy.ones((10, 1))
+fake = numpy.random.rand(10, 2) * 2000
+fake_tweet_vectors = numpy.append(bias, fake, axis=1)
+#+end_src
+
+Now, the fake labels - we'll make around 35% of them negative and the rest positive.
+
+#+begin_src python :results none
+fake_labels = (numpy.random.rand(10, 1) > 0.35).astype(float)
+#+end_src
+
+**** Do the Descent
+     So now we can pass our test data into the gradient descent function and see what happens.
+
+#+begin_src python :results output :exports both
+fake_weights = numpy.zeros((3, 1))
+fake_loss, fake_weights, losses = gradient_descent(x=fake_tweet_vectors,
+                                           y=fake_labels, 
+                                           weights=fake_weights,
+                                           learning_rate=1e-8,
+                                           iterations=700)
+expect(math.isclose(fake_loss, 0.67094970, rel_tol=1e-8)).to(be_true)
+print(f"The log-loss after training is {fake_loss:.8f}.")
+print(f"The trained weights are {[round(t, 8) for t in numpy.squeeze(fake_weights)]}")
+#+end_src
+
+#+RESULTS:
+: The log-loss after training is 0.67094970.
+: The trained weights are [4.1e-07, 0.00035658, 7.309e-05]
+
+** Train the Model
+   Now that we have our parts let's actually train the model using the real training data. At this point we need everything to be numpy arrays so I'll convert the y-sets (the vectorizer already does this for the x-sets).
+
+#+begin_src python :results none
+y_train = numpy.array(y_train).reshape((-1, 1))
+#+end_src
+
+#+begin_src python :results output :exports both
+train_vectorizer = TweetVectorizer(x_train, counter)
+weights = numpy.zeros((3, 1))
+final_loss, weights, losses = gradient_descent(
+    x=train_vectorizer.vectors, y=y_train, weights=weights,
+    learning_rate=1e-9, iterations=1500)
+
+print(f"The log-loss after training is {final_loss:.8f}.")
+print(f"The resulting vector of weights is {[round(t, 8) for t in numpy.squeeze(weights)]}")
+#+end_src
+
+#+RESULTS:
+: The log-loss after training is 0.22361758.
+: The resulting vector of weights is [6e-08, 0.00053882, -0.00055969]
+
+#+begin_src python :results none
+plot_losses = pandas.DataFrame.from_dict({"Log-Loss": losses})
+plot = plot_losses.hvplot().opts(title="Training Losses",
+                            width=Plot.width,
+                            height=Plot.height,
+                            fontscale=Plot.font_scale,
+                            color=Plot.blue
+                            )
+
+output = Embed(plot=plot, file_name="training_loss")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training_loss.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+As you can see, the losses are still on the decline, but we'll stop here to see how it's doing.
+
+** Test the Model
+
+#+begin_src python :tangle ../../neurotic/nlp/twitter/sentiment.py
+# pypi
+import attr
+import numpy
+
+# this project
+from .vectorizer import TweetVectorizer
+
+
+@attr.s(auto_attribs=True)
+class TweetSentiment:
+    """Predicts the sentiment of a tweet
+
+    Args:
+     vectorizer: something to vectorize tweets
+     theta: vector of weights for the logistic regression model
+    """
+    vectorizer: TweetVectorizer
+    theta: numpy.ndarray
+
+    def sigmoid(self, vectors: numpy.ndarray) -> float:
+        """the logistic function
+
+        Args:
+         vectors: a matrix of bias, positive, negative counts
+
+        Returns:
+         array of probabilities that the tweets are positive
+        """
+        return 1/(1 + numpy.exp(-vectors))
+
+    def probability_positive(self, tweet: str) -> float:
+        """Calculates the probability of the tweet being positive
+
+        Args:
+         tweet: a tweet to classify
+
+        Returns:
+         the probability that the tweet is a positive one
+        """
+        x = self.vectorizer.extract_features(tweet, as_array=True)
+        return numpy.squeeze(self.sigmoid(x.dot(self.theta)))
+
+    def classify(self, tweet: str) -> int:
+        """Decides if the tweet was positive or not
+
+        Args:
+         tweet: the tweet message to classify.
+        """
+        return int(numpy.round(self.probability_positive(tweet)))
+
+    def __call__(self) -> numpy.ndarray:
+        """Get the sentiments of the vectorized tweets
+        
+        Note:
+         this assumes that the vectorizer passed in has the tweets
+
+        Returns:
+         array of predicted sentiments (1 for positive 0 for negative)
+        """
+        return numpy.round(self.sigmoid(self.vectorizer.vectors.dot(self.theta)))
+#+end_src
+
+#+begin_src python :results output :exports both
+sentiment = TweetSentiment(train_vectorizer, weights)
+for tweet in ['I am happy', 'I am bad', 'this movie should have been great.', 'great', 'great great', 'great great great', 'great great great great']:
+    print(f'{tweet} -> {sentiment.probability_positive(tweet)}')
+
+#+end_src
+
+#+RESULTS:
+: I am happy -> 0.5194180879292754
+: I am bad -> 0.49324236291188817
+: this movie should have been great. -> 0.5155519549115258
+: great -> 0.5159253614387586
+: great great -> 0.5318184293628917
+: great great great -> 0.5476472009859494
+: great great great great -> 0.5633801766216647
+
+Strangely very near the center. Probably because the words weren't that commonly used in our training set.
+
+#+begin_src python :results output :exports both
+totals = sum(counter.counts.values())
+print(f"Great positive percentage: {100 * counter.counts[('great', 1)]/totals:.2f} %")
+print(f"Great negative percentage: {100 * counter.counts[('great', 0)]/totals:.2f} % ")
+#+end_src
+
+#+RESULTS:
+: Great positive percentage: 0.25 %
+: Great negative percentage: 0.03 % 
+
+Now we can see how it did overall.
+
+#+begin_src python :results output :exports both
+y_test = numpy.array(y_test).reshape((-1, 1))
+test_vectorizer = TweetVectorizer(x_test, counter)
+sentiment = TweetSentiment(test_vectorizer, weights)
+
+predictions = sentiment()
+correct = sum(predictions == y_test)
+print(f"Accuracy: {correct[0]/len(y_test)}")
+#+end_src
+
+#+RESULTS:
+: Accuracy: 0.9945
+
+That does surprisingly well. But what did we get wrong?
+
+** The Wrong Stuff
+#+begin_src python :results output :exports both
+x_test = numpy.array(x_test).reshape((-1, 1))
+wrong_places = predictions != y_test
+wrong = x_test[wrong_places]
+print(len(wrong))
+#+end_src
+
+#+RESULTS:
+: 11
+
+#+begin_src python :results output :exports both
+wrong_ys = y_test[wrong_places]
+
+for index, tweet in enumerate(wrong):
+    print("*" * 10)
+    print(f"Tweet: {tweet}")
+    print(f"Tokens: {vectorizer.process(tweet)}")
+    print(f"Probability Positive: {sentiment.probability_positive(tweet)}")
+    print(f"Classification: {wrong_ys[index]}")
+    print()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+,**********
+Tweet: I'm playing Brain Dots : ) #BrainDots
+http://t.co/ilDzDRHf9d http://t.co/VTXNFCPFuI
+Tokens: ["i'm", 'play', 'brain', 'dot', 'braindot']
+Probability Positive: 0.48526803083166703
+Classification: 1
+
+,**********
+Tweet: @ellekagaoan @chinmarquez Catch up once in a while :( &gt;:D&lt; @aditriphosphate @ErinMonzon
+Tokens: ['catch', ':(', '>:d']
+Probability Positive: 0.11389833615259448
+Classification: 1
+
+,**********
+Tweet: off to the park to get some sunlight : )
+Tokens: ['park', 'get', 'sunlight']
+Probability Positive: 0.49574440240612333
+Classification: 1
+
+,**********
+Tweet: Google has made @narendramodi really very sad about @ImranKhanPTI not becoming Prime Minister. :p @PTIofficial @pmln_org
+Tokens: ['googl', 'made', 'realli', 'sad', 'becom', 'prime', 'minist', ':p']
+Probability Positive: 0.49947331811099865
+Classification: 1
+
+,**********
+Tweet: @planetjedward GoodMorning ! What's coming next? =:D =:D
+Tokens: ['goodmorn', "what'", 'come', 'next', '=:', '=:']
+Probability Positive: 0.49786597951455913
+Classification: 1
+
+,**********
+Tweet: @_sarah_mae omg you can't just tell this and don't say more :p can't wait to know !!!! ❤️
+Tokens: ['omg', "can't", 'tell', 'say', ':p', "can't", 'wait', 'know', '❤', '️']
+Probability Positive: 0.48000079019523884
+Classification: 1
+
+,**********
+Tweet: I'm playing Brain Dots : ) #BrainDots http://t.co/aOKldo3GMj http://t.co/xWCM9qyRG5
+Tokens: ["i'm", 'play', 'brain', 'dot', 'braindot']
+Probability Positive: 0.48526803083166703
+Classification: 1
+
+,**********
+Tweet: @samayanyan yes thank u!! Oh damn that hella sucks :-( but at least u had a really good time that's all that matters
+Tokens: ['ye', 'thank', 'u', 'oh', 'damn', 'hella', 'suck', ':-(', 'least', 'u', 'realli', 'good', 'time', "that'", 'matter']
+Probability Positive: 0.5145779186318544
+Classification: 0
+
+,**********
+Tweet: @phenomyoutube u probs had more fun with david than me : (
+Tokens: ['u', 'prob', 'fun', 'david']
+Probability Positive: 0.5101260021527917
+Classification: 0
+
+,**********
+Tweet: @wtfxmbs AMBS please it's harry's jeans :)):):):(
+Tokens: ['amb', 'pleas', "harry'", 'jean', ':)', '):', '):', '):']
+Probability Positive: 0.8218858541205992
+Classification: 0
+
+,**********
+Tweet: @hinata_shouyno fuck u Neil u ruined it &gt;:-(
+Tokens: ['fuck', 'u', 'neil', 'u', 'ruin', '>:-(']
+Probability Positive: 0.5095962377275693
+Classification: 0
+#+end_example
+
+The first thing to notice is that there's a duplicate tweet (the one about "Brain Dots", whatever that is). Another thing to note is that sometimes there are spaces between the characters in the emoticons, which the tokenizer probably can't figure out should be togethter, along with that weird =:)):):):(= emoticon. I'm not really soure that all of the positive tweets are actually positive, nor is it always obvious what they are about - what does "AMBS please it's harry's jeans" mean?
+
+In at least in one case the NLTK vectorizer seems to mangle an emoticon as well:
+
+#+begin_src python :results output :exports both
+print(vectorizer.process.tokenizer.tokenize("=:D"))
+#+end_src
+
+#+RESULTS:
+: ['=:', 'd']
+
+That last one looks really wrong, though, let's take a look at it.
+
+#+begin_src python :results output :exports both
+for token in vectorizer.process(wrong[-1]):
+    print(f"{token}: positive={counter.counts[(token, 1)]} negative={counter.counts[(token, 0)]}")
+#+end_src
+
+#+RESULTS:
+: fuck: positive=23 negative=47
+: u: positive=206 negative=148
+: neil: positive=2 negative=0
+: u: positive=206 negative=148
+: ruin: positive=3 negative=10
+: >:-(: positive=0 negative=2
+
+So the big problem seems to be that the letter "u" is there twice and it's mostly seen as a positive. Why am I allowing single letters? There should probably be a minimum length or something. Anyway, I'm not sure you could get much better.
+
+** Some Fresh Tweets
+   First someone reacting to a post about the [[https://www.atlasobscura.com/places/clown-motel][Clown Motel]] in Tonopah, Nevada. The previous link was to Atlas Obscura, but the tweet came from [[https://www.thrillist.com/travel/nation/clown-motel-nevada-hame-anand][thrillist]].
+#+begin_src python :results output :exports both
+sentiments = {0: "negative", 1: "positive"}
+tweet = "Nah dude. I drove by that at night and it was the creepiest thing ever. The whole town gave me bad vibes. I still shudder when I think about it."
+print(f"Classified as {sentiments[sentiment.classify(tweet)]}")
+#+end_src
+
+#+RESULTS:
+: Classified as negative
+
+Seems reasonable.
+
+#+begin_src python :results output :exports both
+tweet = "This is just dope. Quaint! I’d love to have an ironic drive-in wedding in Las Vegas and then stay in a clown motel as newly weds for one night. I bet they have Big Clown Suits for newly weds, haha."
+
+print(f"Classified as {sentiments[sentiment.classify(tweet)]}")
+#+end_src
+
+#+RESULTS:
+: Classified as positive
+
+** Compare to SKLearn
+#+begin_src python :results output :exports both
+classifier = LogisticRegressionCV(
+    random_state=2020,
+    max_iter=1500,
+    scoring="neg_log_loss").fit(train_vectorizer.vectors, y_train)
+
+predictions = classifier.predict(test_vectorizer.vectors).reshape((-1, 1))
+correct = sum(predictions == y_test)
+print(f"Accuracy: {correct[0]/len(y_test)}")
+#+end_src
+
+#+RESULTS:
+: Accuracy: 0.9925
+
+So it didn't do quite as well, but pretty much the same just using the default parameters. We could probably do a parameter search but that's okay for now.
+
+* End
+
+Let's save our weights for later. I was going to just write it to a file, but you seem to lose some precision converting the values to strings. numpy has a function called [[https://numpy.org/doc/stable/reference/generated/numpy.savetxt.html][savetxt]] but it didn't behave exactly like I thought it would and I prefer pandas so I'll save it that way.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+
+path = Path(os.environ["TWITTER_REGRESSION_WEIGHTS"]).expanduser()
+weights_frame = pandas.DataFrame(weights.T, columns="bias positive negative".split())
+weights_frame.to_csv(path, index=False)
+#+end_src
+
+We should also save the counts because we're going to need that for later.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+
+counts = pandas.DataFrame(train_vectorizer.vectors, columns="bias positive negative".split())
+counts["sentiment"] = y_train
+path = Path(os.environ["TWITTER_REGRESSION_DATA"]).expanduser()
+counts.to_csv(path, index=False)
+#+end_src
+
+**Note:** This is a re-working of an exercise from Coursera's Natural Language Processing specialization.
+
+I also referred to this revision in progress:
+
+ - Jurafsky, D. & Martin, J. (2020). Speech and language processing : an introduction to natural language processing, computational linguistics, and speech recognition. 3rd Edition draft. [[https://web.stanford.edu/~jurafsky/slp3/][(URL)]]
