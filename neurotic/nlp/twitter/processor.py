@@ -111,6 +111,7 @@ class TwitterProcessor:
         return self._stemmer
 
     def stem(self, tokens: list) -> list:
+        """stem the tokens"""
         return [self.stemmer.stem(word) for word in tokens]
 
     def __call__(self, tweet: str) -> list:
@@ -118,6 +119,9 @@ class TwitterProcessor:
     
         Args:
          tweet: string to process
+         
+        Returns:
+         the tweet as a pre-processed list of strings
         """
         cleaned = self.clean(tweet.strip())
         cleaned = self.tokenizer.tokenize(cleaned)
