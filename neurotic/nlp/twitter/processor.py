@@ -13,11 +13,15 @@ import nltk
 class WheatBran:
     """This is a holder for the regular expressions"""
     START_OF_LINE = r"^"
+    END_OF_LINE = r"$"
     OPTIONAL = "{}?"
     ANYTHING = "."
     ZERO_OR_MORE = "{}*"
     ONE_OR_MORE = "{}+"
     ONE_OF_THESE = "[{}]"
+    FOLLOWED_BY = r"(?={})"
+    PRECEDED_BY = r"(?<={})"
+    OR = "|"
 
     NOT = "^"
     SPACE = r"\s"
@@ -40,6 +44,19 @@ class WheatBran:
     HYPERLINKS = ("http" + OPTIONAL.format("s") + ":" + FORWARD_SLASHES
                   + EVERYTHING_BUT_SPACES + ZERO_OR_MORE.format(NEWLINES))
     HASH = "#"
+
+    EYES = ":"
+    FROWN = "\("
+    SMILE = "\)"
+    
+    SPACEY_EMOTICON = (FOLLOWED_BY.format(START_OF_LINE + OR + PRECEDED_BY.format(SPACE))
+                       + EYES + SPACE + "{}" +
+                       FOLLOWED_BY.format(SPACE + OR + END_OF_LINE))
+    SPACEY_FROWN = SPACEY_EMOTICON.format(FROWN)
+    SPACEY_SMILE = SPACEY_EMOTICON.format(SMILE)
+
+    spacey_fixed_emoticons = [":(", ":)"]
+    spacey_emoticons = [SPACEY_FROWN, SPACEY_SMILE]
 
     remove = [STOCK_SYMBOL, RE_TWEET, HYPERLINKS, HASH]
 
@@ -123,9 +140,24 @@ class TwitterProcessor:
         Returns:
          the tweet as a pre-processed list of strings
         """
-        cleaned = self.clean(tweet.strip())
+        cleaned = self.unspace_emoticons(tweet.strip())
+        cleaned = self.clean(cleaned)
         cleaned = self.tokenizer.tokenize(cleaned)
         # the stopwords are un-stemmed so this has to come before stemming
         cleaned = self.remove_useless_tokens(cleaned)
         cleaned = self.stem(cleaned)
         return cleaned
+
+    def unspace_emoticons(self, tweet: str) ->  str:
+        """Tries to  remove spaces from emoticons
+    
+        Args:
+         tweet: message to check
+    
+        Returns:
+         tweet with things that looks like emoticons with spaces un-spaced
+        """
+        for expression, fix in zip(
+                WheatBran.spacey_emoticons, WheatBran.spacey_fixed_emoticons):
+            tweet = re.sub(expression, fix, tweet)
+        return tweet

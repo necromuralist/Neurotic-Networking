@@ -34,10 +34,12 @@ class TweetVectorizer:
     Args:
      tweets: the pre-processed/tokenized tweets to vectorize
      counter: the word counter with the tweet token counts
+     processed: to not process the bulk tweets
      bias: constant to use for the bias
     """
     tweets: Tweets
     counter: WordCounter
+    processed: bool=True
     bias: float=1
     _process: TwitterProcessor=None
     _vectors: numpy.ndarray=None
@@ -62,12 +64,13 @@ class TweetVectorizer:
 
         Args:
          tweet: a string tweet to count up
-         as_array: whether to match the assignment format or not
+         as_array: whether to return an array instead of a list
 
         Returns:
          either a list of floats or a 1 x 3 array
         """
-        tokens = self.process(tweet)
+        # this is a hack to make this work both in bulk and one tweet at a time
+        tokens = tweet if self.processed else self.process(tweet)
         vector = [
             self.bias,
             sum((self.counter.counts[(token, TweetClass.positive)]

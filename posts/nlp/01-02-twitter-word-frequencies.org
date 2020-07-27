@@ -1,8 +1,8 @@
 #+BEGIN_COMMENT
 .. title: Twitter Word Frequencies
-.. slug: twitter-word-frequencies
+.. slug: 01b-twitter-word-frequencies
 .. date: 2020-07-07 18:19:19 UTC-07:00
-.. tags: nlp,nltk,twitter
+.. tags: nlp,nltk,twitter,counting
 .. category: Word Frequencies
 .. link: 
 .. description: Looking at tweet word frequencies.
@@ -11,28 +11,34 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9a4aeb7b-e200-4c23-b9f5-244f9fc113c9.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b3375b8e-1242-4243-9d65-2906c111c7a9.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
+  In the previous post in this series ({{% doc %}}01-twitter-preprocessing-with-nltk{{% /doc %}}) I made a pre-processor for tweets, now I'm going to make a counter that counts how many times a certain token shows up in positive and negative tweets.
+
 ** Setup
 *** Imports
 #+begin_src python :results none
 # from python
 from argparse import Namespace
 from functools import partial
+from pathlib import Path
+
+import os
+import pickle
 
 # from pypi
 from bokeh.models import HoverTool
+from dotenv import load_dotenv
 from nltk.corpus import twitter_samples
 from tabulate import tabulate
 
 import holoviews
 import hvplot.pandas
-import load_dotenv
 import nltk
 import numpy
 import pandas
@@ -46,39 +52,45 @@ from graeae import EmbedHoloviews
 #+end_src
 *** The Data
     First we'll load the training data that I set-up while building the tweet pre-processor.
-#+begin_src python :results none
-positive_tweets = twitter_samples.strings('positive_tweets.json')
-negative_tweets = twitter_samples.strings('negative_tweets.json')
-tweets = positive_tweets + negative_tweets
-#+end_src
-
-Now we need to make the labels for the tweets. We're going to label positive tweets with a =1= and negative tweets with a =0=. Since we concatenated the two sets of tweets we know that the first half will be all ones and the second half will be all zeros and we can create this master labels array using lists.
-
 #+begin_src python :results output :exports both
-NEGATIVE, POSITIVE = 0, 1
-SENTIMENT = {
-    POSITIVE:"positive",
-    NEGATIVE:"negative",
-}
-labels = [1] * len(positive_tweets) + [0] * len(negative_tweets)
-print(f"{len(labels):,}")
+load_dotenv("posts/nlp/.env")
+path = Path(os.environ["TWITTER_TRAINING_PROCESSED"]).expanduser()
+assert path.is_file()
+training = pandas.read_feather(path)
+training_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
+print(training.head(1))
+print(f"Rows: {len(training):,}")
 #+end_src
 
 #+RESULTS:
-: 10,000
+:                        tweet  label
+: 0  [park, get, sunlight, :)]      1
+: Rows: 8,000
+
+I also made an object to pass around to make sure I didn't switch the numeric =positive= and =negative= encodings so let's load that.
+
+#+begin_src python :results output :exports both
+path = Path(os.environ["TWITTER_SENTIMENT"]).expanduser()
+with path.open("rb") as reader:
+    Sentiment = pickle.load(reader)
+print(Sentiment)
+#+end_src
+
+#+RESULTS:
+: Namespace(decode={1: 'positive', 0: 'negative'}, encode={'positive': 1, 'negative': 0}, negative=0, positive=1)
 
 *** Plotting and Printing
-    Just some preliminary setup of the plotter and table-printer so I don't have to keep typing the same things over and over.
+    This is some preliminary setup of the plotter and table-printer so I don't have to keep typing the same things over and over.
 
 #+begin_src python :results none
+SLUG = "01b-twitter-word-frequencies"
 Embed = partial(EmbedHoloviews,
-                folder_path="../../files/posts/nlp/twitter-word-frequencies")
+                folder_path=f"files/posts/nlp/{SLUG}")
 
-Plot = Namespace(
-    width=990,
-    height=780,
-    color="#ddb377",
-)
+path = Path(os.environ["TWITTER_PLOT"]).expanduser()
+with path.open("rb") as reader:
+    Plot = pickle.load(reader)
 #+end_src
 
 #+begin_src python :results none
@@ -86,8 +98,9 @@ TABLE = partial(tabulate, tablefmt="orgtbl", headers="keys", showindex=False)
 #+end_src
 * Middle
 ** Word Frequencies
-   We're going to build up a dictionary of frequencies. The keys will be =(token, sentiment)= tuples and the values will be the counts for the token-sentiment pairs.
+   We're going to build up a [[https://docs.python.org/3/library/collections.html#collections.Counter][Counter]] of token frequencies. The keys will be =(token, sentiment)= tuples and the values will be the counts for the token-sentiment pairs.
 *** Tests
+    These are the tests for the implementation that follows them.
 **** The Tangles
 #+begin_src feature :tangle ../../tests/features/twitter/word_frequencies.feature
 Feature: A Word Frequency Counter
@@ -270,16 +283,17 @@ class WordCounter:
         return self._counts
 #+end_src
 ** Counting
-   Now we can do some counting.
+   Now that we've implemented the counter we might as well get to counting. This is going to be kind of hacky, but I originally wasn't saving the processed data and so was expecting this thing to process it. Maybe I'll change it to look better late. But, anyway that's why I'm assigning the column to the =._processed= attribute.
 
 #+begin_src python :results output :exports both
-counter = WordCounter(tweets=tweets, labels=labels)
+counter = WordCounter(tweets=training.tweet, labels=training.label)
+counter._processed = training.tweet
 counts = counter.counts
 print(f"Total token-sentiment pairs: {len(counts):,}")
 #+end_src
 
 #+RESULTS:
-: Total token-sentiment pairs: 13,173
+: Total token-sentiment pairs: 11,476
 
 What are the most common? To make the rest of the post easier I'm going to set up a pandas DataFrame.
 
@@ -300,49 +314,60 @@ top_counts = pandas.DataFrame.from_dict(dict(
     sentiment=sentiments,
 ))
 
-top_counts.loc[:, "sentiment"] = top_counts.sentiment.apply(lambda row: SENTIMENT[row])
+top_counts.loc[:, "sentiment"] = top_counts.sentiment.apply(lambda row: Sentiment.decode[row])
 #+end_src
 
 #+begin_src python :results output :exports both
 print(TABLE(top_counts.iloc[:20]))
 #+end_src
 
+
 | token   |   count | sentiment   |
 |---------+---------+-------------|
-| :(      |    4571 | negative    |
-| :)      |    3568 | positive    |
-| :-)     |     692 | positive    |
-| :D      |     629 | positive    |
-| thank   |     620 | positive    |
-| :-(     |     493 | negative    |
-| love    |     400 | positive    |
-| follow  |     381 | positive    |
-| i'm     |     343 | negative    |
-| ...     |     331 | negative    |
-| thi     |     318 | negative    |
-| thi     |     303 | positive    |
-| miss    |     301 | negative    |
-| ...     |     289 | positive    |
-| pleas   |     275 | negative    |
-| follow  |     262 | negative    |
-| day     |     246 | positive    |
-| want    |     246 | negative    |
-| wa      |     241 | negative    |
-| good    |     238 | positive    |
+| :(      |    3705 | negative    |
+| :)      |    2967 | positive    |
+| :-)     |     547 | positive    |
+| :D      |     537 | positive    |
+| thank   |     516 | positive    |
+| :-(     |     407 | negative    |
+| follow  |     349 | positive    |
+| love    |     306 | positive    |
+| i'm     |     282 | negative    |
+| ...     |     261 | negative    |
+| miss    |     241 | negative    |
+| ...     |     228 | positive    |
+| pleas   |     215 | negative    |
+| follow  |     211 | negative    |
+| get     |     200 | negative    |
+| want    |     197 | negative    |
+| day     |     194 | positive    |
+| u       |     193 | positive    |
+| good    |     189 | positive    |
+| like    |     189 | positive    |
 
-
-It's interesting that the only repeated tokens in the top 20 are ellipses, "follow" and "thi" and that the four most common tokens were smileys, although that's not surprising, perhaps. I didn't notice this at first, but the most common token is a negative one.
+It's interesting that the only tokens in the top 20 that are both positive and negative are ellipses and "follow" and that the four most common tokens were smileys, although given the nature of tweets I guess the use of smileys (emoticons?) shouldn't be so surprising. I didn't notice this at first, but the most common token is a negative one.
 
 ** Plotting
    The counts themselves are interesting, but it might be more informative to look at their distribution as well as whether some tokens are more positive or negative.
 *** Positive Vs Negative
 #+begin_src python :results none
-plot = top_counts.hvplot(kind="bar", x="sentiment", y="count").opts(
+tooltips = [
+    ("Token", "@token"),
+    ("Sentiment", "@sentiment"),
+    ("Count", "@count"),
+]
+
+hover = HoverTool(tooltips=tooltips)
+
+plot = top_counts.hvplot(kind="bar", x="sentiment", y="count",
+                         hover_cols="all").opts(    
     width=Plot.width,
     height= Plot.height,
     title="Positive and Negative",
     fontscale=2,
-    color=Plot.color,
+    tools=[hover],
+    color=Plot.tan,
+    line_color="white",
 )
 embedded = Embed(plot=plot, file_name="positive_negative_distribution")
 output = embedded()
@@ -359,7 +384,7 @@ print(output)
 </object>
 #+end_export
 
-So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split, suggesting that the negative tweets had a greater diversity of words.
+So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split, maybe because the negative tweets had more diverse tokens.
 
 *** Distribution
 #+begin_src python :results none
@@ -380,9 +405,10 @@ plot = top_counts[:CUTOFF].hvplot.bar(
         width=Plot.width,
         height=Plot.height,
         fontscale=2,
-        color=Plot.color,
-        line_color=Plot.color,
+        color=Plot.tan,
+        line_color=Plot.tan,
         xaxis=None,
+        ylim=(0, None),
         title=f"Log-Log Count Distribution (top {CUTOFF})")
 output = Embed(plot=plot, file_name="count_distribution")()
 #+end_src
@@ -430,17 +456,16 @@ for column in ("positive", "negative"):
     to_plot.loc[:, column] = to_plot[column] + 1
 
 MAX = to_plot.negative.max() + 1
-line = holoviews.Curve(([MIN, MAX], [MIN, MAX])).opts(color="#ce7b6d")
+line = holoviews.Curve(([MIN, MAX], [MIN, MAX])).opts(color=Plot.red)
 scatter = to_plot.hvplot.scatter(
-    color="#4687b7",
+    loglog=True,
+    color=Plot.blue,
     x="positive", y="negative",
     hover_cols=["token"])
 plot = (line * scatter ).opts(
         tools=[hover],
         width=Plot.width,
         height=Plot.height,
-        logx=True,
-        logy=True,
         xlabel="Positive",
         ylabel="Negative",
         fontscale=2,
@@ -458,14 +483,15 @@ print(output)
   <p>Figure Missing</p>
 </object>
 #+end_export
-
-So, we basically end up with two types of groupings - some tokens are lopsided to be either very negative or very positive and they show up in the straight line columns or rows, while other tokens are more evenly split, and they show up in the more distributed blob along the diagonal of the plot.
-
-We can also see which tokens are the most negative (the highest along the y-axis) and the most positive (furthest along the x-axis).
-
-The tokens along or around the red diagonal are evenly positive and negative so they probably aren't useful indicators of sentiment in and of themselves, while those furthest from the diagonal are the most biased to one side or the other so we might expect them to be useful in guessing a tweet's sentiment.
+The tokens along or around the diagonal are evenly positive and negative so they probably aren't useful indicators of sentiment in and of themselves, while those furthest from the diagonal are the most biased to one side or the other so we might expect them to be useful in guessing a tweet's sentiment.
 
 There are some unexpectedly negative tokens like "love" (400, 152) and "thank" (620, 107), but at this point we haven't really started to look at the sentiment yet so I'll leave further exploration for later.
 * End
-**Note:** This is a re-working of an exercise from Coursera's Natural Language Processing specialization.
+  Since the counter gets re-used I'm going to pickle it for later.
 
+#+begin_src python :results none
+with Path(os.environ["TWITTER_COUNTER"]).expanduser().open("wb") as writer:
+    pickle.dump(counter, writer)
+#+end_src
+
+Next in this series: {{% doc %}}01c-the-tweet-vectorizer{{% /doc %}}

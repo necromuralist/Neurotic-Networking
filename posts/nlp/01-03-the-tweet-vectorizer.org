@@ -1,6 +1,6 @@
 #+BEGIN_COMMENT
 .. title: The Tweet Vectorizer
-.. slug: the-tweet-vectorizer
+.. slug: 01c-the-tweet-vectorizer
 .. date: 2020-07-24 16:51:53 UTC-07:00
 .. tags: twitter,nlp
 .. category: NLP
@@ -11,14 +11,16 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9a4aeb7b-e200-4c23-b9f5-244f9fc113c9.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-5fb2fe5e-41b5-43a3-8dd6-fc68323fec92.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
-  We are going to be classifying [[https://help.twitter.com/en/using-twitter/how-to-tweet][tweets]] by positive or negative sentiment, but tweets are free-form text (and images, but we're ignoring those) and we want tabular numbers so in order to be able to work with the tweets we'll have to convert them somehow. That's what we'll be doing here.
+  In the previous post ({{% doc %}}01b-twitter-word-frequencies{{% /doc %}}) I built up a word-counter now we're going to use it to create word-counters for our tweets.
+
+  We are going to be classifying [[https://help.twitter.com/en/using-twitter/how-to-tweet][tweets]] by positive or negative sentiment, but tweets are free-form text (and images, but we're ignoring them) and we want numbers in a table form so in order to be able to work with the tweets we'll have to convert them somehow. That's what we'll be doing here.
 ** Set Up
    This is some preliminary stuff so we have python ready to go.
 *** Imports
@@ -26,42 +28,91 @@
 # python
 from argparse import Namespace
 from functools import partial
+from pathlib import Path
+
+import os
+import pickle
 
 # pypi
+from bokeh.models.tools import HoverTool
+from dotenv import load_dotenv
 from nltk.corpus import twitter_samples
 import holoviews
 import hvplot.pandas
 import pandas
 
+# the vectorizer
+from neurotic.nlp.twitter.vectorizer import TweetVectorizer
+
 # some helper stuff
 from graeae import EmbedHoloviews
 #+end_src
+*** The Environment
+    I'm using environment variables (well, in this case a =.env= file) to keep track of where I save files so this loads the paths into the environment.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
 *** The Data
+#+begin_src python :results none
+training = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_PROCESSED"]).expanduser())
+
+train_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
+
+with Path(os.environ["TWITTER_SENTIMENT"]).expanduser().open("rb") as reader:
+    Sentiment = pickle.load(reader)
+#+end_src
+
+The =training= frame has the cleaned, stemmed, and tokenized version of the tweets.
+
+#+begin_src python :results output :exports both
+print(training.iloc[0])
+#+end_src
+
+#+RESULTS:
+: tweet    [park, get, sunlight, :)]
+: label                            1
+: Name: 0, dtype: object
+
+This is what we need for when things are working. The =train_raw= frame has the tweets as they come from NLTK.
+
+#+begin_src python :results output :exports both
+print(train_raw.iloc[0])
+#+end_src
+
+#+RESULTS:
+: tweet    off to the park to get some sunlight : )
+: label                                           1
+: Name: 0, dtype: object
+
+This is just for double-checking if things aren't working the way we expect.
 *** For Plotting
     These are some helpers for the plotting that I'll do later on.
 
 #+begin_src python :results none
-SLUG = "the-tweet-vectorizer"
+SLUG = "01c-the-tweet-vectorizer"
 Embed = partial(EmbedHoloviews,
                 folder_path=f"files/posts/nlp/{SLUG}")
 
-Plot = Namespace(
-    width=990,
-    height=780,
-    tan="#ddb377",
-    blue="#4687b7",
-    red="#ce7b6d",
-    font_scale=2,
-    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
-)
+with Path(os.environ["TWITTER_PLOT"]).expanduser().open("rb") as reader:
+    Plot = pickle.load(reader)
+#+end_src
+*** The Token Counter
+    I made the counts in a previous post ({{% doc %}}twitter-word-frequencies{{% /doc %}}) so I'll just load it here.
+
+#+begin_src python :results none
+with Path(os.environ["TWITTER_COUNTER"]).expanduser().open("rb") as reader:
+    counter = pickle.load(reader)
 #+end_src
 * Middle
 ** The Tweet Vectors
-   In an earlier post we built a dictionary-like set to count the number of times each token was in a positive tweet and in a negative tweet. To represent a tweet as a vector for training and using the model we're going to sum the total counts for the tokens in the tweet when they are positive and when they are positive. 
+   In an earlier post we built a dictionary-like set to count the number of times each token was in a positive tweet and the number of times it was in a negative tweet. To represent a tweet as a vector we're going to sum the total counts for the tokens in the tweet when they are positive and when they are positive. 
 
 Come again?
 
-Lets say you have a tweet ="a b c"= which tokenizes to =a, b, c=. Looking up the positive and negative tweet counts for each token we get these counts and totals in the bottom row for the tweet.
+Lets say you have a tweet ="a b c"= which tokenizes to =a, b, c= and you look up the positive and negative tweet counts for each token so you add them up, getting this:
 
 | Token | Positive | Negative |
 |-------+----------+----------|
@@ -71,7 +122,7 @@ Lets say you have a tweet ="a b c"= which tokenizes to =a, b, c=. Looking up the
 |-------+----------+----------|
 | Total |        6 | 15       |
 
-So to represent this tweet you would create a vector of the form:
+The bottom row (=total=) has the values for our vector for any tweet containing the tokens /a, b,/ and /c/. So to represent this tweet you would create a vector of the form:
 
 \begin{align}
 \hat{v} &= \langle bias, positive, negative \rangle\\
@@ -80,11 +131,10 @@ So to represent this tweet you would create a vector of the form:
 
 **Note:** The bias is always one (it just is).
 
-
 ** The Tweet Vectorizer
-   This is going to be a class to convert the tokenized tweets for us into vectors.
+   Here's where I'll create the class to create the vectors.
 *** The Testing
-    We'll start with some vaguely BDD-ish testing. First tghe tangles.
+    We'll start with some vaguely BDD-ish testing. First the tangles.
 
 #+begin_src feature :tangle ../../tests/features/twitter/tweet_vectorizer.feature
 Feature: A Tweet Count Vectorizer
@@ -354,7 +404,7 @@ def setup_bad_counter(katamari, mocker):
 # Then it raises an AssertionError
 #+end_src
 *** The Implementation
-    Okay, so here's where we make the class implementation that'll do the vectorizing for us.
+    Okay, so now for the actual class.
 
 #+begin_src python :tangle ../../neurotic/nlp/twitter/vectorizer.py
 # python
@@ -393,10 +443,12 @@ class TweetVectorizer:
     Args:
      tweets: the pre-processed/tokenized tweets to vectorize
      counter: the word counter with the tweet token counts
+     processed: to not process the bulk tweets
      bias: constant to use for the bias
     """
     tweets: Tweets
     counter: WordCounter
+    processed: bool=True
     bias: float=1
     _process: TwitterProcessor=None
     _vectors: numpy.ndarray=None
@@ -421,12 +473,13 @@ class TweetVectorizer:
 
         Args:
          tweet: a string tweet to count up
-         as_array: whether to match the assignment format or not
+         as_array: whether to return an array instead of a list
 
         Returns:
          either a list of floats or a 1 x 3 array
         """
-        tokens = self.process(tweet)
+        # this is a hack to make this work both in bulk and one tweet at a time
+        tokens = tweet if self.processed else self.process(tweet)
         vector = [
             self.bias,
             sum((self.counter.counts[(token, TweetClass.positive)]
@@ -454,47 +507,148 @@ class TweetVectorizer:
         return
 #+end_src
 ** Plotting The Vectors
-   Now that we have a vectorizer, let's see what it looks like when we plot the training set.
+   Now that we have a vectorizer definition, let's see what it looks like when we plot the training set. First, we'll have to convert the training set tweets to the vectors.
 
 #+begin_src python :results output :exports both
-sentiment = {
-    0: "Negative",
-    1:"Positive"
-}
-data.loc[:, "sentiment"] = data.sentiment.map(sentiment)
+vectorizer = TweetVectorizer(tweets=training.tweet.values, counter=counter)
+data = pandas.DataFrame(vectorizer.vectors, columns=
+                        "bias positive negative".split())
 
-print(data.sentiment.value_counts())
-
+data["Sentiment"] = training.label.map(Sentiment.decode)
+print(training.tweet.iloc[0])
+print(data.iloc[0])
 #+end_src
 
 #+RESULTS:
-: Positive    4000
-: Negative    4000
-: Name: sentiment, dtype: int64
+: ['park' 'get' 'sunlight' ':)']
+: bias                1
+: positive         3139
+: negative          208
+: Sentiment    positive
+: Name: 0, dtype: object
 
-If you followed the previous post you can probably figure out that this is the training set.
-
-*** The Weights
-    Since I saved the weights for our Logistic Regression model we can load it now
 
 #+begin_src python :results output :exports both
-weights_path = Path(os.environ["TWITTER_REGRESSION_WEIGHTS"]).expanduser()
-assert weights_path.is_file()
-theta = pandas.read_csv(weights_path)
-print(theta)
+print(train_raw.iloc[0].tweet)
+for token in training.iloc[0].tweet:
+    print(f"{token}\t{counter.counts[(token, 1)]}")
+    print(f"{token}\t{counter.counts[(token, 0)]}")
+#+end_src
 
-# 'weights' is just something to make it easier to remember which column is which
-Weights = Namespace(
-    bias=0,
-    positive=1,
-    negative=2
+#+RESULTS:
+: off to the park to get some sunlight : )
+: park	6
+: park	7
+: get	165
+: get	200
+: sunlight	1
+: sunlight	0
+: :)	2967
+: :)	1
+
+So a smiley face seems to overwhelm other tokens.
+
+#+begin_src python :results output :exports both
+print(data.Sentiment.value_counts())
+#+end_src
+
+#+RESULTS:
+: negative    4013
+: positive    3987
+: Name: Sentiment, dtype: int64
+
+If you followed the previous post you can probably figure out that this is the training set. Weird but I hadn't noticed that they aren't exactly balanced... Anyway, now the plot.
+
+#+begin_src python :results none
+hover = HoverTool(
+    tooltips = [
+        ("Positive", "@positive{0,0}"),
+        ("Negative", "@negative{0,0}"),
+        ("Sentiment", "@Sentiment"),
+    ]
 )
+
+plot = data.hvplot.scatter(x="positive", y="negative", by="Sentiment", fill_alpha=0,
+                           color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               title="Positive vs Negative Tweet Sentiment",
+                           )
+
+output = Embed(plot=plot, file_name="positive_negative_scatter")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
 #+end_src
 
 #+RESULTS:
-:            bias  positive  negative
-: 0  6.369479e-08  0.000537 -0.000558
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
 
+So, each point is a tweet and the color is what the tweet was classified as. I don't know why they seem to group in bunches, but you can sort of see that by using the token counts we've made them separable. This becomes even more obvious if we change the scale to a logarithmic one.
 
+#+begin_src python :results none
+plot = data.hvplot.scatter(x="positive", y="negative", by="Sentiment",
+                           loglog=True,
+                           fill_alpha=0,
+                           color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               xlim=(0, None),
+                               ylim=(0, None),
+                               apply_ranges=True,
+                               title="Positive vs Negative Tweet Sentiment (log-log)",
+                           )
+
+output = Embed(plot=plot, file_name="positive_negative_scatter_log")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter_log.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+I don't know why but the =xlim= and =ylim= arguments don't seem to work when you use a logarithmic scale, but if you zoom out using the =wheel zoom= tool (third icon from the top of the toolbar on the right) you'll see that there's a pretty good separation between the sentiment classifications.
 
 * End
+So, that's it for vectorizing tweets I'll save the values so I don't have to re-do them again when I actually fit the model. Since I changed some values to make it better for plotting I'll change them back first.
+
+#+begin_src python :results none
+data = data.rename(columns={"Sentiment": "sentiment"})
+data["sentiment"] = data.sentiment.map(Sentiment.encode)
+data.to_feather(Path(os.environ["TWITTER_TRAIN_VECTORS"]).expanduser())
+#+end_src
+
+To make it consistent I'm going to convert the test set too.
+
+#+begin_src python :results none
+test = pandas.read_feather(Path(os.environ["TWITTER_TEST_PROCESSED"]).expanduser())
+vectorizer.reset()
+vectorizer.tweets = test.tweet
+test_data = pandas.DataFrame(vectorizer.vectors,
+                             columns="bias positive negative".split())
+test_data["sentiment"] = test.label
+
+test_data.to_feather(Path(os.environ["TWITTER_TEST_VECTORS"]).expanduser())
+#+end_src
+
+We also need to use the vectorizer to vectorize future tweets so I'll pickle that too.
+
+#+begin_src python :results none
+with Path(os.environ["TWITTER_VECTORIZER"]).expanduser().open("wb") as writer:
+    pickle.dump(vectorizer, writer)
+#+end_src
+
+Next up in the series: {{% doc %}}01d-implementing-twitter-logistic-regression{{% /doc %}}.

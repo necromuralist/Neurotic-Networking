@@ -1,6 +1,6 @@
 #+BEGIN_COMMENT
-.. title: Implementing Logistic Regression for Tweet Classification
-.. slug: implementing-twitter-logistic-regression
+.. title: Implementing Logistic Regression for Tweet Sentiment Analysis
+.. slug: 01d-implementing-twitter-logistic-regression
 .. date: 2020-07-14 16:16:22 UTC-07:00
 .. tags: nlp,sentiment analysis,logistic regression,twitter
 .. category: NLP
@@ -12,14 +12,14 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3c98716c-d867-4d85-bdf9-b08a532dd748.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f4ceef62-5b21-4710-a34a-36d2e299f186.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
-  This will implement a Logistic Regression model to train on our word counts to classify tweets by sentiment.
+  In the previous post in this series ({{% doc %}}01c-the-tweet-vectorizer{{% /doc %}} I transformed some tweet data to vectors based on the sums of the positive and negative tokens in each tweet. This post will implement a Logistic Regression model to train on those vectors to classify tweets by sentiment.
 ** Set Up
 *** Imports
 #+begin_src python :results none
@@ -31,6 +31,7 @@ from typing import Union
 
 import math
 import os
+import pickle
 
 # from pypi
 from dotenv import load_dotenv
@@ -57,39 +58,37 @@ from neurotic.nlp.twitter.vectorizer import TweetVectorizer
 # for plotting
 from graeae import EmbedHoloviews
 #+end_src
+*** The Dotenv
+    This loads the locations of previous data and object saves I made.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
 *** The Data
-    Download the data (if it hasn't been downloaded before).
+    I had the data saved previously so I'll load them.
 
-#+begin_src python :results none
-nltk.download("twitter_samples")
+#+begin_src python :results output :exports both
+training =  pandas.read_feather(
+    Path(os.environ["TWITTER_TRAIN_VECTORS"]).expanduser())
+testing = pandas.read_feather(
+    Path(os.environ["TWITTER_TEST_VECTORS"]).expanduser())
+
+print(f"Training: {training.shape}")
+print(f"Testing: {testing.shape}")
 #+end_src
 
-#+begin_src python :results none
-positive = twitter_samples.strings("positive_tweets.json")
-negative = twitter_samples.strings("negative_tweets.json")
+#+RESULTS:
+: Training: (8000, 4)
+: Testing: (2000, 4)
 
-Sentiment = Namespace(
-    positive = 1,
-    negative = 0,
-)
-positive_labels = [Sentiment.positive] * len(positive)
-negative_labels = [Sentiment.negative] * len(negative)
-#+end_src
 *** For Plotting
 #+begin_src python :results none
 SLUG = "implementing-twitter-logistic-regression"
 Embed = partial(EmbedHoloviews,
                 folder_path=f"files/posts/nlp/{SLUG}")
 
-Plot = Namespace(
-    width=990,
-    height=780,
-    tan="#ddb377",
-    blue="#4687b7",
-    red="#ce7b6d",
-    font_scale=2,
-    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
-)
+with Path(os.environ["TWITTER_PLOT"]).expanduser().open("rb") as reader:
+    Plot = pickle.load(reader)
 #+end_src
 *** Types
     Some stuff for type hinting.
@@ -99,80 +98,6 @@ Tweet = Union[numpy.ndarray, float]
 PositiveProbability = Tweet
 #+end_src
 * Middle
-** Setup the Training and Testing Sets
-   This is a new step in the process. In the previous explorations we used the entire tweet sets but since we're going to train a model we need to split it into training and testing sets.
-
-#+begin_src python :results none
-TRAINING_SIZE = 4000
-SEED = 20200714
-positive_x_train, positive_x_test, positive_y_train, positive_y_test = train_test_split(
-    positive, positive_labels, train_size=TRAINING_SIZE, random_state=SEED)
-
-negative_x_train, negative_x_test, negative_y_train, negative_y_test = train_test_split(
-    negative, negative_labels, train_size=TRAINING_SIZE, random_state=SEED)
-
-x_train = positive_x_train + negative_x_train
-x_test = positive_x_test + negative_x_test
-
-# the initial code I wrote assumes that we're using lists for the tweets and labels
-# so later on convert the y-data to arrays, but keep them al lists for now
-SHAPE = (-1, 1)
-y_train = positive_y_train + negative_y_train
-y_test = positive_y_test + negative_y_test
-
-x_check = positive[:TRAINING_SIZE] + negative[:TRAINING_SIZE]
-y_check = positive_labels[:TRAINING_SIZE] + negative_labels[:TRAINING_SIZE]
-#+end_src
-
-#+begin_src python :results none
-TRAIN_SIZE = 2 * TRAINING_SIZE
-TEST_SIZE = 2 * len(positive) - TRAIN_SIZE
-expect(len(x_train)).to(equal(TRAIN_SIZE))
-expect(len(x_test)).to(equal(TEST_SIZE))
-expect(len(y_train)).to(equal(TRAIN_SIZE))
-expect(len(y_test)).to(equal(TEST_SIZE))
-#+end_src
-*** Build the Counts
-    Now we'll build the counts for the training set.
-
-#+begin_src python :results output :exports both
-counter = WordCounter(tweets=x_train, labels=y_train) 
-
-print(f"{len(counter.counts):,}")
-#+end_src
-
-#+RESULTS:
-: 11,443
-
-
-#+begin_src python :results output :exports both
-print(counter.counts.most_common(1))
-#+end_src
-
-#+RESULTS:
-: [((':(', 0), 3670)]
-
-So, as a reminder, the =counts= is a dictionary-like object that holds =(token, sentiment)= pairs as keys mapped to the number of tweets that had the token and were classified as having that sentiment. So in the sample given, the token is =:(= and it was in 3,661 negative tweets (because 0 indicates a negative tweet).
-
-*** Try the Vectorizer
-    *Note:* I changed the regular expression tweet cleaner to only remove URIs up to a whitespace, because it was wiping out emoticons that came after them so my numbers no longer match the Coursera numbers exactly.
-
-#+begin_src python :results output :exports both
-check_counter = WordCounter(tweets=x_check, labels=y_check)
-vectorizer = TweetVectorizer(tweets=x_check, counter=check_counter)
-
-print(f"First Tweet: {x_check[0]}")
-print(f"First count vector: {vectorizer.vectors[0]}")
-
-actual = vectorizer.extract_features("nunya noa agar", as_array=True)
-expected = [[1., 0., 0.]]
-expect(numpy.allclose(expected, actual)).to(be_true)
-#+end_src
-
-#+RESULTS:
-: First Tweet: #FollowFriday @France_Inte @PKuchly57 @Milipol_Paris for being top engaged members in my community this week :)
-: First count vector: [   1 3133   61]
-
 ** Logistic Regression
    Now that we have the data it's time to implement the [[https://www.wikiwand.com/en/Logistic_regression][Logistic Regression]] model to classify tweets as positive or negative.
 *** The Sigmoid
@@ -500,7 +425,7 @@ If you look at the implementation you can see that there are some changes made t
 #+end_export
 
 **** Test It
-     First we'll make a fake (random) input set.
+     First we'll make a fake (random) input set to make it easier to check the gradient descent.
 #+begin_src python :results none
 numpy.random.seed(1)
 bias = numpy.ones((10, 1))
@@ -534,26 +459,25 @@ print(f"The trained weights are {[round(t, 8) for t in numpy.squeeze(fake_weight
 : The trained weights are [4.1e-07, 0.00035658, 7.309e-05]
 
 ** Train the Model
-   Now that we have our parts let's actually train the model using the real training data. At this point we need everything to be numpy arrays so I'll convert the y-sets (the vectorizer already does this for the x-sets).
-
-#+begin_src python :results none
-y_train = numpy.array(y_train).reshape((-1, 1))
-#+end_src
+   Now that we have our parts let's actually train the model using the real training data. I originally did this expecting numpy arrays (like in earlier steps I was expecting python lists instead of numpy arrays - stuff changes) so I'll be extracting the relevant columns from the pandas DataFrame and converting them back to arrays.
 
 #+begin_src python :results output :exports both
-train_vectorizer = TweetVectorizer(x_train, counter)
 weights = numpy.zeros((3, 1))
+eta = 1e-9
+iterations = 1500
 final_loss, weights, losses = gradient_descent(
-    x=train_vectorizer.vectors, y=y_train, weights=weights,
-    learning_rate=1e-9, iterations=1500)
+    x=training[["bias", "positive", "negative"]].values,
+    y=training.sentiment.values, weights=weights,
+    learning_rate=eta, iterations=iterations)
 
 print(f"The log-loss after training is {final_loss:.8f}.")
 print(f"The resulting vector of weights is {[round(t, 8) for t in numpy.squeeze(weights)]}")
 #+end_src
 
 #+RESULTS:
-: The log-loss after training is 0.22361758.
-: The resulting vector of weights is [6e-08, 0.00053882, -0.00055969]
+: The log-loss after training is nan.
+: The resulting vector of weights is [nan, nan, nan]
+
 
 #+begin_src python :results none
 plot_losses = pandas.DataFrame.from_dict({"Log-Loss": losses})
@@ -581,6 +505,7 @@ print(output)
 As you can see, the losses are still on the decline, but we'll stop here to see how it's doing.
 
 ** Test the Model
+   This will be a class to predict the sentiment of a tweet using our model.
 
 #+begin_src python :tangle ../../neurotic/nlp/twitter/sentiment.py
 # pypi
@@ -645,50 +570,59 @@ class TweetSentiment:
         return numpy.round(self.sigmoid(self.vectorizer.vectors.dot(self.theta)))
 #+end_src
 
+To build the =TweetSentiment= I'll first load the vectorizer that I pickled in {{% doc %}}the-tweet-vectorizer{{% /doc %}}.
+
+#+begin_src python :results none
+with Path(os.environ["TWITTER_VECTORIZER"]).expanduser().open("rb") as reader:
+    vectorizer = pickle.load(reader)
+#+end_src
+
+Now the =TweetSentiment=.
+
 #+begin_src python :results output :exports both
-sentiment = TweetSentiment(train_vectorizer, weights)
+sentiment = TweetSentiment(vectorizer, weights)
 for tweet in ['I am happy', 'I am bad', 'this movie should have been great.', 'great', 'great great', 'great great great', 'great great great great']:
     print(f'{tweet} -> {sentiment.probability_positive(tweet)}')
 
 #+end_src
 
 #+RESULTS:
-: I am happy -> 0.5194180879292754
-: I am bad -> 0.49324236291188817
-: this movie should have been great. -> 0.5155519549115258
-: great -> 0.5159253614387586
-: great great -> 0.5318184293628917
-: great great great -> 0.5476472009859494
-: great great great great -> 0.5633801766216647
+: I am happy -> 0.5000116603547458
+: I am bad -> 0.5000042596595592
+: this movie should have been great. -> 0.5000112046942453
+: great -> 0.5000087076231243
+: great great -> 0.5000173410082799
+: great great great -> 0.5000259743934251
+: great great great great -> 0.5000346077785548
 
 Strangely very near the center. Probably because the words weren't that commonly used in our training set.
 
 #+begin_src python :results output :exports both
-totals = sum(counter.counts.values())
-print(f"Great positive percentage: {100 * counter.counts[('great', 1)]/totals:.2f} %")
-print(f"Great negative percentage: {100 * counter.counts[('great', 0)]/totals:.2f} % ")
+totals = sum(vectorizer.counter.counts.values())
+print(f"Great positive percentage: {100 * vectorizer.counter.counts[('great', 1)]/totals:.2f} %")
+print(f"Great negative percentage: {100 * vectorizer.counter.counts[('great', 0)]/totals:.2f} % ")
 #+end_src
 
 #+RESULTS:
-: Great positive percentage: 0.25 %
-: Great negative percentage: 0.03 % 
+: Great positive percentage: 0.23 %
+: Great negative percentage: 0.02 % 
 
 Now we can see how it did overall.
 
 #+begin_src python :results output :exports both
-y_test = numpy.array(y_test).reshape((-1, 1))
-test_vectorizer = TweetVectorizer(x_test, counter)
+test_data = pandas.read_csv(Path(os.environ["TWITTER_TEST_SET"]).expanduser())
+test_vectorizer = TweetVectorizer(test_data.tweet.values, vectorizer.counter)
 sentiment = TweetSentiment(test_vectorizer, weights)
 
-predictions = sentiment()
-correct = sum(predictions == y_test)
-print(f"Accuracy: {correct[0]/len(y_test)}")
+predictions = sentiment()[:, 0]
+correct = sum(predictions == testing.sentiment.values)
+print(f"Accuracy: {correct/len(test_data)}")
 #+end_src
 
 #+RESULTS:
-: Accuracy: 0.9945
+: Accuracy: 0.4995835415625521
 
-That does surprisingly well. But what did we get wrong?
+Whoops.
 
 ** The Wrong Stuff
 #+begin_src python :results output :exports both
@@ -838,7 +772,7 @@ print(f"Classified as {sentiments[sentiment.classify(tweet)]}")
 classifier = LogisticRegressionCV(
     random_state=2020,
     max_iter=1500,
-    scoring="neg_log_loss").fit(train_vectorizer.vectors, y_train)
+    scoring="neg_log_loss").fit(vectorizer.vectors, y_train)
 
 predictions = classifier.predict(test_vectorizer.vectors).reshape((-1, 1))
 correct = sum(predictions == y_test)
