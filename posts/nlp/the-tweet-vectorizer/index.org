@@ -1,0 +1,654 @@
+#+BEGIN_COMMENT
+.. title: The Tweet Vectorizer
+.. slug: the-tweet-vectorizer
+.. date: 2020-07-24 16:51:53 UTC-07:00
+.. tags: twitter,nlp
+.. category: NLP
+.. link: 
+.. description: Transforming Tweets into count vectors.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e48b9fbe-999d-4243-acd6-a3fcd5db3a39.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  In the previous post ({{% doc %}}twitter-word-frequencies{{% /doc %}}) I built up a word-counter now we're going to use it to create word-counters for our tweets.
+
+  We are going to be classifying [[https://help.twitter.com/en/using-twitter/how-to-tweet][tweets]] by positive or negative sentiment, but tweets are free-form text (and images, but we're ignoring them) and we want numbers in a table form so in order to be able to work with the tweets we'll have to convert them somehow. That's what we'll be doing here.
+** Set Up
+   This is some preliminary stuff so we have python ready to go.
+*** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+import os
+import pickle
+
+# pypi
+from bokeh.models.tools import HoverTool
+from dotenv import load_dotenv
+from nltk.corpus import twitter_samples
+import holoviews
+import hvplot.pandas
+import pandas
+
+# the vectorizer
+from neurotic.nlp.twitter.vectorizer import TweetVectorizer
+
+# some helper stuff
+from graeae import EmbedHoloviews
+#+end_src
+*** The Environment
+    I'm using environment variables (well, in this case a =.env= file) to keep track of where I save files so this loads the paths into the environment.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+*** The Data
+#+begin_src python :results none
+training = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_PROCESSED"]).expanduser())
+
+train_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
+
+with Path(os.environ["TWITTER_SENTIMENT"]).expanduser().open("rb") as reader:
+    Sentiment = pickle.load(reader)
+#+end_src
+
+The =training= frame has the cleaned, stemmed, and tokenized version of the tweets.
+
+#+begin_src python :results output :exports both
+print(training.iloc[0])
+#+end_src
+
+#+RESULTS:
+: tweet    [park, get, sunlight, :)]
+: label                            1
+: Name: 0, dtype: object
+
+This is what we need for when things are working. The =train_raw= frame has the tweets as they come from NLTK.
+
+#+begin_src python :results output :exports both
+print(train_raw.iloc[0])
+#+end_src
+
+#+RESULTS:
+: tweet    off to the park to get some sunlight : )
+: label                                           1
+: Name: 0, dtype: object
+
+This is just for double-checking if things aren't working the way we expect.
+*** For Plotting
+    These are some helpers for the plotting that I'll do later on.
+
+#+begin_src python :results none
+SLUG = "the-tweet-vectorizer"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{SLUG}")
+
+with Path(os.environ["TWITTER_PLOT"]).expanduser().open("rb") as reader:
+    Plot = pickle.load(reader)
+#+end_src
+*** The Token Counter
+    I made the counts in a previous post ({{% doc %}}twitter-word-frequencies{{% /doc %}}) so I'll just load it here.
+
+#+begin_src python :results none
+with Path(os.environ["TWITTER_COUNTER"]).expanduser().open("rb") as reader:
+    counter = pickle.load(reader)
+#+end_src
+* Middle
+** The Tweet Vectors
+   In an earlier post we built a dictionary-like set to count the number of times each token was in a positive tweet and the number of times it was in a negative tweet. To represent a tweet as a vector we're going to sum the total counts for the tokens in the tweet when they are positive and when they are positive. 
+
+Come again?
+
+Lets say you have a tweet ="a b c"= which tokenizes to =a, b, c= and you look up the positive and negative tweet counts for each token so you add them up, getting this:
+
+| Token | Positive | Negative |
+|-------+----------+----------|
+| a     |        1 |        4 |
+| b     |        2 |        5 |
+| c     |        3 |        6 |
+|-------+----------+----------|
+| Total |        6 | 15       |
+
+The bottom row (=total=) has the values for our vector for any tweet containing the tokens /a, b,/ and /c/. So to represent this tweet you would create a vector of the form:
+
+\begin{align}
+\hat{v} &= \langle bias, positive, negative \rangle\\
+&= \langle 1, 6, 15\rangle\\
+\end{align}
+
+**Note:** The bias is always one (it just is).
+
+** The Tweet Vectorizer
+   Here's where I'll create the class to create the vectors.
+*** The Testing
+    We'll start with some vaguely BDD-ish testing. First the tangles.
+
+#+begin_src feature :tangle ../../tests/features/twitter/tweet_vectorizer.feature
+Feature: A Tweet Count Vectorizer
+
+<<extract-features-feature>>
+
+<<get-vectors-feature>>
+
+<<reset-vectors-feature>>
+
+<<check-rep-vectorizer-tweets-feature>>
+
+<<check-rep-vectorizer-counter-feature>>
+#+end_src
+
+#+begin_src python :tangle ../../tests/functional/twitter/test_vectorizer.py
+# from python
+from collections import Counter
+
+import random
+
+# from pypi
+from expects import (
+    be,
+    be_true,
+    contain_exactly,
+    expect,
+    raise_error,
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    when,
+    then
+)
+
+import numpy
+
+# this testing
+from fixtures import katamari
+
+# software under test
+from neurotic.nlp.twitter.vectorizer import Columns, TweetVectorizer
+from neurotic.nlp.twitter.counter import WordCounter
+
+and_also = then
+scenarios("../../features/twitter/tweet_vectorizer.feature")
+
+<<test-extract-features>>
+
+<<test-vectors>>
+
+<<test-reset-vectors>>
+
+<<test-vectorizer-tweets-check-rep>>
+
+<<test-vectorizer-counter-check-rep>>
+#+end_src
+
+And now we can move on to the tests.
+**** Extract Features
+     For training and testing I'm going to want to convert them in bulk, but first I'll create a method so that a single tweet can be vectorized.
+
+#+begin_src feature :noweb-ref extract-features-feature
+Scenario: A user converts a tweet to a feature-vector
+
+Given a Tweet Vectorizer
+When the user converts a tweet to a feature-vector
+Then it's the expected feature-vector
+#+end_src
+
+#+begin_src python :noweb-ref test-extract-features
+# Scenario: A user converts a tweet to a feature-vector
+
+
+@given("a Tweet Vectorizer")
+def setup_tweet_vectorizer(katamari, mocker):
+    katamari.bias = random.randrange(100) * random.random()
+    TWEETS = 1
+
+    TOKENS = "A B C".split()
+    katamari.tweets = [TOKENS for tweet in range(TWEETS)]
+    katamari.counter = mocker.MagicMock(spec=WordCounter)
+    katamari.counter.processed = katamari.tweets
+    katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
+                                          counter=katamari.counter,
+                                          bias=katamari.bias)
+
+    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
+                                                  ('B', 1):2,
+                                                  ('C', 0):3})
+    katamari.vectorizer._process = mocker.MagicMock()
+    katamari.vectorizer._process.return_value = "A B C".split()
+    return
+
+
+@when("the user converts a tweet to a feature-vector")
+def extract_features(katamari):
+    katamari.actual = katamari.vectorizer.extract_features("A B C")
+    katamari.actual_array = katamari.vectorizer.extract_features("A B C", as_array=True)
+    katamari.expected = [katamari.bias, 2, 4]
+    katamari.expected_array = numpy.array(katamari.expected)
+    return
+
+
+@then("it's the expected feature-vector")
+def check_feature_vectors(katamari):
+    expect(numpy.allclose(katamari.actual_array, katamari.expected_array)).to(be_true)
+    expect(katamari.actual).to(contain_exactly(*katamari.expected))
+
+    expect(katamari.actual_array.shape).to(contain_exactly(1, 3))
+    return
+#+end_src
+**** Get the Vectors
+
+#+begin_src feature :noweb-ref get-vectors-feature
+Scenario: A user retrieves the count vectors
+Given a user sets up the Count Vectorizer with tweets
+When the user checks the count vectors
+Then the first column is the bias colum
+And the positive counts are correct
+And the negative counts are correct
+#+end_src
+
+#+begin_src python :noweb-ref test-vectors
+# Feature: A Tweet Count Vectorizer
+
+# Scenario: A user retrieves the count vectors
+
+@given("a user sets up the Count Vectorizer with tweets")
+def setup_vectorizer(katamari, faker, mocker):
+    katamari.bias = random.randrange(100) * random.random()
+    TWEETS = 3
+
+    TOKENS = "A B C"
+    katamari.tweets = [TOKENS for tweet in range(TWEETS)]
+    katamari.counter = mocker.MagicMock(spec=WordCounter)
+
+    katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
+                                          counter=katamari.counter,
+                                          bias=katamari.bias)
+
+    katamari.vectorizer._process = mocker.MagicMock()
+    katamari.vectorizer._process.return_value = TOKENS.split()
+    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
+                                                  ('B', 1):2,
+                                                  ('C', 0):3})
+    katamari.negative = numpy.array([sum([katamari.counter.counts[(token, 0)]
+                                      for token in TOKENS])
+                                      for row in range(TWEETS)])
+    katamari.positive = numpy.array([sum([katamari.counter.counts[(token, 1)]
+                                      for token in TOKENS])
+                                     for row in range(TWEETS)])
+    return
+
+
+@when("the user checks the count vectors")
+def check_count_vectors(katamari):
+    # kind of silly, but useful for troubleshooting
+    katamari.actual_vectors = katamari.vectorizer.vectors
+    return
+
+
+@then("the first column is the bias colum")
+def check_bias(katamari):
+    expect(all(katamari.actual_vectors[:, Columns.bias]==katamari.bias)).to(be_true)
+    return
+
+
+@and_also("the positive counts are correct")
+def check_positive_counts(katamari):
+    positive = katamari.actual_vectors[:, Columns.positive]
+    expect(numpy.allclose(positive, katamari.positive)).to(be_true)
+    return
+
+
+@and_also("the negative counts are correct")
+def check_negative_counts(katamari):
+    negative = katamari.actual_vectors[:, Columns.negative]
+    expect(numpy.allclose(negative, katamari.negative)).to(be_true)
+    return
+#+end_src
+
+**** Reset the Vectors
+#+begin_src feature :noweb-ref reset-vectors-feature
+Scenario: The vectors are reset
+Given a Tweet Vectorizer with the vectors set
+When the user calls the reset method
+Then the vectors are gone
+#+end_src
+
+#+begin_src python :noweb-ref test-reset-vectors
+# Scenario: The vectors are reset
+
+
+@given("a Tweet Vectorizer with the vectors set")
+def setup_vectors(katamari, faker, mocker):
+    katamari.vectors = mocker.MagicMock()
+    katamari.vectorizer = TweetVectorizer(tweets = [faker.sentence()], counter=None)
+    katamari.vectorizer._vectors = katamari.vectors
+    return
+
+
+@when("the user calls the reset method")
+def call_reset(katamari):
+    expect(katamari.vectorizer.vectors).to(be(katamari.vectors))
+    katamari.vectorizer.reset()
+    return
+
+
+@then("the vectors are gone")
+def check_vectors_gone(katamari):
+    expect(katamari.vectorizer._vectors).to(be(None))
+    return
+#+end_src
+**** Check Rep
+#+begin_src feature :noweb-ref check-rep-vectorizer-tweets-feature
+Scenario: the check-rep is called with bad tweets
+Given a Tweet Vectorizer with bad tweets
+When check-rep is called
+Then it raises an AssertionError
+#+end_src
+
+#+begin_src python :noweb-ref test-vectorizer-tweets-check-rep
+# Scenario: the check-rep is called with bad tweets
+
+
+@given("a Tweet Vectorizer with bad tweets")
+def setup_bad_tweets(katamari):
+    katamari.vectorizer = TweetVectorizer(tweets=[5],
+                                          counter=WordCounter(
+                                              tweets=None, labels=None))
+    return
+
+
+@when("check-rep is called")
+def call_check_rep(katamari):
+    def bad_call():
+        katamari.vectorizer.check_rep()
+    katamari.bad_call = bad_call
+    return
+
+
+@then("it raises an AssertionError")
+def check_assertion_error(katamari):
+    expect(katamari.bad_call).to(raise_error(AssertionError))
+    return
+#+end_src
+
+#+begin_src feature :noweb-ref check-rep-vectorizer-counter-feature
+Scenario: the check-rep is called with a bad word-counter
+Given a Tweet Vectorizer with the wrong counter object
+When check-rep is called
+Then it raises an AssertionError
+#+end_src
+
+#+begin_src python :noweb-ref test-vectorizer-counter-check-rep
+# Scenario: the check-rep is called with a bad word-counter
+
+
+@given("a Tweet Vectorizer with the wrong counter object")
+def setup_bad_counter(katamari, mocker):
+    katamari.vectorizer = TweetVectorizer(tweets=["apple"], counter=mocker.MagicMock())
+    return
+
+# When check-rep is called
+# Then it raises an AssertionError
+#+end_src
+*** The Implementation
+    Okay, so now for the actual class.
+
+#+begin_src python :tangle ../../neurotic/nlp/twitter/vectorizer.py
+# python
+from argparse import Namespace
+from collections import Counter
+from typing import List, Union
+
+# pypi
+import numpy
+import attr
+
+
+# this package
+from neurotic.nlp.twitter.processor import TwitterProcessor
+from neurotic.nlp.twitter.counter import WordCounter
+
+Columns = Namespace(
+    bias=0,
+    positive=1,
+    negative=2
+)
+
+TweetClass = Namespace(
+    positive=1,
+    negative=0
+)
+
+# some types
+Tweets = List[List[str]]
+Vector = Union[numpy.ndarray, list]
+
+
+@attr.s(auto_attribs=True)
+class TweetVectorizer:
+    """A tweet vectorizer
+
+    Args:
+     tweets: the pre-processed/tokenized tweets to vectorize
+     counts: the counter with the tweet token counts
+     processed: to not process the bulk tweets
+     bias: constant to use for the bias
+    """
+    tweets: Tweets
+    counts: Counter
+    processed: bool=True
+    bias: float=1
+    _process: TwitterProcessor=None
+    _vectors: numpy.ndarray=None
+
+    @property
+    def process(self) -> TwitterProcessor:
+        """Processes tweet strings to tokens"""
+        if self._process is None:
+            self._process = TwitterProcessor()
+        return self._process
+
+    @property
+    def vectors(self) -> numpy.ndarray:
+        """The vectorized tweet counts"""
+        if self._vectors is None:
+            rows = [self.extract_features(tweet) for tweet in self.tweets]
+            self._vectors = numpy.array(rows)
+        return self._vectors
+
+    def extract_features(self, tweet: str, as_array: bool=False) -> Vector:
+        """converts a single tweet to an array of counts
+
+        Args:
+         tweet: a string tweet to count up
+         as_array: whether to return an array instead of a list
+
+        Returns:
+         either a list of floats or a 1 x 3 array
+        """
+        # this is a hack to make this work both in bulk and one tweet at a time
+        tokens = tweet if self.processed else self.process(tweet)
+        vector = [
+            self.bias,
+            sum((self.counts[(token, TweetClass.positive)]
+                 for token in tokens)),
+            sum((self.counts[(token, TweetClass.negative)]
+                                for token in tokens))
+        ]
+        vector = numpy.array([vector]) if as_array else vector
+        return vector
+
+    def reset(self) -> None:
+        """Removes the vectors"""
+        self._vectors = None
+        return
+
+    def check_rep(self) -> None:
+        """Checks that the tweets and word-counter are set
+
+        Raises:
+         AssertionError if one of them isn't right
+        """
+        for tweet in self.tweets:
+            assert type(tweet) is str
+        assert type(self.counter) is Counter
+        return
+#+end_src
+** Plotting The Vectors
+   Now that we have a vectorizer definition, let's see what it looks like when we plot the training set. First, we'll have to convert the training set tweets to the vectors.
+
+#+begin_src python :results output :exports both
+vectorizer = TweetVectorizer(tweets=training.tweet.values, counter=counter)
+data = pandas.DataFrame(vectorizer.vectors, columns=
+                        "bias positive negative".split())
+
+data["Sentiment"] = training.label.map(Sentiment.decode)
+print(training.tweet.iloc[0])
+print(data.iloc[0])
+#+end_src
+
+#+RESULTS:
+: ['park' 'get' 'sunlight' ':)']
+: bias                1
+: positive         3139
+: negative          208
+: Sentiment    positive
+: Name: 0, dtype: object
+
+
+#+begin_src python :results output :exports both
+print(train_raw.iloc[0].tweet)
+for token in training.iloc[0].tweet:
+    print(f"{token}\t{counter.counts[(token, 1)]}")
+    print(f"{token}\t{counter.counts[(token, 0)]}")
+#+end_src
+
+#+RESULTS:
+: off to the park to get some sunlight : )
+: park	6
+: park	7
+: get	165
+: get	200
+: sunlight	1
+: sunlight	0
+: :)	2967
+: :)	1
+
+So a smiley face seems to overwhelm other tokens.
+
+#+begin_src python :results output :exports both
+print(data.Sentiment.value_counts())
+#+end_src
+
+#+RESULTS:
+: negative    4013
+: positive    3987
+: Name: Sentiment, dtype: int64
+
+If you followed the previous post you can probably figure out that this is the training set. Weird but I hadn't noticed that they aren't exactly balanced... Anyway, now the plot.
+
+#+begin_src python :results none
+hover = HoverTool(
+    tooltips = [
+        ("Positive", "@positive{0,0}"),
+        ("Negative", "@negative{0,0}"),
+        ("Sentiment", "@Sentiment"),
+    ]
+)
+
+plot = data.hvplot.scatter(x="positive", y="negative", by="Sentiment", fill_alpha=0,
+                           color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               title="Positive vs Negative Tweet Sentiment",
+                           )
+
+output = Embed(plot=plot, file_name="positive_negative_scatter")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So, each point is a tweet and the color is what the tweet was classified as. I don't know why they seem to group in bunches, but you can sort of see that by using the token counts we've made them separable. This becomes even more obvious if we change the scale to a logarithmic one.
+
+#+begin_src python :results none
+plot = data.hvplot.scatter(x="positive", y="negative", by="Sentiment",
+                           loglog=True,
+                           fill_alpha=0,
+                           color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               xlim=(0, None),
+                               ylim=(0, None),
+                               apply_ranges=True,
+                               title="Positive vs Negative Tweet Sentiment (log-log)",
+                           )
+
+output = Embed(plot=plot, file_name="positive_negative_scatter_log")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter_log.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+I don't know why but the =xlim= and =ylim= arguments don't seem to work when you use a logarithmic scale, but if you zoom out using the =wheel zoom= tool (third icon from the top of the toolbar on the right) you'll see that there's a pretty good separation between the sentiment classifications.
+
+* End
+So, that's it for vectorizing tweets I'll save the values so I don't have to re-do them again when I actually fit the model. Since I changed some values to make it better for plotting I'll change them back first.
+
+#+begin_src python :results none
+data = data.rename(columns={"Sentiment": "sentiment"})
+data["sentiment"] = data.sentiment.map(Sentiment.encode)
+data.to_feather(Path(os.environ["TWITTER_TRAIN_VECTORS"]).expanduser())
+#+end_src
+
+To make it consistent I'm going to convert the test set too.
+
+#+begin_src python :results none
+test = pandas.read_feather(Path(os.environ["TWITTER_TEST_PROCESSED"]).expanduser())
+test_vectorizer = TweetVectorizer(tweets=test.tweet, counter=counter)
+test_data = pandas.DataFrame(test_vectorizer.vectors,
+                             columns="bias positive negative".split())
+test_data["sentiment"] = test.label
+
+test_data.to_feather(Path(os.environ["TWITTER_TEST_VECTORS"]).expanduser())
+#+end_src
+
+We also need to use the vectorizers to vectorize future tweets so I'll pickle them too. 
+
+#+begin_src python :results none
+with Path(os.environ["TWITTER_VECTORIZER"]).expanduser().open("wb") as writer:
+    pickle.dump(vectorizer, writer)
+#+end_src
+
+Next up in the series: {{% doc %}}implementing-twitter-logistic-regression{{% /doc %}}.

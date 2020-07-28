@@ -18,14 +18,15 @@
 <link href="../../../site.webmanifest" rel="manifest">
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript"></script>
 <meta content="Cloistered Monkey" name="author">
-<link href="../twitter-preprocessing-with-nltk/" rel="prev" title="Twitter Preprocessing With NLTK" type="text/html">
-<link href="../twitter-logistic-regression/" rel="next" title="Twitter Logistic Regression Visualization" type="text/html">
+<link href="../01-twitter-preprocessing-with-nltk/" rel="prev" title="Twitter Preprocessing With NLTK" type="text/html">
+<link href="../implementing-twitter-logistic-regression/" rel="next" title="Implementing Logistic Regression for Tweet Sentiment Analysis" type="text/html">
 <meta content="Neurotic Networking" property="og:site_name">
 <meta content="Twitter Word Frequencies" property="og:title">
 <meta content="https://necromuralist.github.io/Neurotic-Networking/posts/nlp/twitter-word-frequencies/" property="og:url">
 <meta content="Looking at tweet word frequencies." property="og:description">
 <meta content="article" property="og:type">
 <meta content="2020-07-07T18:19:19-07:00" property="article:published_time">
+<meta content="counting" property="article:tag">
 <meta content="nlp" property="article:tag">
 <meta content="nltk" property="article:tag">
 <meta content="twitter" property="article:tag">
@@ -75,38 +76,45 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#orgd22a50b">Beginning</a>
+<li><a href="#orgf31a040">Beginning</a>
 <ul>
-<li><a href="#org5dd0fa9">Setup</a></li>
+<li><a href="#org935e521">Setup</a></li>
 </ul>
 </li>
-<li><a href="#orge09e354">Middle</a>
+<li><a href="#org0fd0cc6">Middle</a>
 <ul>
-<li><a href="#orgca376bb">Word Frequencies</a></li>
-<li><a href="#orgbfa0f41">Counting</a></li>
-<li><a href="#orgb23899d">Plotting</a></li>
+<li><a href="#orga6d3994">Word Frequencies</a></li>
+<li><a href="#org0e37f48">Counting</a></li>
+<li><a href="#org660b8db">Plotting</a></li>
 </ul>
 </li>
-<li><a href="#orgb92dc66">End</a></li>
+<li><a href="#org4c814b0">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgd22a50b">
-<h2 id="orgd22a50b">Beginning</h2>
-<div class="outline-text-2" id="text-orgd22a50b"></div>
-<div class="outline-3" id="outline-container-org5dd0fa9">
-<h3 id="org5dd0fa9">Setup</h3>
-<div class="outline-text-3" id="text-org5dd0fa9"></div>
-<div class="outline-4" id="outline-container-orgbe9f441">
-<h4 id="orgbe9f441">Imports</h4>
-<div class="outline-text-4" id="text-orgbe9f441">
+<div class="outline-2" id="outline-container-orgf31a040">
+<h2 id="orgf31a040">Beginning</h2>
+<div class="outline-text-2" id="text-orgf31a040">
+<p>In the previous post in this series (<a href="../01-twitter-preprocessing-with-nltk/">Twitter Preprocessing With NLTK</a>) I made a pre-processor for tweets, now I'm going to make a counter that counts how many times a certain token shows up in positive and negative tweets.</p>
+</div>
+<div class="outline-3" id="outline-container-org935e521">
+<h3 id="org935e521">Setup</h3>
+<div class="outline-text-3" id="text-org935e521"></div>
+<div class="outline-4" id="outline-container-org01ca5e4">
+<h4 id="org01ca5e4">Imports</h4>
+<div class="outline-text-4" id="text-org01ca5e4">
 <div class="highlight">
 <pre><span></span><span class="c1"># from python</span>
 <span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
 <span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
 
 <span class="c1"># from pypi</span>
 <span class="kn">from</span> <span class="nn">bokeh.models</span> <span class="kn">import</span> <span class="n">HoverTool</span>
+<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
 <span class="kn">from</span> <span class="nn">nltk.corpus</span> <span class="kn">import</span> <span class="n">twitter_samples</span>
 <span class="kn">from</span> <span class="nn">tabulate</span> <span class="kn">import</span> <span class="n">tabulate</span>
 
@@ -125,42 +133,48 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org6298a5c">
-<h4 id="org6298a5c">The Data</h4>
-<div class="outline-text-4" id="text-org6298a5c">
-<p>First we'll download the categorized tweets and then create a single list with both of them.</p>
+<div class="outline-4" id="outline-container-orgf632113">
+<h4 id="orgf632113">The Data</h4>
+<div class="outline-text-4" id="text-orgf632113">
+<p>First we'll load the training data that I set-up while building the tweet pre-processor.</p>
 <div class="highlight">
-<pre><span></span><span class="n">positive_tweets</span> <span class="o">=</span> <span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">(</span><span class="s1">'positive_tweets.json'</span><span class="p">)</span>
-<span class="n">negative_tweets</span> <span class="o">=</span> <span class="n">twitter_samples</span><span class="o">.</span><span class="n">strings</span><span class="p">(</span><span class="s1">'negative_tweets.json'</span><span class="p">)</span>
-<span class="n">tweets</span> <span class="o">=</span> <span class="n">positive_tweets</span> <span class="o">+</span> <span class="n">negative_tweets</span>
-</pre></div>
-<p>Now we need to make the labels for the tweets. We're going to label positive tweets with a <code>1</code> and negative tweets with a <code>0</code>. Since we concatenated the two sets of tweets we know that the first half will be all ones and the second half will be all zeros and we can create this master labels array using lists.</p>
-<div class="highlight">
-<pre><span></span><span class="n">NEGATIVE</span><span class="p">,</span> <span class="n">POSITIVE</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span>
-<span class="n">SENTIMENT</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="n">POSITIVE</span><span class="p">:</span><span class="s2">"positive"</span><span class="p">,</span>
-    <span class="n">NEGATIVE</span><span class="p">:</span><span class="s2">"negative"</span><span class="p">,</span>
-<span class="p">}</span>
-<span class="n">labels</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">positive_tweets</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">negative_tweets</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">labels</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_PROCESSED"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">path</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
+<span class="n">training</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<span class="n">training_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">training</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Rows: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">training</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-10,000
+                       tweet  label
+0  [park, get, sunlight, :)]      1
+Rows: 8,000
+</pre>
+<p>I also made an object to pass around to make sure I didn't switch the numeric <code>positive</code> and <code>negative</code> encodings so let's load that.</p>
+<div class="highlight">
+<pre><span></span><span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_SENTIMENT"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Sentiment</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">Sentiment</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Namespace(decode={1: 'positive', 0: 'negative'}, encode={'positive': 1, 'negative': 0}, negative=0, positive=1)
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org98a75b4">
-<h4 id="org98a75b4">Plotting and Printing</h4>
-<div class="outline-text-4" id="text-org98a75b4">
-<p>Just some preliminary setup of the plotter and table-printer so I don't have to keep typing the same things over and over.</p>
+<div class="outline-4" id="outline-container-org97def97">
+<h4 id="org97def97">Plotting and Printing</h4>
+<div class="outline-text-4" id="text-org97def97">
+<p>This is some preliminary setup of the plotter and table-printer so I don't have to keep typing the same things over and over.</p>
 <div class="highlight">
-<pre><span></span><span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
-                <span class="n">folder_path</span><span class="o">=</span><span class="s2">"../../files/posts/nlp/twitter-word-frequencies"</span><span class="p">)</span>
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"01b-twitter-word-frequencies"</span>
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
+                <span class="n">folder_path</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/nlp/</span><span class="si">{</span><span class="n">SLUG</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
-<span class="n">Plot</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
-    <span class="n">width</span><span class="o">=</span><span class="mi">990</span><span class="p">,</span>
-    <span class="n">height</span><span class="o">=</span><span class="mi">780</span><span class="p">,</span>
-    <span class="n">color</span><span class="o">=</span><span class="s2">"#ddb377"</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_PLOT"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Plot</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
 </pre></div>
 <div class="highlight">
 <pre><span></span><span class="n">TABLE</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">tabulate</span><span class="p">,</span> <span class="n">tablefmt</span><span class="o">=</span><span class="s2">"orgtbl"</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="s2">"keys"</span><span class="p">,</span> <span class="n">showindex</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
@@ -169,20 +183,22 @@
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orge09e354">
-<h2 id="orge09e354">Middle</h2>
-<div class="outline-text-2" id="text-orge09e354"></div>
-<div class="outline-3" id="outline-container-orgca376bb">
-<h3 id="orgca376bb">Word Frequencies</h3>
-<div class="outline-text-3" id="text-orgca376bb">
-<p>We're going to build up a dictionary of frequencies. The keys will be <code>(token, sentiment)</code> tuples and the values will be the counts for the token-sentiment pairs.</p>
+<div class="outline-2" id="outline-container-org0fd0cc6">
+<h2 id="org0fd0cc6">Middle</h2>
+<div class="outline-text-2" id="text-org0fd0cc6"></div>
+<div class="outline-3" id="outline-container-orga6d3994">
+<h3 id="orga6d3994">Word Frequencies</h3>
+<div class="outline-text-3" id="text-orga6d3994">
+<p>We're going to build up a <a href="https://docs.python.org/3/library/collections.html#collections.Counter">Counter</a> of token frequencies. The keys will be <code>(token, sentiment)</code> tuples and the values will be the counts for the token-sentiment pairs.</p>
 </div>
-<div class="outline-4" id="outline-container-org9d568df">
-<h4 id="org9d568df">Tests</h4>
-<div class="outline-text-4" id="text-org9d568df"></div>
+<div class="outline-4" id="outline-container-org89cf447">
+<h4 id="org89cf447">Tests</h4>
+<div class="outline-text-4" id="text-org89cf447">
+<p>These are the tests for the implementation that follows them.</p>
+</div>
 <ul class="org-ul">
-<li><a id="org160a3f9"></a>The Tangles<br>
-<div class="outline-text-5" id="text-org160a3f9">
+<li><a id="org89b95e3"></a>The Tangles<br>
+<div class="outline-text-5" id="text-org89b95e3">
 <div class="highlight">
 <pre><span></span>Feature: A Word Frequency Counter
 
@@ -224,8 +240,8 @@ I want to be able to count word-sentiment pairs.
 </pre></div>
 </div>
 </li>
-<li><a id="orgb77db8d"></a>Setup<br>
-<div class="outline-text-5" id="text-orgb77db8d">
+<li><a id="orgc3afdd2"></a>Setup<br>
+<div class="outline-text-5" id="text-orgc3afdd2">
 <div class="highlight">
 <pre><span></span>Scenario: The Word Counter is created
   Given a word counter class
@@ -262,8 +278,8 @@ I want to be able to count word-sentiment pairs.
 </pre></div>
 </div>
 </li>
-<li><a id="org6dd8285"></a>The Call<br>
-<div class="outline-text-5" id="text-org6dd8285">
+<li><a id="orgb9237aa"></a>The Call<br>
+<div class="outline-text-5" id="text-orgb9237aa">
 <div class="highlight">
 <pre><span></span>Scenario: The Word Frequency counter is called
   Given a word frequency counter
@@ -310,9 +326,9 @@ I want to be able to count word-sentiment pairs.
 </li>
 </ul>
 </div>
-<div class="outline-4" id="outline-container-org8733e5d">
-<h4 id="org8733e5d">Implementation</h4>
-<div class="outline-text-4" id="text-org8733e5d">
+<div class="outline-4" id="outline-container-orgf628df4">
+<h4 id="orgf628df4">Implementation</h4>
+<div class="outline-text-4" id="text-orgf628df4">
 <p>This is going to be a counter class that pre-processes the tweets and then counts the frequency of word-sentiment pairs.</p>
 <div class="highlight">
 <pre><span></span><span class="c1"># A Word Counter</span>
@@ -374,19 +390,18 @@ I want to be able to count word-sentiment pairs.
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgbfa0f41">
-<h3 id="orgbfa0f41">Counting</h3>
-<div class="outline-text-3" id="text-orgbfa0f41">
-<p>Now we can do some counting.</p>
+<div class="outline-3" id="outline-container-org0e37f48">
+<h3 id="org0e37f48">Counting</h3>
+<div class="outline-text-3" id="text-org0e37f48">
+<p>Now that we've implemented the counter we might as well get to counting. This is going to be kind of hacky, but I originally wasn't saving the processed data and so was expecting this thing to process it. Maybe I'll change it to look better late. But, anyway that's why I'm assigning the column to the <code>._processed</code> attribute.</p>
 <div class="highlight">
-<pre><span></span><span class="n">counter</span> <span class="o">=</span> <span class="n">WordCounter</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">tweets</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="n">labels</span><span class="p">)</span>
+<pre><span></span><span class="n">counter</span> <span class="o">=</span> <span class="n">WordCounter</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">training</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="n">training</span><span class="o">.</span><span class="n">label</span><span class="p">)</span>
+<span class="n">counter</span><span class="o">.</span><span class="n">_processed</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">tweet</span>
 <span class="n">counts</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">counts</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total token-sentiment pairs: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">counts</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[nltk_data] Downloading package stopwords to /home/athena/nltk_data...
-[nltk_data]   Package stopwords is already up-to-date!
-Total token-sentiment pairs: 13,069
+Total token-sentiment pairs: 11,476
 </pre>
 <p>What are the most common? To make the rest of the post easier I'm going to set up a pandas DataFrame.</p>
 <div class="highlight">
@@ -406,7 +421,7 @@ Total token-sentiment pairs: 13,069
     <span class="n">sentiment</span><span class="o">=</span><span class="n">sentiments</span><span class="p">,</span>
 <span class="p">))</span>
 
-<span class="n">top_counts</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">top_counts</span><span class="o">.</span><span class="n">sentiment</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">SENTIMENT</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
+<span class="n">top_counts</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">top_counts</span><span class="o">.</span><span class="n">sentiment</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">Sentiment</span><span class="o">.</span><span class="n">decode</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
 </pre></div>
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">TABLE</span><span class="p">(</span><span class="n">top_counts</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:</span><span class="mi">20</span><span class="p">]))</span>
@@ -426,124 +441,135 @@ Total token-sentiment pairs: 13,069
 <tbody>
 <tr>
 <td class="org-left">:(</td>
-<td class="org-right">4571</td>
+<td class="org-right">3705</td>
 <td class="org-left">negative</td>
 </tr>
 <tr>
 <td class="org-left">:)</td>
-<td class="org-right">3568</td>
+<td class="org-right">2967</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">:-)</td>
-<td class="org-right">692</td>
+<td class="org-right">547</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">:D</td>
-<td class="org-right">629</td>
+<td class="org-right">537</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">thank</td>
-<td class="org-right">620</td>
+<td class="org-right">516</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">:-(</td>
-<td class="org-right">493</td>
+<td class="org-right">407</td>
 <td class="org-left">negative</td>
 </tr>
 <tr>
-<td class="org-left">love</td>
-<td class="org-right">400</td>
+<td class="org-left">follow</td>
+<td class="org-right">349</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
-<td class="org-left">follow</td>
-<td class="org-right">381</td>
+<td class="org-left">love</td>
+<td class="org-right">306</td>
 <td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">i'm</td>
-<td class="org-right">343</td>
+<td class="org-right">282</td>
 <td class="org-left">negative</td>
 </tr>
 <tr>
 <td class="org-left">…</td>
-<td class="org-right">331</td>
+<td class="org-right">261</td>
 <td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">thi</td>
-<td class="org-right">318</td>
-<td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">thi</td>
-<td class="org-right">303</td>
-<td class="org-left">positive</td>
 </tr>
 <tr>
 <td class="org-left">miss</td>
-<td class="org-right">301</td>
-<td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">…</td>
-<td class="org-right">289</td>
-<td class="org-left">positive</td>
-</tr>
-<tr>
-<td class="org-left">pleas</td>
-<td class="org-right">275</td>
-<td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">follow</td>
-<td class="org-right">262</td>
-<td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">day</td>
-<td class="org-right">246</td>
-<td class="org-left">positive</td>
-</tr>
-<tr>
-<td class="org-left">want</td>
-<td class="org-right">246</td>
-<td class="org-left">negative</td>
-</tr>
-<tr>
-<td class="org-left">wa</td>
 <td class="org-right">241</td>
 <td class="org-left">negative</td>
 </tr>
 <tr>
+<td class="org-left">…</td>
+<td class="org-right">228</td>
+<td class="org-left">positive</td>
+</tr>
+<tr>
+<td class="org-left">pleas</td>
+<td class="org-right">215</td>
+<td class="org-left">negative</td>
+</tr>
+<tr>
+<td class="org-left">follow</td>
+<td class="org-right">211</td>
+<td class="org-left">negative</td>
+</tr>
+<tr>
+<td class="org-left">get</td>
+<td class="org-right">200</td>
+<td class="org-left">negative</td>
+</tr>
+<tr>
+<td class="org-left">want</td>
+<td class="org-right">197</td>
+<td class="org-left">negative</td>
+</tr>
+<tr>
+<td class="org-left">day</td>
+<td class="org-right">194</td>
+<td class="org-left">positive</td>
+</tr>
+<tr>
+<td class="org-left">u</td>
+<td class="org-right">193</td>
+<td class="org-left">positive</td>
+</tr>
+<tr>
 <td class="org-left">good</td>
-<td class="org-right">238</td>
+<td class="org-right">189</td>
+<td class="org-left">positive</td>
+</tr>
+<tr>
+<td class="org-left">like</td>
+<td class="org-right">189</td>
 <td class="org-left">positive</td>
 </tr>
 </tbody>
 </table>
-<p>It's interesting that the only repeated tokens in the top 20 are ellipses, "follow" and "thi" and that the four most common tokens were smileys, although that's not surprising, perhaps. I didn't notice this at first, but the most common token is a negative one.</p>
+<p>It's interesting that the only tokens in the top 20 that are both positive and negative are ellipses and "follow" and that the four most common tokens were smileys, although given the nature of tweets I guess the use of smileys (emoticons?) shouldn't be so surprising. I didn't notice this at first, but the most common token is a negative one.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgb23899d">
-<h3 id="orgb23899d">Plotting</h3>
-<div class="outline-text-3" id="text-orgb23899d">
+<div class="outline-3" id="outline-container-org660b8db">
+<h3 id="org660b8db">Plotting</h3>
+<div class="outline-text-3" id="text-org660b8db">
 <p>The counts themselves are interesting, but it might be more informative to look at their distribution as well as whether some tokens are more positive or negative.</p>
 </div>
-<div class="outline-4" id="outline-container-orge03e637">
-<h4 id="orge03e637">Positive Vs Negative</h4>
-<div class="outline-text-4" id="text-orge03e637">
+<div class="outline-4" id="outline-container-orgb17a20d">
+<h4 id="orgb17a20d">Positive Vs Negative</h4>
+<div class="outline-text-4" id="text-orgb17a20d">
 <div class="highlight">
-<pre><span></span><span class="n">plot</span> <span class="o">=</span> <span class="n">top_counts</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">"bar"</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"count"</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+<pre><span></span><span class="n">tooltips</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">"Token"</span><span class="p">,</span> <span class="s2">"@token"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"Sentiment"</span><span class="p">,</span> <span class="s2">"@sentiment"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"Count"</span><span class="p">,</span> <span class="s2">"@count"</span><span class="p">),</span>
+<span class="p">]</span>
+
+<span class="n">hover</span> <span class="o">=</span> <span class="n">HoverTool</span><span class="p">(</span><span class="n">tooltips</span><span class="o">=</span><span class="n">tooltips</span><span class="p">)</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="n">top_counts</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">"bar"</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"count"</span><span class="p">,</span>
+                         <span class="n">hover_cols</span><span class="o">=</span><span class="s2">"all"</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>    
     <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
     <span class="n">height</span><span class="o">=</span> <span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
     <span class="n">title</span><span class="o">=</span><span class="s2">"Positive and Negative"</span><span class="p">,</span>
     <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-    <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color</span><span class="p">,</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">],</span>
+    <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">,</span>
+    <span class="n">line_color</span><span class="o">=</span><span class="s2">"white"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">embedded</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_negative_distribution"</span><span class="p">)</span>
 <span class="n">output</span> <span class="o">=</span> <span class="n">embedded</span><span class="p">()</span>
@@ -554,12 +580,12 @@ Total token-sentiment pairs: 13,069
 <object data="positive_negative_distribution.html" height="800" style="width:100%" type="text/html">
 <p>Figure Missing</p>
 </object>
-<p>So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split, suggesting that the negative tweets had a greater diversity of words.</p>
+<p>So it looks like negative sentiment is more common for the tokens, even though the tweets themselves were evenly split, maybe because the negative tweets had more diverse tokens.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgb8fd2a8">
-<h4 id="orgb8fd2a8">Distribution</h4>
-<div class="outline-text-4" id="text-orgb8fd2a8">
+<div class="outline-4" id="outline-container-orgdd65739">
+<h4 id="orgdd65739">Distribution</h4>
+<div class="outline-text-4" id="text-orgdd65739">
 <div class="highlight">
 <pre><span></span><span class="n">tooltips</span> <span class="o">=</span> <span class="p">[</span>
     <span class="p">(</span><span class="s2">"Token"</span><span class="p">,</span> <span class="s2">"@token"</span><span class="p">),</span>
@@ -578,9 +604,10 @@ Total token-sentiment pairs: 13,069
         <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
         <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
         <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-        <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color</span><span class="p">,</span>
-        <span class="n">line_color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color</span><span class="p">,</span>
+        <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">,</span>
+        <span class="n">line_color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">,</span>
         <span class="n">xaxis</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
         <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Log-Log Count Distribution (top </span><span class="si">{</span><span class="n">CUTOFF</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
 <span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"count_distribution"</span><span class="p">)()</span>
 </pre></div>
@@ -593,9 +620,9 @@ Total token-sentiment pairs: 13,069
 <p>This shows how steep the drop is from the two most common tokens which are then followed by a long tail. Without the logarithmic axes the drop is even more pronounced.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org5971d23">
-<h4 id="org5971d23">Positive Vs Negative by Tweet</h4>
-<div class="outline-text-4" id="text-org5971d23">
+<div class="outline-4" id="outline-container-org5617c57">
+<h4 id="org5617c57">Positive Vs Negative by Tweet</h4>
+<div class="outline-text-4" id="text-org5617c57">
 <div class="highlight">
 <pre><span></span><span class="n">CUTOFF</span> <span class="o">=</span> <span class="mi">250</span>
 
@@ -623,20 +650,18 @@ Total token-sentiment pairs: 13,069
 <span class="n">MIN</span> <span class="o">=</span> <span class="mi">1</span>
 <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"positive"</span><span class="p">,</span> <span class="s2">"negative"</span><span class="p">):</span>
     <span class="n">to_plot</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">column</span><span class="p">]</span> <span class="o">=</span> <span class="n">to_plot</span><span class="p">[</span><span class="n">column</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
-<span class="c1">#    to_plot.loc[:, column] = to_plot.apply(</span>
-<span class="c1">#        lambda row: row[column] if row[column] else MIN, axis="columns")</span>
+
 <span class="n">MAX</span> <span class="o">=</span> <span class="n">to_plot</span><span class="o">.</span><span class="n">negative</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">+</span> <span class="mi">1</span>
-<span class="n">line</span> <span class="o">=</span> <span class="n">holoviews</span><span class="o">.</span><span class="n">Curve</span><span class="p">(([</span><span class="n">MIN</span><span class="p">,</span> <span class="n">MAX</span><span class="p">],</span> <span class="p">[</span><span class="n">MIN</span><span class="p">,</span> <span class="n">MAX</span><span class="p">]))</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">color</span><span class="o">=</span><span class="s2">"#ce7b6d"</span><span class="p">)</span>
+<span class="n">line</span> <span class="o">=</span> <span class="n">holoviews</span><span class="o">.</span><span class="n">Curve</span><span class="p">(([</span><span class="n">MIN</span><span class="p">,</span> <span class="n">MAX</span><span class="p">],</span> <span class="p">[</span><span class="n">MIN</span><span class="p">,</span> <span class="n">MAX</span><span class="p">]))</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">red</span><span class="p">)</span>
 <span class="n">scatter</span> <span class="o">=</span> <span class="n">to_plot</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
-    <span class="n">color</span><span class="o">=</span><span class="s2">"#4687b7"</span><span class="p">,</span>
+    <span class="n">loglog</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">,</span>
     <span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span>
     <span class="n">hover_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">"token"</span><span class="p">])</span>
 <span class="n">plot</span> <span class="o">=</span> <span class="p">(</span><span class="n">line</span> <span class="o">*</span> <span class="n">scatter</span> <span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
         <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">],</span>
         <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
         <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
-        <span class="n">logx</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">logy</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">xlabel</span><span class="o">=</span><span class="s2">"Positive"</span><span class="p">,</span>
         <span class="n">ylabel</span><span class="o">=</span><span class="s2">"Negative"</span><span class="p">,</span>
         <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -649,31 +674,35 @@ Total token-sentiment pairs: 13,069
 <object data="scatter_plot.html" height="800" style="width:100%" type="text/html">
 <p>Figure Missing</p>
 </object>
-<p>So, we basically end up with two types of groupings - some tokens are lopsided to be either very negative or very positive and they show up in the straight line columns or rows, while other tokens are more evenly split, and they show up in the more distributed blob along the diagonal of the plot.</p>
-<p>We can also see which tokens are the most negative (the highest along the y-axis) and the most positive (furthest along the x-axis).</p>
-<p>The tokens along or around the red diagonal are evenly positive and negative so they probably aren't useful indicators of sentiment in and of themselves, while those furthest from the diagonal are the most biased to one side or the other so we might expect them to be useful in guessing a tweet's sentiment.</p>
+<p>The tokens along or around the diagonal are evenly positive and negative so they probably aren't useful indicators of sentiment in and of themselves, while those furthest from the diagonal are the most biased to one side or the other so we might expect them to be useful in guessing a tweet's sentiment.</p>
 <p>There are some unexpectedly negative tokens like "love" (400, 152) and "thank" (620, 107), but at this point we haven't really started to look at the sentiment yet so I'll leave further exploration for later.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgb92dc66">
-<h2 id="orgb92dc66">End</h2>
-<div class="outline-text-2" id="text-orgb92dc66">
-<p><b>Note:</b> This is a re-working of an exercise from Coursera's Natural Language Processing specialization.</p>
+<div class="outline-2" id="outline-container-org4c814b0">
+<h2 id="org4c814b0">End</h2>
+<div class="outline-text-2" id="text-org4c814b0">
+<p>Since the counter gets re-used I'm going to pickle it for later.</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_COUNTER"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+    <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">counter</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+</pre></div>
+<p>Next in this series: <a href="../the-tweet-vectorizer/">The Tweet Vectorizer</a></p>
 </div>
 </div>
 </div>
 <aside class="postpromonav">
 <nav>
 <ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/counting/" rel="tag">counting</a></li>
 <li><a class="tag p-category" href="../../../categories/nlp/" rel="tag">nlp</a></li>
 <li><a class="tag p-category" href="../../../categories/nltk/" rel="tag">nltk</a></li>
 <li><a class="tag p-category" href="../../../categories/twitter/" rel="tag">twitter</a></li>
 </ul>
 <ul class="pager hidden-print">
-<li class="previous"><a href="../twitter-preprocessing-with-nltk/" rel="prev" title="Twitter Preprocessing With NLTK">Previous post</a></li>
-<li class="next"><a href="../twitter-logistic-regression/" rel="next" title="Twitter Logistic Regression Visualization">Next post</a></li>
+<li class="previous"><a href="../01-twitter-preprocessing-with-nltk/" rel="prev" title="Twitter Preprocessing With NLTK">Previous post</a></li>
+<li class="next"><a href="../implementing-twitter-logistic-regression/" rel="next" title="Implementing Logistic Regression for Tweet Sentiment Analysis">Next post</a></li>
 </ul>
 </nav>
 </aside>
