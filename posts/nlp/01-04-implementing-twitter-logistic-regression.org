@@ -1,6 +1,6 @@
 #+BEGIN_COMMENT
 .. title: Implementing Logistic Regression for Tweet Sentiment Analysis
-.. slug: 01d-implementing-twitter-logistic-regression
+.. slug: implementing-twitter-logistic-regression
 .. date: 2020-07-14 16:16:22 UTC-07:00
 .. tags: nlp,sentiment analysis,logistic regression,twitter
 .. category: NLP
@@ -12,14 +12,14 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f4ceef62-5b21-4710-a34a-36d2e299f186.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e48b9fbe-999d-4243-acd6-a3fcd5db3a39.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Beginning
-  In the previous post in this series ({{% doc %}}01c-the-tweet-vectorizer{{% /doc %}} I transformed some tweet data to vectors based on the sums of the positive and negative tokens in each tweet. This post will implement a Logistic Regression model to train on those vectors to classify tweets by sentiment.
+  In the previous post in this series ({{% doc %}}the-tweet-vectorizer{{% /doc %}}) I transformed some tweet data to vectors based on the sums of the positive and negative tokens in each tweet. This post will implement a Logistic Regression model to train on those vectors to classify tweets by sentiment.
 ** Set Up
 *** Imports
 #+begin_src python :results none
@@ -34,6 +34,7 @@ import os
 import pickle
 
 # from pypi
+from bokeh.models.tools import HoverTool
 from dotenv import load_dotenv
 from expects import (
     be_true,
@@ -41,7 +42,7 @@ from expects import (
     equal
 )
 from nltk.corpus import twitter_samples
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import LogisticRegressionCV
 
 import holoviews
@@ -56,7 +57,12 @@ from neurotic.nlp.twitter.sentiment import TweetSentiment
 from neurotic.nlp.twitter.vectorizer import TweetVectorizer
 
 # for plotting
-from graeae import EmbedHoloviews
+from graeae import EmbedHoloviews, Timer
+#+end_src
+*** The Timer
+
+#+begin_src python :results none
+TIMER = Timer()
 #+end_src
 *** The Dotenv
     This loads the locations of previous data and object saves I made.
@@ -65,21 +71,48 @@ from graeae import EmbedHoloviews
 load_dotenv("posts/nlp/.env")
 #+end_src
 *** The Data
-    I had the data saved previously so I'll load them.
+    I made vectors earlier but to process new tweets I need the Twitter Vectorizer anyway, so I'm going to reprocess everything here.
 
 #+begin_src python :results output :exports both
-training =  pandas.read_feather(
-    Path(os.environ["TWITTER_TRAIN_VECTORS"]).expanduser())
-testing = pandas.read_feather(
-    Path(os.environ["TWITTER_TEST_VECTORS"]).expanduser())
+train_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
 
-print(f"Training: {training.shape}")
-print(f"Testing: {testing.shape}")
+test_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TEST_RAW"]).expanduser()
+)
+
+print(f"Training: {len(train_raw):,}")
+print(f"Testing: {len(test_raw):,}")
 #+end_src
 
 #+RESULTS:
-: Training: (8000, 4)
-: Testing: (2000, 4)
+: Training: 8,000
+: Testing: 2,000
+
+#+begin_src python :results none
+columns = "bias positive negative".split()
+counter = WordCounter(train_raw.tweet, train_raw.label)
+train_vectorizer = TweetVectorizer(train_raw.tweet, counter.counts, processed=False)
+test_vectorizer = TweetVectorizer(test_raw.tweet, counter.counts, processed=False)
+#+end_src
+
+
+But it's easier to work with the DataFrame when exploring and I've been going back and fiddling with different parts of the pipeline and not all the data-files are up to date so it's safer to start from the raw files again.
+
+#+begin_src python :results output :exports both
+training = pandas.DataFrame(train_vectorizer.vectors, columns=columns)
+testing = pandas.DataFrame(test_vectorizer.vectors, columns=columns)
+
+training["sentiment"] = train_raw.label
+testing["sentiment"] = test_raw.label
+
+print(f"Training: {len(training):,}")
+print(f"Testing: {len(testing):,}")
+#+end_src
+
+#+RESULTS:
+: Training: 8,000
+: Testing: 2,000
 
 *** For Plotting
 #+begin_src python :results none
@@ -323,7 +356,7 @@ Here's the algorithm in the rough.
 
 <pre id="gradientdescent" style="display:hidden">
 \begin{algorithm}
-\caption{Stochastic Gradient Descent}
+\caption{Gradient Descent}
 \begin{algorithmic}
 \STATE $\theta \gets 0$
 \WHILE{not done}
@@ -346,7 +379,7 @@ We can translate this a little more.
 #+begin_export html
 <pre id="gradientdescentengrish" style="display:hidden">
 \begin{algorithm}
-\caption{Stochastic Gradient Descent}
+\caption{Gradient Descent}
 \begin{algorithmic}
 \STATE Initialize the weights
 \WHILE{the loss is still too high}
@@ -405,7 +438,7 @@ If you look at the implementation you can see that there are some changes made t
 #+begin_export html
 <pre id="gradientdescentimplementation" style="display:hidden">
 \begin{algorithm}
-\caption{Stochastic Gradient Descent Implemented}
+\caption{Gradient Descent Implemented}
 \begin{algorithmic}
 \STATE $\theta \gets 0$
 \STATE $m \gets rows(X)$
@@ -465,18 +498,30 @@ print(f"The trained weights are {[round(t, 8) for t in numpy.squeeze(fake_weight
 weights = numpy.zeros((3, 1))
 eta = 1e-9
 iterations = 1500
-final_loss, weights, losses = gradient_descent(
-    x=training[["bias", "positive", "negative"]].values,
-    y=training.sentiment.values, weights=weights,
-    learning_rate=eta, iterations=iterations)
+with TIMER:
+    final_loss, weights, losses = gradient_descent(
+        x=train_vectorizer.vectors,
+        y=training.sentiment.values.reshape((-1, 1)), weights=weights,
+        learning_rate=eta, iterations=iterations)
 
 print(f"The log-loss after training is {final_loss:.8f}.")
-print(f"The resulting vector of weights is {[round(t, 8) for t in numpy.squeeze(weights)]}")
+print(f"The resulting vector of weights is "
+      f"{[round(t, 8) for t in numpy.squeeze(weights)]}")
+
+model = TweetSentiment(train_vectorizer, weights)
+predictions = model()
+
+correct = sum(predictions.T[0] == training.sentiment)
+print(f"Training Accuracy: {correct/len(training)}")
 #+end_src
 
 #+RESULTS:
-: The log-loss after training is nan.
-: The resulting vector of weights is [nan, nan, nan]
+: 2020-07-27 17:54:58,357 graeae.timers.timer start: Started: 2020-07-27 17:54:58.357765
+: 2020-07-27 17:54:58,776 graeae.timers.timer end: Ended: 2020-07-27 17:54:58.776834
+: 2020-07-27 17:54:58,777 graeae.timers.timer end: Elapsed: 0:00:00.419069
+: The log-loss after training is 0.22043072.
+: The resulting vector of weights is [6e-08, 0.00053899, -0.0005613]
+: Training Accuracy: 0.997625
 
 
 #+begin_src python :results none
@@ -570,185 +615,211 @@ class TweetSentiment:
         return numpy.round(self.sigmoid(self.vectorizer.vectors.dot(self.theta)))
 #+end_src
 
-To build the =TweetSentiment= I'll first load the vectorizer that I pickled in {{% doc %}}the-tweet-vectorizer{{% /doc %}}.
-
-#+begin_src python :results none
-with Path(os.environ["TWITTER_VECTORIZER"]).expanduser().open("rb") as reader:
-    vectorizer = pickle.load(reader)
-#+end_src
-
-Now the =TweetSentiment=.
 
 #+begin_src python :results output :exports both
-sentiment = TweetSentiment(vectorizer, weights)
+sentiment = TweetSentiment(test_vectorizer, weights)
 for tweet in ['I am happy', 'I am bad', 'this movie should have been great.', 'great', 'great great', 'great great great', 'great great great great']:
     print(f'{tweet} -> {sentiment.probability_positive(tweet)}')
 
 #+end_src
 
 #+RESULTS:
-: I am happy -> 0.5000116603547458
-: I am bad -> 0.5000042596595592
-: this movie should have been great. -> 0.5000112046942453
-: great -> 0.5000087076231243
-: great great -> 0.5000173410082799
-: great great great -> 0.5000259743934251
-: great great great great -> 0.5000346077785548
+: I am happy -> 0.5183237992258976
+: I am bad -> 0.4924963884222927
+: this movie should have been great. -> 0.5156997144475827
+: great -> 0.5158056039006712
+: great great -> 0.5315796358935646
+: great great great -> 0.5472908064541816
+: great great great great -> 0.5629083094155534
 
 Strangely very near the center. Probably because the words weren't that commonly used in our training set.
 
 #+begin_src python :results output :exports both
-totals = sum(vectorizer.counter.counts.values())
-print(f"Great positive percentage: {100 * vectorizer.counter.counts[('great', 1)]/totals:.2f} %")
-print(f"Great negative percentage: {100 * vectorizer.counter.counts[('great', 0)]/totals:.2f} % ")
+totals = sum(counter.counts.values())
+print(f"Great positive percentage: {100 * counter.counts[('great', 1)]/totals:.2f} %")
+print(f"Great negative percentage: {100 * counter.counts[('great', 0)]/totals:.2f} % ")
 #+end_src
 
 #+RESULTS:
-: Great positive percentage: 0.23 %
-: Great negative percentage: 0.02 % 
+: Great positive percentage: 0.24 %
+: Great negative percentage: 0.03 % 
 
 Now we can see how it did overall.
 
-#+begin_src python :results output :exports both
-test_data = pandas.read_csv(Path(os.environ["TWITTER_TEST_SET"]).expanduser())
-test_vectorizer = TweetVectorizer(test_data.tweet.values, vectorizer.counter)
-sentiment = TweetSentiment(test_vectorizer, weights)
 
-predictions = sentiment()[:, 0]
-correct = sum(predictions == testing.sentiment.values)
-print(f"Accuracy: {correct/len(test_data)}")
+#+begin_src python :results output :exports both
+predictions = sentiment()
+correct = sum(predictions.T[0] == testing.sentiment)
+print(f"Accuracy: {correct/len(testing)}")
 #+end_src
 
 #+RESULTS:
-: Accuracy: 0.4995835415625521
+: Accuracy: 0.996
 
-Whoops.
+Almost suspiciously good.
 
 ** The Wrong Stuff
 #+begin_src python :results output :exports both
-x_test = numpy.array(x_test).reshape((-1, 1))
-wrong_places = predictions != y_test
-wrong = x_test[wrong_places]
+wrong_places = predictions.T[0] != testing.sentiment
+wrong = testing[wrong_places]
 print(len(wrong))
 #+end_src
 
 #+RESULTS:
-: 11
+: 8
 
 #+begin_src python :results output :exports both
-wrong_ys = y_test[wrong_places]
-
-for index, tweet in enumerate(wrong):
+for row in wrong.itertuples():
     print("*" * 10)
-    print(f"Tweet: {tweet}")
-    print(f"Tokens: {vectorizer.process(tweet)}")
-    print(f"Probability Positive: {sentiment.probability_positive(tweet)}")
-    print(f"Classification: {wrong_ys[index]}")
+    print(f"Tweet number {row.Index}")
+    raw = test_raw.iloc[row.Index]
+    print(f"Tweet: {raw.tweet}")
+    tokens = train_vectorizer.process(raw.tweet)
+    print(f"Tokens: {tokens}")
+    print(f"Probability Positive: {sentiment.probability_positive(raw.tweet)}")
+    print(f"Actual Classification: {row.sentiment}")
+    print()
+    for token in tokens:
+        print(f"{token} \tPositive: {counter.counts[(token, 1)]} "
+              f"Negative: {counter.counts[(token, 0)]}")
     print()
 #+end_src
 
 #+RESULTS:
 #+begin_example
 ,**********
-Tweet: I'm playing Brain Dots : ) #BrainDots
-http://t.co/ilDzDRHf9d http://t.co/VTXNFCPFuI
-Tokens: ["i'm", 'play', 'brain', 'dot', 'braindot']
-Probability Positive: 0.48526803083166703
-Classification: 1
-
-,**********
-Tweet: @ellekagaoan @chinmarquez Catch up once in a while :( &gt;:D&lt; @aditriphosphate @ErinMonzon
-Tokens: ['catch', ':(', '>:d']
-Probability Positive: 0.11389833615259448
-Classification: 1
-
-,**********
-Tweet: off to the park to get some sunlight : )
-Tokens: ['park', 'get', 'sunlight']
-Probability Positive: 0.49574440240612333
-Classification: 1
-
-,**********
-Tweet: Google has made @narendramodi really very sad about @ImranKhanPTI not becoming Prime Minister. :p @PTIofficial @pmln_org
-Tokens: ['googl', 'made', 'realli', 'sad', 'becom', 'prime', 'minist', ':p']
-Probability Positive: 0.49947331811099865
-Classification: 1
-
-,**********
-Tweet: @planetjedward GoodMorning ! What's coming next? =:D =:D
-Tokens: ['goodmorn', "what'", 'come', 'next', '=:', '=:']
-Probability Positive: 0.49786597951455913
-Classification: 1
-
-,**********
+Tweet number 64
 Tweet: @_sarah_mae omg you can't just tell this and don't say more :p can't wait to know !!!! ❤️
 Tokens: ['omg', "can't", 'tell', 'say', ':p', "can't", 'wait', 'know', '❤', '️']
-Probability Positive: 0.48000079019523884
-Classification: 1
+Probability Positive: 0.48137283482824483
+Actual Classification: 1
+
+omg 	Positive: 11 Negative: 51
+can't 	Positive: 36 Negative: 145
+tell 	Positive: 20 Negative: 19
+say 	Positive: 48 Negative: 52
+:p 	Positive: 113 Negative: 0
+can't 	Positive: 36 Negative: 145
+wait 	Positive: 59 Negative: 37
+know 	Positive: 123 Negative: 100
+❤ 	Positive: 18 Negative: 20
+️ 	Positive: 9 Negative: 18
 
 ,**********
-Tweet: I'm playing Brain Dots : ) #BrainDots http://t.co/aOKldo3GMj http://t.co/xWCM9qyRG5
-Tokens: ["i'm", 'play', 'brain', 'dot', 'braindot']
-Probability Positive: 0.48526803083166703
-Classification: 1
+Tweet number 118
+Tweet: @bae_ts WHATEVER STIL L YOUNG &gt;:-(
+Tokens: ['whatev', 'stil', 'l', 'young', '>:-(']
+Probability Positive: 0.5006402767570053
+Actual Classification: 0
+
+whatev 	Positive: 5 Negative: 0
+stil 	Positive: 0 Negative: 0
+l 	Positive: 4 Negative: 1
+young 	Positive: 2 Negative: 3
+>:-( 	Positive: 0 Negative: 2
 
 ,**********
-Tweet: @samayanyan yes thank u!! Oh damn that hella sucks :-( but at least u had a really good time that's all that matters
-Tokens: ['ye', 'thank', 'u', 'oh', 'damn', 'hella', 'suck', ':-(', 'least', 'u', 'realli', 'good', 'time', "that'", 'matter']
-Probability Positive: 0.5145779186318544
-Classification: 0
-
-,**********
-Tweet: @phenomyoutube u probs had more fun with david than me : (
-Tokens: ['u', 'prob', 'fun', 'david']
-Probability Positive: 0.5101260021527917
-Classification: 0
-
-,**********
+Tweet number 435
 Tweet: @wtfxmbs AMBS please it's harry's jeans :)):):):(
 Tokens: ['amb', 'pleas', "harry'", 'jean', ':)', '):', '):', '):']
-Probability Positive: 0.8218858541205992
-Classification: 0
+Probability Positive: 0.821626817973081
+Actual Classification: 0
+
+amb 	Positive: 0 Negative: 0
+pleas 	Positive: 76 Negative: 215
+harry' 	Positive: 0 Negative: 1
+jean 	Positive: 0 Negative: 1
+:) 	Positive: 2967 Negative: 1
+): 	Positive: 7 Negative: 1
+): 	Positive: 7 Negative: 1
+): 	Positive: 7 Negative: 1
 
 ,**********
-Tweet: @hinata_shouyno fuck u Neil u ruined it &gt;:-(
-Tokens: ['fuck', 'u', 'neil', 'u', 'ruin', '>:-(']
-Probability Positive: 0.5095962377275693
-Classification: 0
+Tweet number 458
+Tweet: @GODDAMMlT SRSLY FUCK U UNFOLLOWER HOPE UR FUTURE CHILD UNPARENTS U &gt;:-(
+Tokens: ['srsli', 'fuck', 'u', 'unfollow', 'hope', 'ur', 'futur', 'child', 'unpar', 'u', '>:-(']
+Probability Positive: 0.5157383070453547
+Actual Classification: 0
+
+srsli 	Positive: 1 Negative: 4
+fuck 	Positive: 19 Negative: 48
+u 	Positive: 193 Negative: 162
+unfollow 	Positive: 55 Negative: 8
+hope 	Positive: 119 Negative: 77
+ur 	Positive: 28 Negative: 20
+futur 	Positive: 13 Negative: 1
+child 	Positive: 3 Negative: 3
+unpar 	Positive: 0 Negative: 0
+u 	Positive: 193 Negative: 162
+>:-( 	Positive: 0 Negative: 2
+
+,**********
+Tweet number 493
+Tweet: 5h + kids makes all ://:(\\\
+Tokens: ['5h', 'kid', 'make', ':/']
+Probability Positive: 0.5003797971971914
+Actual Classification: 0
+
+5h 	Positive: 0 Negative: 0
+kid 	Positive: 17 Negative: 16
+make 	Positive: 87 Negative: 77
+:/ 	Positive: 4 Negative: 8
+
+,**********
+Tweet number 788
+Tweet: i love got7's outfit for just right &gt;:( its so fun
+Tokens: ['love', 'got', '7', 'outfit', 'right', '>:(', 'fun']
+Probability Positive: 0.5197464496373044
+Actual Classification: 0
+
+love 	Positive: 306 Negative: 114
+got 	Positive: 55 Negative: 70
+7 	Positive: 5 Negative: 11
+outfit 	Positive: 3 Negative: 3
+right 	Positive: 41 Negative: 39
+>:( 	Positive: 0 Negative: 36
+fun 	Positive: 48 Negative: 26
+
+,**********
+Tweet number 995
+Tweet: I ATE YOUR LAST COOKIE SHIR0 &gt;:D
+Tokens: ['ate', 'last', 'cooki', 'shir', '0', '>:d']
+Probability Positive: 0.4961173289819544
+Actual Classification: 1
+
+ate 	Positive: 3 Negative: 8
+last 	Positive: 35 Negative: 58
+cooki 	Positive: 0 Negative: 2
+shir 	Positive: 0 Negative: 0
+0 	Positive: 1 Negative: 0
+>:d 	Positive: 3 Negative: 0
+
+,**********
+Tweet number 1662
+Tweet: Sr. Financial Analyst - Expedia, Inc.: (#Bellevue, WA) http://t.co/ktknMhvwCI #Finance #ExpediaJobs #Job #Jobs #Hiring
+Tokens: ['sr', 'financi', 'analyst', 'expedia', 'inc', 'bellevu', 'wa', 'financ', 'expediajob', 'job', 'job', 'hire']
+Probability Positive: 0.5038917149486426
+Actual Classification: 0
+
+sr 	Positive: 0 Negative: 1
+financi 	Positive: 0 Negative: 0
+analyst 	Positive: 0 Negative: 0
+expedia 	Positive: 0 Negative: 0
+inc 	Positive: 1 Negative: 2
+bellevu 	Positive: 0 Negative: 0
+wa 	Positive: 0 Negative: 0
+financ 	Positive: 0 Negative: 0
+expediajob 	Positive: 0 Negative: 0
+job 	Positive: 28 Negative: 12
+job 	Positive: 28 Negative: 12
+hire 	Positive: 0 Negative: 0
 #+end_example
 
-The first thing to notice is that there's a duplicate tweet (the one about "Brain Dots", whatever that is). Another thing to note is that sometimes there are spaces between the characters in the emoticons, which the tokenizer probably can't figure out should be togethter, along with that weird =:)):):):(= emoticon. I'm not really soure that all of the positive tweets are actually positive, nor is it always obvious what they are about - what does "AMBS please it's harry's jeans" mean?
-
-In at least in one case the NLTK vectorizer seems to mangle an emoticon as well:
-
-#+begin_src python :results output :exports both
-print(vectorizer.process.tokenizer.tokenize("=:D"))
-#+end_src
-
-#+RESULTS:
-: ['=:', 'd']
-
-That last one looks really wrong, though, let's take a look at it.
-
-#+begin_src python :results output :exports both
-for token in vectorizer.process(wrong[-1]):
-    print(f"{token}: positive={counter.counts[(token, 1)]} negative={counter.counts[(token, 0)]}")
-#+end_src
-
-#+RESULTS:
-: fuck: positive=23 negative=47
-: u: positive=206 negative=148
-: neil: positive=2 negative=0
-: u: positive=206 negative=148
-: ruin: positive=3 negative=10
-: >:-(: positive=0 negative=2
-
-So the big problem seems to be that the letter "u" is there twice and it's mostly seen as a positive. Why am I allowing single letters? There should probably be a minimum length or something. Anyway, I'm not sure you could get much better.
+It looks like these were tweets with uncommon tokens. Personally I'm not sure what to make of some of them myself. And I'm not sure about the classifications - why is a job posting considered a negative tweet?
 
 ** Some Fresh Tweets
    First someone reacting to a post about the [[https://www.atlasobscura.com/places/clown-motel][Clown Motel]] in Tonopah, Nevada. The previous link was to Atlas Obscura, but the tweet came from [[https://www.thrillist.com/travel/nation/clown-motel-nevada-hame-anand][thrillist]].
 #+begin_src python :results output :exports both
-sentiments = {0: "negative", 1: "positive"}
 tweet = "Nah dude. I drove by that at night and it was the creepiest thing ever. The whole town gave me bad vibes. I still shudder when I think about it."
 print(f"Classified as {sentiments[sentiment.classify(tweet)]}")
 #+end_src
@@ -769,46 +840,131 @@ print(f"Classified as {sentiments[sentiment.classify(tweet)]}")
 
 ** Compare to SKLearn
 #+begin_src python :results output :exports both
+columns = "bias positive negative".split()
 classifier = LogisticRegressionCV(
     random_state=2020,
     max_iter=1500,
-    scoring="neg_log_loss").fit(vectorizer.vectors, y_train)
+    scoring="neg_log_loss").fit(training[columns], training.sentiment)
 
-predictions = classifier.predict(test_vectorizer.vectors).reshape((-1, 1))
-correct = sum(predictions == y_test)
-print(f"Accuracy: {correct[0]/len(y_test)}")
+predictions = classifier.predict(testing[columns]).reshape((-1, 1))
+correct = sum(predictions == testing.sentiment.values.reshape((-1, 1)))
+print(f"Accuracy: {correct[0]/len(testing)}")
 #+end_src
 
 #+RESULTS:
-: Accuracy: 0.9925
+: Accuracy: 0.995
 
-So it didn't do quite as well, but pretty much the same just using the default parameters. We could probably do a parameter search but that's okay for now.
+So it did  pretty much the same just using the default parameters. We could probably do a parameter search but that's okay for now.
 
+** Vizualizing the Model
+    Since we've been given the model's weights we can plot its output when fed the vectors to see how it separates the data. To get the equation for the separation line we need to solve for the positive or negative terms when the product of the weights and the vector is 0 ($\theta \times x = 0$, where /x/ is our vector $\langle bias, positive, negative \rangle$).
+
+Get ready for some algebra.
+
+\begin{align}
+\theta \times x &= 0\\
+\theta \times \langle bias, positive, negative \rangle &= 0\\
+\theta \times \langle 1, positive, negative \rangle &= 0\\
+\theta_0 + \theta_1 \times positive + \theta_2 \times negative &= 0\\
+\theta_2 \times negative &= -\theta_0 - \theta_1 \times positive\\
+negative &= \frac{-\theta_0 - \theta_1 \times positive}{\theta_2}\\
+\end{align}
+
+This is the equation for our separation line (on our plot =positive= is the /x-axis/ and =negative= is the /y-axis/, which we can translate to a function to apply to our data.
+
+#+begin_src python :results none
+def negative(theta: list, positive: float) -> float:
+    """Calculate the negative value
+
+    This calculates the value for the separation line
+
+    Args:
+     theta: list of weights for the logistic regression
+     positive: count of positive tweets matching tweet
+
+    Returns:
+     the calculated negative value for the separation line
+    """
+    return (-theta.bias
+            - positive * theta.positive)/theta.negative
+
+theta = pandas.DataFrame(weights.T, columns = columns)
+negative_ = partial(negative, theta=theta)
+#+end_src
+
+   We plotted the vectorized data before, now we can add our regression line.
+
+#+begin_src python :results none
+hover = HoverTool(
+    tooltips = [
+        ("Positive", "@positive{0,0}"),
+        ("Negative", "@negative{0,0}"),
+        ("Sentiment", "@Sentiment"),
+    ]
+)
+
+
+training["regression negative"] = training.positive.apply(
+    lambda positive: negative_(positive=positive))
+
+line = training.hvplot(x="positive", y="regression negative", color=Plot.tan)
+scatter = training.hvplot.scatter(x="positive", y="negative", by="sentiment", fill_alpha=0,
+color=Plot.color_cycle, tools=[hover]).opts(
+                               height=Plot.height,
+                               width=Plot.width,
+                               fontscale=Plot.font_scale,
+                               title="Positive vs Negative Tweet Sentiment",
+                           )
+
+plot = scatter * line
+output = Embed(plot=plot, file_name="positive_negative_scatter_with_model")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter_with_model.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Let's see if a log-log scale helps.
+
+#+begin_src python :results none
+line = training.hvplot(x="positive", y="regression negative", color=Plot.tan)
+scatter = training.hvplot.scatter(x="positive", y="negative", by="sentiment",
+                                  fill_alpha=0,
+                                  color=Plot.color_cycle, tools=[hover])
+
+plot = (scatter * line).opts(
+    height=Plot.height,
+    width=Plot.width,
+    fontscale=Plot.font_scale,
+    title="Positive vs Negative Tweet Sentiment",
+    logx=True,
+    logy=True,
+)
+output = Embed(plot=plot, file_name="positive_negative_scatter_log")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="positive_negative_scatter_log.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+The log-scale seems to break the auto-scaling of the plot so you'll have to zoom out a little bit (with the /Wheel Zoom/ tool on the toolbar) which will show you that the model did a pretty good job of separating the positive from the negative. You can see that some of the points aren't really linearly separable using our vectors so this is probably as good as it can get.
 * End
 
-Let's save our weights for later. I was going to just write it to a file, but you seem to lose some precision converting the values to strings. numpy has a function called [[https://numpy.org/doc/stable/reference/generated/numpy.savetxt.html][savetxt]] but it didn't behave exactly like I thought it would and I prefer pandas so I'll save it that way.
+This concludes the series begun at {{% undoc %}}01-twitter-preprocessing-with-nltk{{% /undoc %}}.
 
-#+begin_src python :results none
-load_dotenv("posts/nlp/.env")
 
-path = Path(os.environ["TWITTER_REGRESSION_WEIGHTS"]).expanduser()
-weights_frame = pandas.DataFrame(weights.T, columns="bias positive negative".split())
-weights_frame.to_csv(path, index=False)
-#+end_src
-
-We should also save the counts because we're going to need that for later.
-
-#+begin_src python :results none
-load_dotenv("posts/nlp/.env")
-
-counts = pandas.DataFrame(train_vectorizer.vectors, columns="bias positive negative".split())
-counts["sentiment"] = y_train
-path = Path(os.environ["TWITTER_REGRESSION_DATA"]).expanduser()
-counts.to_csv(path, index=False)
-#+end_src
-
-**Note:** This is a re-working of an exercise from Coursera's Natural Language Processing specialization.
-
-I also referred to this revision in progress:
-
- - Jurafsky, D. & Martin, J. (2020). Speech and language processing : an introduction to natural language processing, computational linguistics, and speech recognition. 3rd Edition draft. [[https://web.stanford.edu/~jurafsky/slp3/][(URL)]]
+I should mention that I used {{% undoc %}}bib-speech-and-language-processing-jurafsky-martin{{% /undoc %}} to understanding the math.

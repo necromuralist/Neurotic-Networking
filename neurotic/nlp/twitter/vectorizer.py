@@ -1,5 +1,6 @@
 # python
 from argparse import Namespace
+from collections import Counter
 from typing import List, Union
 
 # pypi
@@ -33,12 +34,12 @@ class TweetVectorizer:
 
     Args:
      tweets: the pre-processed/tokenized tweets to vectorize
-     counter: the word counter with the tweet token counts
+     counts: the counter with the tweet token counts
      processed: to not process the bulk tweets
      bias: constant to use for the bias
     """
     tweets: Tweets
-    counter: WordCounter
+    counts: Counter
     processed: bool=True
     bias: float=1
     _process: TwitterProcessor=None
@@ -73,9 +74,9 @@ class TweetVectorizer:
         tokens = tweet if self.processed else self.process(tweet)
         vector = [
             self.bias,
-            sum((self.counter.counts[(token, TweetClass.positive)]
+            sum((self.counts[(token, TweetClass.positive)]
                  for token in tokens)),
-            sum((self.counter.counts[(token, TweetClass.negative)]
+            sum((self.counts[(token, TweetClass.negative)]
                                 for token in tokens))
         ]
         vector = numpy.array([vector]) if as_array else vector
@@ -94,5 +95,5 @@ class TweetVectorizer:
         """
         for tweet in self.tweets:
             assert type(tweet) is str
-        assert type(self.counter) is WordCounter
+        assert type(self.counter) is Counter
         return

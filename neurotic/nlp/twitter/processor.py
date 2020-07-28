@@ -140,9 +140,9 @@ class TwitterProcessor:
         Returns:
          the tweet as a pre-processed list of strings
         """
-        cleaned = self.unspace_emoticons(tweet.strip())
+        cleaned = self.unspace_emoticons(tweet)
         cleaned = self.clean(cleaned)
-        cleaned = self.tokenizer.tokenize(cleaned)
+        cleaned = self.tokenizer.tokenize(cleaned.strip())
         # the stopwords are un-stemmed so this has to come before stemming
         cleaned = self.remove_useless_tokens(cleaned)
         cleaned = self.stem(cleaned)
