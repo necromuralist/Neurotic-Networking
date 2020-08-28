@@ -1,0 +1,643 @@
+#+BEGIN_COMMENT
+.. title: Naive Bayes Twitter Sentiment Classification
+.. slug: naive-bayes-twitter-sentiment-classification
+.. date: 2020-08-25 10:16:04 UTC-07:00
+.. tags: nlp,naive bayes,twitter,sentiment analysis
+.. category: NLP
+.. link: 
+.. description: Classifying tweet sentiment with naive bayes.
+.. type: text
+.. has_math: true
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f420ee03-30e4-4647-9501-463032524018-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Set Up
+*** Imports
+#+begin_src python :results none
+# python
+from functools import partial
+from pathlib import Path
+
+import os
+import pickle
+
+# pypi
+from dotenv import load_dotenv
+from tabulate import tabulate
+
+import numpy
+import pandas
+
+# my stuff
+from neurotic.nlp.twitter.counter import WordCounter
+#+end_src
+*** Tabulate
+#+begin_src python :results none
+TABLE = partial(tabulate, tablefmt="orgtbl", headers="keys", showindex=False)
+#+end_src
+*** The Dotenv
+    I put the path to the data files in a .env file so this loads it into the environment.
+#+begin_src python :results none
+env_path = Path("posts/nlp/.env")
+assert env_path.is_file()
+load_dotenv(env_path)
+#+end_src
+*** The Timer
+    This is a helper to keep track of how long things are taking.
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** Load the Twitter Data
+    I split the data {{% lancelot title="previously" %}}01-twitter-preprocessing-with-nltk{{% /lancelot %}} for the Logistic Regression twitter sentiment classifier so I'll load it here and skip building the sets.
+
+#+begin_src python :results output :exports both
+train_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
+
+test_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TEST_RAW"]).expanduser()
+)
+
+print(f"Training: {len(train_raw):,}")
+print(f"Testing: {len(test_raw):,}")
+#+end_src
+
+#+RESULTS:
+: Training: 8,000
+: Testing: 2,000
+
+I'll also re-use the WordCounter from the Logistic Regression. Despite the name it also does tokenizing and cleaning.
+
+#+begin_src python :results none
+counter = WordCounter(train_raw.tweet, train_raw.label)
+#+end_src
+*** Constants
+#+begin_src python :results output :exports both
+with open(os.environ["TWITTER_SENTIMENT"], "rb") as reader:
+    Sentiment = pickle.load(reader)
+print(Sentiment)
+#+end_src
+
+#+RESULTS:
+: Namespace(decode={1: 'positive', 0: 'negative'}, encode={'positive': 1, 'negative': 0}, negative=0, positive=1)
+
+* Middle
+** Training the Naive Bayes Classifier
+*** Priors and Log Priors
+
+\(P(D_{pos})\) is the probability that the document is positive.
+\(P(D_{neg})\) is the probability that the document is negative.
+
+ Use the formulas as follows and store the values in a dictionary:
+
+\begin{align}
+P(D_{pos}) &= \frac{D_{pos}}{D}\\
+P(D_{neg}) &= \frac{D_{neg}}{D}\\
+\end{align}
+
+ Where \(D\) is the total number of documents, or tweets in this case, \(D_{pos}\) is the total number of positive tweets and \(D_{neg}\) is the total number of negative tweets.
+
+The prior is the ratio of the probabilities \(\frac{P(D_{pos})}{P(D_{neg})}\). If you look at the definitions of the probabilities, they have the same denominator (/D/) so taking the ratio of the probabilities means the denominator cancels out and we don't really need it.
+
+\begin{align}
+  \frac{P(D_{pos})}{P(D_{neg})} &= \frac{\frac{D_{pos}}{D}}{\frac{D_{neg}}{D}}\\
+  &= \frac{\left(
+    \frac{D_{pos}}{\cancel{D}}\right)
+    \left(\frac{\cancel{D}}{D_{neg}}\right)
+  }{
+    \cancel{\left(\frac{D_{neg}}{D}\right)}
+    \cancel{\left(\frac{D}{D_{neg}}\right)}
+  }\\
+  &= \frac{D_{pos}}{D_{neg}}\\
+\end{align}
+
+ We can take the log of the prior to rescale it, and we'll call this the logprior.
+
+\begin{align}
+\text{logprior} &= log \left( \frac{P(D_{pos})}{P(D_{neg})} \right) \\
+&= log \left( \frac{D_{pos}}{D_{neg}} \right)\\
+\end{align}
+
+Note that \(log(\frac{A}{B})\) is the same as \(log(A) - log(B)\).  So the logprior can also be calculated as the difference between two logs:
+
+\begin{align} 
+\text{logprior} &= \log (P(D_{pos})) - \log (P(D_{neg})) \\
+&= \log (D_{pos}) - \log (D_{neg})\\
+\end{align}
+
+*** Positive and Negative Probabilities
+To compute the positive probability and the negative probability for a specific word in the vocabulary, we'll use the following inputs:
+
+ - \(freq_{pos}\) and \(freq_{neg}\) are the frequencies of that specific word in the positive or negative class. In other words, the positive frequency of a word is the number of times the word is counted with the label of 1.
+ - \(N_{pos}\) and \(N_{neg}\) are the total number of positive and negative words for all documents (for all tweets), respectively.
+ - /V/ is the number of unique words in the entire set of documents, for all classes, whether positive or negative.
+
+We'll use these to compute the positive and negative probability for a specific word using this formula:
+
+\begin{align}
+ P(W_{pos}) &= \frac{freq_{pos} + 1}{N_{pos} + V}\\
+ P(W_{neg}) &= \frac{freq_{neg} + 1}{N_{neg} + V}\\
+\end{align}
+
+ Notice that we add the "+1" in the numerator for additive smoothing.  This [[https://en.wikipedia.org/wiki/Additive_smoothing][wiki article]] explains more about additive smoothing.
+*** Log Likelihood
+To compute the loglikelihood of that very same word, we can implement the following equations:
+
+\[
+ \text{loglikelihood} = \log \left(\frac{P(W_{pos})}{P(W_{neg})} \right)
+\]
+
+*** Calculating Stuff
+    - /V/ is the number of unique words in our word counter.
+    - \(freq_{pos}\) and \(freq_{neg}\) are what =counter.counts= has for the values
+    - \(N_{pos}\) and \(N_{neg}\) are the total number of positive and negative words respectively, which we can calculate from the counter
+    - /D/ is the number of documents in the training set
+    - \(D_{pos}\) and \(D_{neg}\) are the number of documents labeled positive and those labeled negative
+*** [#C] The Function
+#+begin_src python :results none
+def train_naive_bayes(freqs, train_x, train_y):
+    '''
+    Input:
+        freqs: dictionary from (word, label) to how often the word appears
+        train_x: a list of tweets
+        train_y: a list of labels correponding to the tweets (0,1)
+    Output:
+        logprior: the log prior. (equation 3 above)
+        loglikelihood: the log likelihood of you Naive bayes equation. (equation 6 above)
+    '''
+    loglikelihood = {}
+    logprior = 0
+
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+
+    # calculate V, the number of unique words in the vocabulary
+    vocab = set([pair[0] for pair in freqs.keys()])
+    V = len(vocab)
+
+    # calculate N_pos and N_neg
+    N_pos = sum((freqs[(token, sentiment)] for token, sentiment in freqs
+                 if sentiment == Sentiment.positive))
+    N_neg = sum((freqs[(token, sentiment)] for token, sentiment in freqs
+                 if sentiment == Sentiment.negative))
+
+    # Calculate D, the number of documents
+    D = len(train_x)
+
+    # Calculate D_pos, the number of positive documents (*hint: use sum(<np_array>))
+    D_pos = train_y.sum()
+
+    # Calculate D_neg, the number of negative documents (*hint: compute using D and D_pos)
+    D_neg = D - D_pos
+
+    # Calculate logprior
+    logprior = numpy.log(D_pos) - numpy.log(D_neg)
+
+    # For each word in the vocabulary...
+    for word in vocab:
+        # get the positive and negative frequency of the word
+        freq_pos = freqs[(word, Sentiment.positive)]
+        freq_neg = freqs[(word, Sentiment.negative)]
+
+        # calculate the probability that each word is positive, and negative
+        p_w_pos = (freq_pos + 1)/(N_pos + V)
+        p_w_neg = (freq_neg + 1)/(N_neg + V)
+
+        # calculate the log likelihood of the word
+        loglikelihood[word] = numpy.log(p_w_pos) - numpy.log(p_w_neg)
+
+    ### END CODE HERE ###
+
+    return logprior, loglikelihood
+
+#+end_src
+
+#+begin_src python :results output :exports both
+all_raw = pandas.concat([train_raw, test_raw])
+check = pandas.concat([
+    all_raw[all_raw.label==1].iloc[:4000], all_raw[all_raw.label==0].iloc[:4000]])
+logprior, loglikelihood = train_naive_bayes(counter.counts, check.tweet, check.label)
+print(f"Log Prior: {logprior}")
+print(f"Log Likelihood: {len(loglikelihood)}")
+#+end_src
+
+#+RESULTS:
+: Log Prior: 0.0
+: Log Likelihood: 9172
+
+#+begin_src python :results output :exports both
+logprior, loglikelihood = train_naive_bayes(counter.counts, train_raw.tweet, train_raw.label)
+print(f"Log Prior: {logprior}")
+print(f"Log Likelihood: {len(loglikelihood)}")
+#+end_src
+
+#+RESULTS:
+: 2020-08-27 17:53:26,369 graeae.timers.timer start: Started: 2020-08-27 17:53:26.368827
+: 2020-08-27 17:53:26,423 graeae.timers.timer end: Ended: 2020-08-27 17:53:26.423193
+: 2020-08-27 17:53:26,424 graeae.timers.timer end: Elapsed: 0:00:00.054366
+: Log Prior: -0.006500022885560952
+: Log Likelihood: 9172
+
+#+begin_src python :results output :exports both
+print(f"{len(train_raw[train_raw.label==0]):,}")
+print(f"{len(train_raw[train_raw.label==1]):,}")
+#+end_src
+
+#+RESULTS:
+: 4,013
+: 3,987
+
+We end up with a negative prior in the second case because we don't have a perfect balance between the positive and negative counts.
+
+** Testing The Model
+Implement the `naive_bayes_predict` function to make predictions on tweets.
+ - The function takes in the `tweet`, `logprior`, `loglikelihood`.
+ - It returns the probability that the tweet belongs to the positive or negative class.
+ - For each tweet, sum up loglikelihoods of each word in the tweet.
+ - Also add the logprior to this sum to get the predicted sentiment of that tweet.
+
+\[
+p = logprior + \sum_i^N (loglikelihood_i)
+\]
+
+#+begin_src python :results none
+def naive_bayes_predict(tweet, logprior, loglikelihood):
+    '''
+    Input:
+        tweet: a string
+        logprior: a number
+        loglikelihood: a dictionary of words mapping to numbers
+    Output:
+        p: the sum of all the logliklihoods of each word in the tweet (if found in the dictionary) + logprior (a number)
+
+    '''
+    # process the tweet to get a list of words
+    word_l = counter.process(tweet)
+
+    # initialize probability to zero
+    p = 0
+
+    # add the logprior
+    p += logprior
+
+    for word in word_l:
+
+        # check if the word exists in the loglikelihood dictionary
+        if word in loglikelihood:
+            # add the log likelihood of that word to the probability
+            p += loglikelihood[word]
+
+    ### END CODE HERE ###
+
+    return p
+#+end_src
+
+#+begin_src python :results output :exports both
+my_tweet = 'She smiled.'
+p = naive_bayes_predict(my_tweet, logprior, loglikelihood)
+print('The expected output is', p)
+#+end_src
+
+#+RESULTS:
+: The expected output is 1.44329786012511
+
+**Instructions**:
+ - Implement `test_naive_bayes` to check the accuracy of your predictions.
+ - The function takes in your `test_x`, `test_y`, log_prior, and loglikelihood
+ - It returns the accuracy of your model.
+ - First, use `naive_bayes_predict` function to make predictions for each tweet in text_x.
+
+#+begin_src python :results none
+def test_naive_bayes(test_x, test_y, logprior, loglikelihood):
+    """
+    Input:
+        test_x: A list of tweets
+        test_y: the corresponding labels for the list of tweets
+        logprior: the logprior
+        loglikelihood: a dictionary with the loglikelihoods for each word
+    Output:
+        accuracy: (# of tweets classified correctly)/(total # of tweets)
+    """
+    accuracy = 0  # return this properly
+
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    y_hats = []
+    for tweet in test_x:
+        # if the prediction is > 0
+        if naive_bayes_predict(tweet, logprior, loglikelihood) > 0:
+            # the predicted class is 1
+            y_hat_i = 1
+        else:
+            # otherwise the predicted class is 0
+            y_hat_i = 0
+
+        # append the predicted class to the list y_hats
+        y_hats.append(y_hat_i)
+
+    # error is the average of the absolute values of the differences between y_hats and test_y
+    error = numpy.abs(numpy.array(y_hats) - numpy.array(test_y)).mean()
+
+    # Accuracy is 1 minus the error
+    accuracy = 1 - error
+    return accuracy
+#+end_src
+
+#+begin_src python :results output :exports both
+print("Naive Bayes accuracy = %0.4f" %
+      (test_naive_bayes(test_raw.tweet, test_raw.label, logprior, loglikelihood)))
+#+end_src
+
+#+RESULTS:
+: Naive Bayes accuracy = 0.9955
+
+#+begin_src python :results output :exports both
+for tweet in ['I am happy', 'I am bad', 'this movie should have been great.', 'great', 'great great', 'great great great', 'great great great great']:
+    p = naive_bayes_predict(tweet, logprior, loglikelihood)
+    print(f'{tweet} -> {p:.2f}')
+#+end_src
+
+#+RESULTS:
+: I am happy -> 1.89
+: I am bad -> -1.63
+: this movie should have been great. -> 2.05
+: great -> 2.06
+: great great -> 4.13
+: great great great -> 6.19
+: great great great great -> 8.25
+
+#+begin_src python :results output :exports both
+my_tweet = "the answer is in the umwelt"
+print(naive_bayes_predict(my_tweet, logprior, loglikelihood))
+#+end_src
+
+#+RESULTS:
+: -0.41441957689474407
+** Filtering Words
+ - Some words have more positive counts than others, and can be considered "more positive".  Likewise, some words can be considered more negative than others.
+ - One way for us to define the level of positiveness or negativeness, without calculating the log likelihood, is to compare the positive to negative frequency of the word.
+ - Note that we can also use the log likelihood calculations to compare relative positivity or negativity of words.
+ - We can calculate the ratio of positive to negative frequencies of a word.
+ - Once we're able to calculate these ratios, we can also filter a subset of words that have a minimum ratio of positivity / negativity or higher.
+ - Similarly, we can also filter a subset of words that have a maximum ratio of positivity / negativity or lower (words that are at least as negative, or even more negative than a given threshold).
+
+ - Given the `freqs` dictionary of words and a particular word, use `lookup(freqs,word,1)` to get the positive count of the word.
+ - Similarly, use the `lookup()` function to get the negative count of that word.
+ - Calculate the ratio of positive divided by negative counts
+
+\[
+ratio = \frac{\text{pos_words} + 1}{\text{neg_words} + 1}
+\]
+
+#+begin_src python :results output :exports none
+table = pandas.read_html("""
+<table>
+    <tr>
+        <td>
+            <b>Words</b>
+        </td>
+        <td>
+        Positive word count
+        </td>
+         <td>
+        Negative Word Count
+        </td>
+  </tr>
+    <tr>
+        <td>
+        glad
+        </td>
+         <td>
+        41
+        </td>
+    <td>
+        2
+        </td>
+  </tr>
+    <tr>
+        <td>
+        arriv
+        </td>
+         <td>
+        57
+        </td>
+    <td>
+        4
+        </td>
+  </tr>
+    <tr>
+        <td>
+        :(
+        </td>
+         <td>
+        1
+        </td>
+    <td>
+        3663
+        </td>
+  </tr>
+    <tr>
+        <td>
+        :-(
+        </td>
+         <td>
+        0
+        </td>
+    <td>
+        378
+        </td>
+  </tr>
+</table>
+""", header=0)[0]
+print(TABLE(table))
+#+end_src
+
+| Words   |   Positive word count |   Negative Word Count |
+|---------+-----------------------+-----------------------|
+| glad    |                    41 |                     2 |
+| arriv   |                    57 |                     4 |
+| :(      |                     1 |                  3663 |
+| :-(     |                     0 |                   378 |
+
+#+begin_src python :results none
+def get_ratio(freqs, word):
+    '''
+    Input:
+        freqs: dictionary containing the words
+        word: string to lookup
+
+    Output: a dictionary with keys 'positive', 'negative', and 'ratio'.
+        Example: {'positive': 10, 'negative': 20, 'ratio': 0.5}
+    '''
+    pos_neg_ratio = {'positive': 0, 'negative': 0, 'ratio': 0.0}
+
+    # use lookup() to find positive counts for the word (denoted by the integer 1)
+    pos_neg_ratio['positive'] = freqs[(word, 1)]
+
+    # use lookup() to find negative counts for the word (denoted by integer 0)
+    pos_neg_ratio['negative'] = freqs[(word, 0)]
+
+    # calculate the ratio of positive to negative counts for the word
+    pos_neg_ratio['ratio'] = (pos_neg_ratio["positive"] + 1)/(
+        pos_neg_ratio["negative"] + 1)
+    ### END CODE HERE ###
+    return pos_neg_ratio
+#+end_src
+
+#+begin_src python :results output :exports both
+print(get_ratio(counter.counts, 'happi'))
+#+end_src
+
+#+RESULTS:
+: {'positive': 160, 'negative': 23, 'ratio': 6.708333333333333}
+
+*** get words by threshold
+
+ - If we set the label to 1, then we'll look for all words whose threshold of positive/negative is at least as high as that threshold, or higher.
+ - If we set the label to 0, then we'll look for all words whose threshold of positive/negative is at most as low as the given threshold, or lower.
+ - Use the `get_ratio()` function to get a dictionary containing the positive count, negative count, and the ratio of positive to negative counts.
+ - Append a dictionary to a list, where the key is the word, and the dictionary is the dictionary `pos_neg_ratio` that is returned by the `get_ratio()` function.
+
+ An example key-value pair would have this structure:
+#+begin_src python :results none
+{'happi':
+     {'positive': 10, 'negative': 20, 'ratio': 0.5}
+ }
+#+end_src
+
+#+begin_src python :results none
+def get_words_by_threshold(freqs, label, threshold):
+    '''
+    Input:
+        freqs: dictionary of words
+        label: 1 for positive, 0 for negative
+        threshold: ratio that will be used as the cutoff for including a word in the returned dictionary
+    Output:
+        word_set: dictionary containing the word and information on its positive count, negative count, and ratio of positive to negative counts.
+        example of a key value pair:
+        {'happi':
+            {'positive': 10, 'negative': 20, 'ratio': 0.5}
+        }
+    '''
+    word_list = {}
+
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    for key in freqs:
+        word, _ = key
+
+        # get the positive/negative ratio for a word
+        pos_neg_ratio = get_ratio(freqs, word)
+
+        # if the label is 1 and the ratio is greater than or equal to the threshold...
+        if ((label == 1 and pos_neg_ratio["ratio"] >= threshold) or
+            (label == 0 and pos_neg_ratio["ratio"] <= threshold)):
+
+            # Add the pos_neg_ratio to the dictionary
+            word_list[word] = pos_neg_ratio
+
+        # otherwise, do not include this word in the list (do nothing)
+
+    ### END CODE HERE ###
+    return word_list
+#+end_src
+
+#+begin_src python :results output :exports both
+passed = get_words_by_threshold(counter.counts, label=Sentiment.negative, threshold=0.05)
+for word, info in passed.items():
+    print(f"word: {word}\t{info}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+word: :(	{'positive': 1, 'negative': 3705, 'ratio': 0.0005396654074473826}
+word: :-(	{'positive': 0, 'negative': 407, 'ratio': 0.0024509803921568627}
+word: ♛	{'positive': 0, 'negative': 162, 'ratio': 0.006134969325153374}
+word: 》	{'positive': 0, 'negative': 162, 'ratio': 0.006134969325153374}
+word: beli̇ev	{'positive': 0, 'negative': 27, 'ratio': 0.03571428571428571}
+word: wi̇ll	{'positive': 0, 'negative': 27, 'ratio': 0.03571428571428571}
+word: justi̇n	{'positive': 0, 'negative': 27, 'ratio': 0.03571428571428571}
+word: ｓｅｅ	{'positive': 0, 'negative': 27, 'ratio': 0.03571428571428571}
+word: ｍｅ	{'positive': 0, 'negative': 27, 'ratio': 0.03571428571428571}
+word: sad	{'positive': 3, 'negative': 100, 'ratio': 0.039603960396039604}
+word: >:(	{'positive': 0, 'negative': 36, 'ratio': 0.02702702702702703}
+#+end_example
+
+#+begin_src python :results output :exports both
+passed = get_words_by_threshold(counter.counts, label=Sentiment.positive, threshold=10)
+for word, info in passed.items():
+    print(f"word: {word}\t{info}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+word: :)	{'positive': 2967, 'negative': 1, 'ratio': 1484.0}
+word: :-)	{'positive': 547, 'negative': 0, 'ratio': 548.0}
+word: :D	{'positive': 537, 'negative': 0, 'ratio': 538.0}
+word: :p	{'positive': 113, 'negative': 0, 'ratio': 114.0}
+word: fback	{'positive': 22, 'negative': 0, 'ratio': 23.0}
+word: blog	{'positive': 29, 'negative': 2, 'ratio': 10.0}
+word: followfriday	{'positive': 19, 'negative': 0, 'ratio': 20.0}
+word: recent	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: stat	{'positive': 52, 'negative': 0, 'ratio': 53.0}
+word: arriv	{'positive': 57, 'negative': 4, 'ratio': 11.6}
+word: thx	{'positive': 11, 'negative': 0, 'ratio': 12.0}
+word: here'	{'positive': 19, 'negative': 0, 'ratio': 20.0}
+word: influenc	{'positive': 16, 'negative': 0, 'ratio': 17.0}
+word: bam	{'positive': 34, 'negative': 0, 'ratio': 35.0}
+word: warsaw	{'positive': 34, 'negative': 0, 'ratio': 35.0}
+word: welcom	{'positive': 58, 'negative': 4, 'ratio': 11.8}
+word: vid	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: ceo	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: 1month	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: flipkartfashionfriday	{'positive': 14, 'negative': 0, 'ratio': 15.0}
+word: inde	{'positive': 10, 'negative': 0, 'ratio': 11.0}
+word: glad	{'positive': 35, 'negative': 2, 'ratio': 12.0}
+word: braindot	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: ;)	{'positive': 21, 'negative': 0, 'ratio': 22.0}
+word: goodnight	{'positive': 19, 'negative': 1, 'ratio': 10.0}
+word: youth	{'positive': 10, 'negative': 0, 'ratio': 11.0}
+word: shout	{'positive': 9, 'negative': 0, 'ratio': 10.0}
+word: fantast	{'positive': 10, 'negative': 0, 'ratio': 11.0}
+#+end_example
+** Error Analysis
+
+#+begin_src python :results output :exports both
+print('Truth Predicted Tweet')
+for row in test_raw.itertuples():
+    y_hat = naive_bayes_predict(row.tweet, logprior, loglikelihood)
+    if row.label != (numpy.sign(y_hat) > 0):
+        print(
+            f"{row.label}\t{numpy.sign(y_hat) > 0:d}\t"
+            f"{' '.join(counter.process(row.tweet)).encode('ascii', 'ignore')}")
+#+end_src
+
+#+RESULTS:
+: Truth Predicted Tweet
+: 0	1	b'whatev stil l young >:-('
+: 1	0	b'look fun kik va 642 kik kikgirl french model orgasm hannib phonesex :)'
+: 0	1	b'great news thank let us know :( hope good weekend'
+: 0	1	b"amb pleas harry' jean :) ): ): ):"
+: 0	1	b'srsli fuck u unfollow hope ur futur child unpar u >:-('
+: 1	0	b'ate last cooki shir 0 >:d'
+: 1	0	b'snapchat jennyjean 22 snapchat kikmeboy model french kikchat sabadodeganarseguidor sexysasunday :)'
+: 1	0	b'add kik ughtm 545 kik kikmeguy kissm nude likeforfollow musicbiz sexysasunday :)'
+: 0	1	b'sr financi analyst expedia inc bellevu wa financ expediajob job job hire'
+** Predict Your Own Tweet
+#+begin_src python :results output :exports both
+my_tweet = 'my balls itch'
+
+p = naive_bayes_predict(my_tweet, logprior, loglikelihood)
+print(f"{my_tweet} is a positive tweet: {numpy.sign(p) > 0}")
+#+end_src
+
+#+RESULTS:
+: my balls itch is a positive tweet: True
+
+* End
