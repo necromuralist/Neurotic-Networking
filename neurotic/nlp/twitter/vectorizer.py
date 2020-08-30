@@ -95,5 +95,5 @@ class TweetVectorizer:
         """
         for tweet in self.tweets:
             assert type(tweet) is str
-        assert type(self.counter) is Counter
+        assert type(self.counts) is Counter
         return
