@@ -40,15 +40,14 @@ def setup_tweet_vectorizer(katamari, mocker):
 
     TOKENS = "A B C".split()
     katamari.tweets = [TOKENS for tweet in range(TWEETS)]
+    katamari.counts = Counter({('A', 0):1,
+                               ('B', 1):2,
+                               ('C', 0):3})
     katamari.counter = mocker.MagicMock(spec=WordCounter)
     katamari.counter.processed = katamari.tweets
     katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
-                                          counter=katamari.counter,
+                                          counts=katamari.counts,
                                           bias=katamari.bias)
-
-    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
-                                                  ('B', 1):2,
-                                                  ('C', 0):3})
     katamari.vectorizer._process = mocker.MagicMock()
     katamari.vectorizer._process.return_value = "A B C".split()
     return
@@ -83,16 +82,15 @@ def setup_vectorizer(katamari, faker, mocker):
     TOKENS = "A B C"
     katamari.tweets = [TOKENS for tweet in range(TWEETS)]
     katamari.counter = mocker.MagicMock(spec=WordCounter)
-
+    katamari.counter.counts = Counter({('A', 0):1,
+                                       ('B', 1):2,
+                                       ('C', 0):3})
     katamari.vectorizer = TweetVectorizer(tweets=katamari.tweets,
-                                          counter=katamari.counter,
+                                          counts=katamari.counter.counts,
                                           bias=katamari.bias)
 
     katamari.vectorizer._process = mocker.MagicMock()
     katamari.vectorizer._process.return_value = TOKENS.split()
-    katamari.vectorizer.counter.counts = Counter({('A', 0):1,
-                                                  ('B', 1):2,
-                                                  ('C', 0):3})
     katamari.negative = numpy.array([sum([katamari.counter.counts[(token, 0)]
                                       for token in TOKENS])
                                       for row in range(TWEETS)])
@@ -134,7 +132,7 @@ def check_negative_counts(katamari):
 @given("a Tweet Vectorizer with the vectors set")
 def setup_vectors(katamari, faker, mocker):
     katamari.vectors = mocker.MagicMock()
-    katamari.vectorizer = TweetVectorizer(tweets = [faker.sentence()], counter=None)
+    katamari.vectorizer = TweetVectorizer(tweets = [faker.sentence()], counts=None)
     katamari.vectorizer._vectors = katamari.vectors
     return
 
@@ -157,8 +155,7 @@ def check_vectors_gone(katamari):
 @given("a Tweet Vectorizer with bad tweets")
 def setup_bad_tweets(katamari):
     katamari.vectorizer = TweetVectorizer(tweets=[5],
-                                          counter=WordCounter(
-                                              tweets=None, labels=None))
+                                          counts=Counter())
     return
 
 
@@ -180,7 +177,7 @@ def check_assertion_error(katamari):
 
 @given("a Tweet Vectorizer with the wrong counter object")
 def setup_bad_counter(katamari, mocker):
-    katamari.vectorizer = TweetVectorizer(tweets=["apple"], counter=mocker.MagicMock())
+    katamari.vectorizer = TweetVectorizer(tweets=["apple"], counts=mocker.MagicMock())
     return
 
 # When check-rep is called
