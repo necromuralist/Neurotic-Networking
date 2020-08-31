@@ -1,0 +1,474 @@
+#+BEGIN_COMMENT
+.. title: Class-Based Naive Bayes Tweet Sentiment Classifier
+.. slug: class-based-naive-bayes-tweet-sentiment-classifier
+.. date: 2020-08-29 11:01:51 UTC-07:00
+.. tags: nlp,naive bayes,twitter,sentiment analysis
+.. category: NLP
+.. link: 
+.. description: Re-implementing the Naive Bayes implementation as a class.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+* Beginning
+  I {{% lancelot title="previously implemented" %}}naive-bayes-twitter-sentiment-classification{{% /lancelot %}} a Naive Bayes Classifier for Tweets as separate functions, and while that is useful for learningi I want to re-use it so I'm going to re-implement it as a class-based system.
+* The Naive Bayes Classifier
+#+begin_src python :tangle ../../neurotic/nlp/twitter/naive_bayes.py :exports none
+<<naive-imports>>
+
+<<naive-sentiment>>
+
+<<naive-declaration>>
+
+    <<naive-counter>>
+
+    <<naive-vocabulary>>
+
+    <<naive-logprior>>
+
+    <<naive-loglikelihood>>
+
+    <<naive-predict-probability>>
+
+    <<naive-predict-sentiment>>
+
+    <<naive-check-rep>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref naive-imports
+# python
+from argparse import Namespace
+from collections import Counter, defaultdict
+from typing import Iterable
+
+# pypi
+import attr
+import numpy
+
+# my stuff
+from neurotic.nlp.twitter.counter import WordCounter
+#+end_src
+** The Sentiment Constants
+#+begin_src python :noweb-ref naive-sentiment
+Sentiment = Namespace(
+    negative = 0,
+    positive = 1,
+)
+#+end_src
+** The Declaration
+#+begin_src python :noweb-ref naive-declaration
+@attr.s(auto_attribs=True)
+class NaiveBayes:
+    """Naive Bayes Sentiment Classifier for Tweets
+
+    Args:
+     tweets: the training tweets
+     labels: the sentiment labels for the training tweets
+    """
+    tweets: Iterable
+    labels: Iterable
+    _counter: WordCounter = None
+    _vocabulary: set = None
+    _logprior: float = None
+    _loglikelihood: dict = None
+#+end_src
+** The Counter
+#+begin_src python :noweb-ref naive-counter
+@property
+def counter(self) -> WordCounter:
+    """The word processor/counter"""
+    if self._counter is None:
+        self._counter = WordCounter(self.tweets, self.labels)
+    return self._counter
+#+end_src
+** The Vocabulary
+#+begin_src python :noweb-ref naive-vocabulary
+@property
+def vocabulary(self) -> set:
+    """The unique tokens in the tweets"""
+    if self._vocabulary is None:
+        self._vocabulary = {key[0] for key in self.counter.counts}
+    return self._vocabulary
+#+end_src
+** The logprior
+#+begin_src python :noweb-ref naive-logprior
+@property
+def logprior(self) -> float:
+    """the log-odds of the priors"""
+    if self._logprior is None:
+        positive_documents = numpy.sum(self.labels)
+        negative_documents = len(self.labels) - positive_documents
+        self._logprior = numpy.log(positive_documents) - numpy.log(negative_documents)
+    return self._logprior
+#+end_src
+** The loglikelihood
+#+begin_src python :noweb-ref naive-loglikelihood
+@property
+def loglikelihood(self) -> dict:
+    """The log-likelihoods for words"""
+    if self._loglikelihood is None:
+        self._loglikelihood = defaultdict(lambda: 0)        
+        counts = self.counter.counts        
+
+        all_positive_words = sum(
+            (counts[(token, sentiment)] for token, sentiment in counts
+             if sentiment == Sentiment.positive))
+        all_negative_words = sum(
+            (counts[(token, sentiment)] for token, sentiment in counts
+             if sentiment == Sentiment.negative))
+        vocabulary_size = len(self.vocabulary)
+
+        for word in self.vocabulary:
+            this_word_positive_count = counts[(word, Sentiment.positive)]
+            this_word_negative_count = counts[(word, Sentiment.negative)]
+
+            probability_word_is_positive = ((this_word_positive_count + 1)/
+                                         (all_positive_words + vocabulary_size))
+            probability_word_is_negative = ((this_word_negative_count + 1)/
+                                         (all_negative_words + vocabulary_size))
+
+            self._loglikelihood[word] = (numpy.log(probability_word_is_positive) -
+                                         numpy.log(probability_word_is_negative))
+    return self._loglikelihood
+#+end_src
+** Predict Probability
+#+begin_src python :noweb-ref naive-predict-probability
+def predict_ratio(self, tweet: str) -> float:
+    """predict the odds-ratio positive/negative
+
+    Args:
+     tweet: the tweet to predict
+
+    Returns:
+     log-odds-ratio for tweet (positive/negative)
+    """
+    tokens = self.counter.process(tweet)
+    return self.logprior + sum(self.loglikelihood[token] for token in tokens)
+#+end_src
+** Predict Sentiment
+#+begin_src python :noweb-ref naive-predict-sentiment
+def predict_sentiment(self, tweet: str) -> int:
+    """Predict whether the tweet's sentiment is positive or negative
+
+    Args:
+     tweet: the 'document' to analyze
+
+    Returns:
+     the sentiment (0=negative, 1=positive)
+    """
+    return self.predict_ratio(tweet) > 0
+#+end_src
+** Check Rep
+#+begin_src python :noweb-ref naive-check-rep
+def check_rep(self) -> None:
+    """Does some basic checks of the input arguments"""
+    assert len(self.tweets) == len(self.labels)
+    return
+#+end_src
+* Testing
+#+begin_src python :tangle ../../tests/features/twitter/naive_bayes.feature :exports none
+<<feature-construction>>
+
+<<feature-counter>>
+
+<<feature-log-prior>>
+
+<<feature-vocabulary>>
+
+<<feature-loglikelihood>>
+
+<<feature-predict-probability>>
+
+<<feature-predict-sentiment>>
+#+end_src
+
+#+begin_src python :tangle ../../tests/functional/twitter/test_naive_bayes.py :exports none
+<<test-imports>>
+
+<<test-setup>>
+
+# ********** #
+<<test-build>>
+
+# ********** #
+<<test-counter>>
+
+# ********** #
+<<test-log-prior>>
+
+# ********** #
+<<test-vocabulary>>
+
+# ********** #
+<<test-loglikelihood>>
+
+# ********** #
+<<test-predict-probability>>
+
+# ********** #
+<<test-predict-sentiment>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref test-imports
+"""NaiveBayes Tweet Sentiment Classifier feature tests."""
+
+# python
+from collections import Counter
+
+import math
+
+# pypi
+from expects import (
+    be,
+    be_empty,
+    be_true,
+    equal,
+    expect,
+)
+
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+import pytest_bdd
+
+# this test repo
+from fixtures import katamari
+
+# software under test
+from neurotic.nlp.twitter.counter import WordCounter
+from neurotic.nlp.twitter.naive_bayes import NaiveBayes
+#+end_src
+
+** Test Setup
+#+begin_src python :noweb-ref test-setup
+scenarios("../../features/twitter/naive_bayes.feature")
+#+end_src
+** Can you construct it?
+#+begin_src feature :noweb-ref feature-construction
+Feature: NaiveBayes Tweet Sentiment Classifier
+
+Scenario: The user builds the classifier
+  Given a Naive Bayes definition
+  When the user builds the classifier
+  Then it has the expected attributes
+#+end_src
+
+#+begin_src python :noweb-ref test-build
+# Scenario: The user builds the classifier
+
+
+@given('a Naive Bayes definition')
+def a_naive_bayes_definition(katamari):
+    katamari.definition = NaiveBayes
+    return
+
+
+@when('the user builds the classifier')
+def the_user_builds_the_classifier(katamari):
+    katamari.labels = [0, 1, 1]
+    katamari.tweets = "alfa bravo charley".split()
+    katamari.classifier = katamari.definition(tweets=katamari.tweets,
+                                              labels=katamari.labels)
+    return
+
+
+@then('it has the expected attributes')
+def it_has_the_expected_attributes(katamari):
+    expect(katamari.classifier.tweets).to(be(katamari.tweets))
+    expect(katamari.classifier.labels).to(be(katamari.labels))
+    katamari.classifier.check_rep()
+    return
+#+end_src
+
+** Does it build the counter?
+#+begin_src feature :noweb-ref feature-counter
+Scenario: The user checks the counter
+  Given a Naive Bayes classifier
+  When the user checks the counter
+  Then it is the expected counter
+#+end_src
+
+#+begin_src python :noweb-ref test-counter
+# Scenario: The user checks the counter
+
+@given("a Naive Bayes classifier")
+def build_naive_classifier(katamari):
+    katamari.classifier = NaiveBayes(tweets=[], labels=[])
+    return
+
+
+@when("the user checks the counter")
+def check_counter(katamari, mocker):
+    katamari.counter = mocker.MagicMock(spec=WordCounter)
+    katamari.counter_definition = mocker.MagicMock()
+    katamari.counter_definition.return_value = katamari.counter
+    mocker.patch("neurotic.nlp.twitter.naive_bayes.WordCounter", katamari.counter_definition)
+    katamari.actual_counter = katamari.classifier.counter
+    return
+
+
+@then("it is the expected counter")
+def expect_counter(katamari):
+    expect(katamari.actual_counter).to(be(katamari.counter))
+    return
+#+end_src
+
+** Does it build the logprior?
+#+begin_src feature :noweb-ref feature-log-prior
+Scenario: The user checks the log-prior
+ Given a valid Naive Bayes Classifier
+ When the user checks the log-odds prior
+ Then it is close enough
+#+end_src
+
+#+begin_src python :noweb-ref test-log-prior
+# Scenario: The user checks the log-prior
+
+@given("a valid Naive Bayes Classifier")
+def setup_classifier(katamari):
+    katamari.tweets = ["a blowfish", "b closing", "c that", "d plane"]
+    katamari.labels = [1, 1, 0, 1]
+    katamari.counts = Counter({
+        ("appl", 0): 5,
+        ("b", 1): 2,
+        ("c", 1): 4,
+        
+    })
+    katamari.classifier = NaiveBayes(tweets=katamari.tweets,
+                                     labels = katamari.labels)
+    katamari.classifier.counter._counts = katamari.counts
+    return
+
+
+@when("the user checks the log-odds prior")
+def get_log_odds_prior(katamari):
+    katamari.expected = math.log(3) - math.log(1)
+    katamari.actual = katamari.classifier.logprior
+    return
+
+
+@then("it is close enough")
+def expect_close_enough(katamari):
+    expect(math.isclose(katamari.actual, katamari.expected)).to(be_true)
+    return
+#+end_src
+** Does it build the vocabulary?
+#+begin_src feature :noweb-ref feature-vocabulary
+Scenario: The user checks the vocabulary
+  Given a valid Naive Bayes Classifier
+  When the user checks the vocabulary
+  Then all the words are there
+#+end_src
+
+#+begin_src python :noweb-ref test-vocabulary
+# Scenario: The user checks the vocabulary
+#  Given a valid Naive Bayes Classifier
+ 
+
+@when("the user checks the vocabulary")
+def check_vocabulary(katamari):
+  katamari.actual = katamari.classifier.vocabulary
+  katamari.expected = {"appl", "b", "c"}
+  return
+
+
+@then("all the words are there")
+def compare_words(katamari):
+  expect(katamari.actual ^ katamari.expected).to(be_empty)
+  return
+#+end_src
+** Does it build the log-likelihood?
+#+begin_src feature :noweb-ref feature-loglikelihood
+Scenario: The user gets the log-likelihood dictionary
+  Given a valid Naive Bayes Classifier
+  When the user checks the loglikelihoods
+  Then they are close enough
+#+end_src
+
+#+begin_src python :noweb-ref test-loglikelihood
+# Scenario: The user gets the log-likelihood dictionary
+#  Given a valid Naive Bayes Classifier
+
+
+@when("the user checks the loglikelihoods")
+def check_log_likelihoods(katamari):
+    katamari.expected = dict(
+        appl=math.log(1/9) - math.log(6/8),
+        b=math.log(3/9) - math.log(1/8),
+        c=math.log(5/9) - math.log(1/8)
+    )
+    katamari.actual = katamari.classifier.loglikelihood
+    return
+
+
+@then("they are close enough")
+def expect_close_values(katamari):
+    for word in katamari.classifier.loglikelihood:
+        expect(math.isclose(katamari.expected[word],
+                            katamari.actual[word])).to(be_true)
+    return
+#+end_src
+
+** Does it predict probabilities?
+#+begin_src feature :noweb-ref feature-predict-probability
+Scenario: User predicts tweet positive probability
+  Given a valid Naive Bayes Classifier
+  When the user makes a tweet prediction
+  Then it is the expected probability
+#+end_src
+
+#+begin_src python :noweb-ref test-predict-probability
+# Scenario: User predicts tweet positive probability
+#   Given a valid Naive Bayes Classifier
+
+
+@when("the user makes a tweet prediction")
+def check_prediction(katamari):
+    katamari.expected = (katamari.classifier.logprior
+                         + katamari.classifier.loglikelihood["c"]
+                         + katamari.classifier.loglikelihood["b"])
+    katamari.actual = katamari.classifier.predict_ratio(
+        "c you later b"
+    )
+    return
+
+
+@then("it is the expected probability")
+def expect_probability(katamari):
+    expect(math.isclose(katamari.actual, katamari.expected)).to(be_true)
+    return
+#+end_src
+** Does it predict the sentiment?
+#+begin_src feature :noweb-ref feature-predict-sentiment
+Scenario: The user predicts tweet sentiment
+  Given a valid Naive Bayes Classifier
+  When the user predicts the sentiment of tweets
+  Then the sentiments are the expected ones
+#+end_src
+
+#+begin_src python :noweb-ref test-predict-sentiment
+# Scenario: The user predicts tweet sentiment
+#   Given a valid Naive Bayes Classifier
+
+
+@when("the user predicts the sentiment of tweets")
+def check_predict_sentiment(katamari):
+    katamari.actual_1 = katamari.classifier.predict_sentiment("c you later b")
+    katamari.expected_1 = 1
+
+    katamari.actual_2 = katamari.classifier.predict_sentiment("apple banana tart")
+    katamari.expected_2 = 0
+    return
+
+
+@then("the sentiments are the expected ones")
+def expect_sentiments(katamari):
+    expect(katamari.actual_1).to(equal(katamari.expected_1))
+    expect(katamari.actual_2).to(equal(katamari.expected_2))
+    return
+#+end_src
