@@ -1,7 +1,7 @@
 #+BEGIN_COMMENT
 .. title: Visualizing Naive Bayes
 .. slug: visualizing-naive-bayes
-.. date: 2020-08-18 06:16:19 UTC-07:00
+.. date: 2020-08-31 06:16:19 UTC-07:00
 .. tags: naive bayes,nlp,visualization
 .. category: NLP
 .. link: 
@@ -13,7 +13,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f8ee1107-2d58-48c9-a94e-6cc17522a0f5-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-afac48e3-293d-4bfb-b65f-14de7949c859-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -39,6 +39,9 @@ import hvplot.pandas
 import numpy
 import pandas
 
+# this project
+from neurotic.nlp.twitter.counter import WordCounter
+
 # graeae
 from graeae import EmbedHoloviews
 #+end_src
@@ -53,19 +56,49 @@ plot_path = Path(os.environ["TWITTER_PLOT"])
 assert plot_path.is_file()
 with plot_path.open("rb") as reader:
     Plot = pickle.load(reader)
-# Plot = Namespace(
-#     width=990,
-#     height=780,
-#     tan="#ddb377",
-#     blue="#4687b7",
-#     red="#ce7b6d",
-#     font_scale=2,
-#     color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
-# )
+#+end_src
+*** The Dotenv
+#+begin_src python :results none
+env_path = Path("posts/nlp/.env")
+assert env_path.is_file()
+load_dotenv(env_path)
+#+end_src
+*** The Data
+#+begin_src python :results output :exports both
+train_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TRAINING_RAW"]).expanduser())
+
+test_raw = pandas.read_feather(
+    Path(os.environ["TWITTER_TEST_RAW"]).expanduser()
+)
+
+print(f"Training: {len(train_raw):,}")
+print(f"Testing: {len(test_raw):,}")
+#+end_src
+
+#+RESULTS:
+: Training: 8,000
+: Testing: 2,000
+
+*** The Word Counter
+    This is a class to clean and tokenize the tweets and build up a Counter with the word counts.
+
+#+begin_src python :results none
+counter = WordCounter(train_raw.tweet, train_raw.label)
+#+end_src
+
+*** Constants
+#+begin_src python :results none
+Sentiment = Namespace(
+    positive = 1,
+    negative = 0,
+)
 #+end_src
 * Middle
-** Calculating Likelihoods
-   This starts with the likelihoods pre-calculated. I'll add in the calculations later.
+** Log Likelihoods
+*** Calculating the Likelihoods
+   The first thing to plot are the log-likelihoods for positive and negative tweets. When I implemented the Naive Bayes Classifier I took advantage of the fact that we're making a binary classifier and took the odds ratio when making predictions, but for our plot we're going to need to undo the division and plot the numerator against the denominator.
+
 
 \begin{align}
 log \frac{P(tweet|pos)}{P(tweet|neg)} &= log(P(tweet|pos)) - log(P(tweet|neg)) \\
@@ -73,19 +106,74 @@ positive = log(P(tweet|pos)) &= \sum_{i=0}^{n}{log P(W_i|pos)}\\
 negative = log(P(tweet|neg)) &= \sum_{i=0}^{n}{log P(W_i|neg)}\\
 \end{align}
 
-#+begin_src python :results output :exports both
-load_dotenv("posts/nlp/.env")
-path = Path(os.environ["BAYES_FEATURES"])
-assert path.is_file()
+So, let's get the log-likelihoods.
 
-features = pandas.read_csv(path)
-print(features.head(1))
+#+begin_src python :results none
+COUNTS = counter.counts
+
+positive_loglikelihood = {}
+negative_loglikelihood = {}
+log_ratio = {}
+
+all_positive_words = sum(
+    (counts[(token, sentiment)] for token, sentiment in COUNTS
+     if sentiment == Sentiment.positive))
+all_negative_words = sum(
+    (counts[(token, sentiment)] for token, sentiment in COUNTS
+     if sentiment == Sentiment.negative))
+
+vocabulary = {key[0] for key in COUNTS}
+vocabulary_size = len(vocabulary)
+
+for word in vocabulary:
+    this_word_positive_count = COUNTS[(word, Sentiment.positive)]
+    this_word_negative_count = COUNTS[(word, Sentiment.negative)]
+
+    probability_word_is_positive = ((this_word_positive_count + 1)/
+                                    (all_positive_words + vocabulary_size))
+    probability_word_is_negative = ((this_word_negative_count + 1)/
+                                    (all_negative_words + vocabulary_size))
+    positive_loglikelihood[word] = numpy.log(probability_word_is_positive)
+    negative_loglikelihood[word] = numpy.log(probability_word_is_negative)
+    log_ratio[word] = positive_loglikelihood[word] - negative_loglikelihood[word]
+#+end_src
+
+So now we have our positive and negative log-likelihoods and I'll put them into a pandas DataFrame to make it easier to plot.
+
+#+begin_src python :results output :exports both
+positive_document_likelihood = []
+negative_document_likelihood = []
+sentiment = []
+
+for row in train_raw.itertuples():
+    tokens = counter.process(row.tweet)
+    
+    positive_document_likelihood.append(sum(positive_loglikelihood.get(token, 0)
+                                            for token in tokens))
+    negative_document_likelihood.append(sum(negative_loglikelihood.get(token, 0)
+                                            for token in tokens))
+    sentiment.append(row.label)
+
+features = pandas.DataFrame.from_dict(
+    dict(
+        positive = positive_document_likelihood,
+        negative = negative_document_likelihood,
+        sentiment=sentiment,
+    )
+)
+
+print(features.head())
 #+end_src
 
 #+RESULTS:
-:     positive   negative  sentiment
-: 0 -45.763393 -63.351354        1.0
+:      positive   negative  sentiment
+: 0  -26.305672 -33.940649          1
+: 1  -30.909803 -37.634516          1
+: 2  -42.936400 -33.403567          0
+: 3  -15.983546 -25.501140          1
+: 4 -107.899933 -99.191875          0
 
+*** Plotting the Likelihoods
 #+begin_src python :results none
 plot = features.hvplot.scatter(x="positive", y="negative", by="sentiment",
                                color=Plot.color_cycle, fill_alpha=0).opts(
@@ -109,44 +197,10 @@ print(outcome)
 </object>
 #+end_export
 
+It looks like the log likelihoods for the negatives are linearly separable.
 * End
 * Raw
 #+begin_src python
-#  ## Calculate the likelihoods for each tweet
-# 
-# For each tweet, we have calculated the likelihood of the tweet to be positive and the likelihood to be negative. We have calculated in different columns the numerator and denominator of the likelihood ratio introduced previously.  
-# 
-# $$log \frac{P(tweet|pos)}{P(tweet|neg)} = log(P(tweet|pos)) - log(P(tweet|neg)) $$
-# $$positive = log(P(tweet|pos)) = \sum_{i=0}^{n}{log P(W_i|pos)}$$
-# $$negative = log(P(tweet|neg)) = \sum_{i=0}^{n}{log P(W_i|neg)}$$
-# 
-# We did not include the code because this is part of this week's assignment.  The __'bayes_features.csv'__ file contains the final result of this process. 
-# 
-# The cell below loads the table in a dataframe. Dataframes are data structures that simplify the manipulation of data, allowing filtering, slicing, joining, and summarization.
-
-# In[ ]:
-
-
-
-
-# Plot the samples using columns 1 and 2 of the matrix
-
-fig, ax = plt.subplots(figsize = (8, 8)) #Create a new figure with a custom size
-
-colors = ['red', 'green'] # Define a color palete
-
-# Color base on sentiment
-ax.scatter(data.positive, data.negative, 
-    c=[colors[int(k)] for k in data.sentiment], s = 0.1, marker='*')  # Plot a dot for each tweet
-
-# Custom limits for this chart
-plt.xlim(-250,0)
-plt.ylim(-250,0)
-
-plt.xlabel("Positive") # x-axis label
-plt.ylabel("Negative") # y-axis label
-
-
 # # Using Confidence Ellipses to interpret Naïve Bayes
 # 
 # In this section, we will use the [confidence ellipse]( https://matplotlib.org/3.1.1/gallery/statistics/confidence_ellipse.html#sphx-glr-gallery-statistics-confidence-ellipse-py) to give us an idea of what the Naïve Bayes model see.
@@ -254,3 +308,18 @@ plt.show()
 # To give away: Understanding the data allows us to predict if the method will perform well or not. Alternatively, it will allow us to understand why it worked well or bad.
 
 #+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: ---------------------------------------------------------------------------
+: NameError                                 Traceback (most recent call last)
+: <ipython-input-8-b30abfe0c3d2> in <module>
+:      18 # Plot the samples using columns 1 and 2 of the matrix
+:      19 
+: ---> 20 fig, ax = plt.subplots(figsize = (8, 8)) #Create a new figure with a custom size
+:      21 
+:      22 colors = ['red', 'green'] # Define a color palete
+: 
+: NameError: name 'plt' is not defined
+:END:

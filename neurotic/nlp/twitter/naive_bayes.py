@@ -1,6 +1,6 @@
 # python
 from argparse import Namespace
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Iterable
 
 # pypi
@@ -57,7 +57,7 @@ class NaiveBayes:
     def loglikelihood(self) -> dict:
         """The log-likelihoods for words"""
         if self._loglikelihood is None:
-            self._loglikelihood = defaultdict(lambda: 0)        
+            self._loglikelihood = {}
             counts = self.counter.counts        
     
             all_positive_words = sum(
@@ -91,7 +91,7 @@ class NaiveBayes:
          log-odds-ratio for tweet (positive/negative)
         """
         tokens = self.counter.process(tweet)
-        return self.logprior + sum(self.loglikelihood[token] for token in tokens)
+        return self.logprior + sum(self.loglikelihood.get(token, 0) for token in tokens)
 
     def predict_sentiment(self, tweet: str) -> int:
         """Predict whether the tweet's sentiment is positive or negative
