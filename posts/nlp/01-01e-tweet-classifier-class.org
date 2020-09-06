@@ -1,0 +1,172 @@
+#+BEGIN_COMMENT
+.. title: Tweet Classifier Class
+.. slug: tweet-classifier-class
+.. date: 2020-09-09 17:49:07 UTC-07:00
+.. tags: nlp,sentiment analysis,logistic regression,twitter
+.. category: NLP
+.. link: 
+.. description: Re-doing the Twitter Logistic Regression Classifier
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6037d529-4149-47dd-b5af-3963cd553f01-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Beginning
+  I implemented the Logistic Regression Tweet Sentiment Analysis classifier in {{% lancelot title="this post" %}}implementing-twitter-logistic-regression{{% /lancelot %}} but I'm going to re-use it later so this just gathers everything together. There's alread a class called =TweetSentiment= but I'm going to add the training to this one.
+
+#+begin_src python :tangle ../../neurotic/nlp/twitter/test.py :exports none
+<<logistic-imports>>
+
+<<logistic-regression>>
+
+    <<weights>>
+
+    <<gradient-descent>>
+
+    <<fit>>
+
+    <<predict>>
+
+    <<score>>
+#+end_src
+
+* Middle
+  We'll start with the imports.
+
+#+begin_src python :noweb-ref logistic-imports
+# from pypi
+import attr
+import numpy
+
+# this project
+from .counter import WordCounter
+from .sentiment import TweetSentiment
+from .vectorizer import TweetVectorizer
+#+end_src
+
+** The Logistic Regression Class
+
+#+begin_src python :noweb-ref logistic-regression
+@attr.s(auto_attribs=True)
+class LogisticRegression:
+    """train and predict tweet sentiment
+
+    Args:
+     iterations: number of times to run gradient descent
+     learning_rate: how fast to change the weights during training
+    """
+    iterations: int
+    learning_rate: float
+    _weights: numpy.array
+    final_loss: float=None
+#+end_src
+** Weights
+   This is the weights for the regression function (\(\theta\)).
+
+#+begin_src python :noweb-ref weights
+@property
+def weights(self) -> numpy.array:
+    """The weights for the regression
+
+    Initially this will be an array of zeros.
+    """
+    if self._weights is None:
+        self._weights = numpy.zeros((3, 1))
+    return self._weights
+#+end_src
+** This is the training function
+
+#+begin_src python :noweb-ref gradient-descent
+def gradient_descent(self, x: numpy.ndarray, y: numpy.ndarray):
+    """Finds the weights for the model
+
+    Args:
+     x: the tweet vectors
+     y: the positive/negative labels
+    """
+    assert len(x) == len(y)
+    rows = len(x)
+    self.learning_rate /= rows
+    for iteration in range(self.iterations):
+        y_hat = sigmoid(x.dot(self.weights))
+        # average loss
+        loss = numpy.squeeze(-((y.T.dot(numpy.log(y_hat))) +
+                               (1 - y.T).dot(numpy.log(1 - y_hat))))/rows
+        gradient = ((y_hat - y).T.dot(x)).sum(axis=0, keepdims=True)
+        self.weights -= self.learning_rate * gradient.T
+    return loss
+#+end_src
+** Fit
+   This is mostly an alias to make it match (somewhat) sklearn's methods.
+
+#+begin_src python :noweb-ref fit
+def fit(self, x_train: numpy.ndarray, y_train:numpy.ndarray):
+    """fits the weights for the logistic regression
+
+    Note:
+     as a side effect this also sets counter, loss, and sentimenter attributes
+
+    Args:
+     x_train: the training tweets
+     y_train: the training labels
+    """
+    self.counter = WordCounter(x_train, y_train)
+    vectorizer = TweetVectorizer(x_train, self.counter.counts, processed=False)
+    y = y_train.values.reshape((-1, 1))
+    self.loss = self.gradient_descent(vectorizer.vectors, y)
+    return
+#+end_src
+** Predict
+#+begin_src python :noweb-ref predict
+def predict(self, x: numpy.ndarray) -> numpy.ndarray:
+    """Predict the labels for the inputs
+
+    Args:
+     x: a list or array of tweets
+
+    Returns:
+     array of predicted labels for the tweets
+    """
+    vectorizer = TweetVectorizer(x, self.counter.counts, processed=False)
+    sentimenter = TweetSentiment(vectorizer, self.weights)
+    return sentimenter()
+#+end_src
+** Score
+#+begin_src python :noweb-ref score
+def score(self, x: numpy.ndarray, y: numpy.ndarray) -> float:
+    """Get the mean accuracy
+    
+    Args:
+     x: arrray of tweets
+     y: labels for the tweets
+
+    Returns:
+     mean accuracy
+    """
+    predictions = self.predict(x)
+    correct = sum(predictions.T[0] == y)
+    return correct/len(x)
+#+end_src
+* End
+  Testing it out.
+#+begin_src python :results output :exports both
+from neurotic.nlp.twitter.logistic_regression import LogisticRegression
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: ---------------------------------------------------------------------------
+: ModuleNotFoundError                       Traceback (most recent call last)
+: <ipython-input-2-e014310d525d> in <module>
+: ----> 1 from neurotic.nlp.twitter.logistic_regression import LogisticRegression
+: 
+: ModuleNotFoundError: No module named 'neurotic.nlp.twitter.logistic_regression'
+:END:
