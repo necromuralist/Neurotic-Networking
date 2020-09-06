@@ -17,7 +17,7 @@
 <link href="favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
 <link href="favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
 <link href="site.webmanifest" rel="manifest">
-<link href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/" rel="prefetch" type="text/html">
+<link href="posts/nlp/visualizing-naive-bayes/" rel="prefetch" type="text/html">
 </head>
 <body>
 <a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
@@ -51,6 +51,355 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/visualizing-naive-bayes/">Visualizing Naive Bayes</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nlp/visualizing-naive-bayes/" rel="bookmark"><time class="published dt-published" datetime="2020-08-31T06:16:19-07:00" itemprop="datePublished" title="2020-08-31 06:16">2020-08-31 06:16</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nlp/visualizing-naive-bayes/#org899a282">Beginning</a>
+<ul>
+<li><a href="posts/nlp/visualizing-naive-bayes/#orgf2880cf">Set Up</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/visualizing-naive-bayes/#org7a25441">Middle</a>
+<ul>
+<li><a href="posts/nlp/visualizing-naive-bayes/#org55a2f72">Log Likelihoods</a></li>
+<li><a href="posts/nlp/visualizing-naive-bayes/#org2aa4a1e">Confidence Ellipses</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/visualizing-naive-bayes/#org8e88f6e">End</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org899a282">
+<h2 id="org899a282">Beginning</h2>
+<div class="outline-text-2" id="text-org899a282">
+<p>In the <a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/">previous post</a> I made a class-based version of the Naive Bayes Classifier for tweets. For this post I'm going to plot the model values. It turns out that we need to get at some values that the previous implementations hide so I'm going to re-calculate the likelihoods from scratch rather than alter the previous code.</p>
+</div>
+<div class="outline-3" id="outline-container-orgf2880cf">
+<h3 id="orgf2880cf">Set Up</h3>
+<div class="outline-text-3" id="text-orgf2880cf"></div>
+<div class="outline-4" id="outline-container-orgc4f1b6f">
+<h4 id="orgc4f1b6f">Imports</h4>
+<div class="outline-text-4" id="text-orgc4f1b6f">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+<span class="kn">from</span> <span class="nn">matplotlib.patches</span> <span class="kn">import</span> <span class="n">Ellipse</span>
+
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">matplotlib.transforms</span> <span class="kn">as</span> <span class="nn">transforms</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+<span class="kn">import</span> <span class="nn">seaborn</span>
+
+<span class="c1"># this project</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.counter</span> <span class="kn">import</span> <span class="n">WordCounter</span>
+
+<span class="c1"># graeae</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orge2bf2f7">
+<h4 id="orge2bf2f7">The Dotenv</h4>
+<div class="outline-text-4" id="text-orge2bf2f7">
+<div class="highlight">
+<pre><span></span><span class="n">env_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">env_path</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
+<span class="n">load_dotenv</span><span class="p">(</span><span class="n">env_path</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org8d54d47">
+<h4 id="org8d54d47">Plotting</h4>
+<div class="outline-text-4" id="text-org8d54d47">
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"visualizing-naive-bayes"</span>
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
+                <span class="n">folder_path</span><span class="o">=</span><span class="n">f</span><span class="s2">"files/posts/nlp/{SLUG}"</span><span class="p">,</span> <span class="n">create_folder</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+<span class="n">plot_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_PLOT"</span><span class="p">])</span>
+<span class="k">assert</span> <span class="n">plot_path</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">plot_path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Plot</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">seaborn</span><span class="o">.</span><span class="n">set_style</span><span class="p">(</span><span class="s2">"whitegrid"</span><span class="p">,</span> <span class="n">rc</span><span class="o">=</span><span class="p">{</span><span class="s2">"axes.grid"</span><span class="p">:</span> <span class="bp">False</span><span class="p">})</span>
+<span class="n">FIGURE_SIZE</span> <span class="o">=</span> <span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org97bd8bb">
+<h4 id="org97bd8bb">The Data</h4>
+<div class="outline-text-4" id="text-org97bd8bb">
+<div class="highlight">
+<pre><span></span><span class="n">train_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+
+<span class="n">test_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TEST_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Training: {len(train_raw):,}"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Testing: {len(test_raw):,}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Training: 8,000
+Testing: 2,000
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org3e314f1">
+<h4 id="org3e314f1">The Word Counter</h4>
+<div class="outline-text-4" id="text-org3e314f1">
+<p>This is a class to clean and tokenize the tweets and build up a Counter with the word counts.</p>
+<div class="highlight">
+<pre><span></span><span class="n">counter</span> <span class="o">=</span> <span class="n">WordCounter</span><span class="p">(</span><span class="n">train_raw</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">train_raw</span><span class="o">.</span><span class="n">label</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org37dc94d">
+<h4 id="org37dc94d">Constants</h4>
+<div class="outline-text-4" id="text-org37dc94d">
+<div class="highlight">
+<pre><span></span><span class="n">Sentiment</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
+    <span class="n">positive</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">negative</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org7a25441">
+<h2 id="org7a25441">Middle</h2>
+<div class="outline-text-2" id="text-org7a25441"></div>
+<div class="outline-3" id="outline-container-org55a2f72">
+<h3 id="org55a2f72">Log Likelihoods</h3>
+<div class="outline-text-3" id="text-org55a2f72"></div>
+<div class="outline-4" id="outline-container-org132c317">
+<h4 id="org132c317">Calculating the Likelihoods</h4>
+<div class="outline-text-4" id="text-org132c317">
+<p>The first thing to plot are the log-likelihoods for positive and negative tweets. When I implemented the Naive Bayes Classifier I took advantage of the fact that we're making a binary classifier and took the odds ratio when making predictions, but for our plot we're going to need to undo the division and plot the numerator against the denominator.</p>
+\begin{align} log \frac{P(tweet|pos)}{P(tweet|neg)} &amp;= log(P(tweet|pos)) - log(P(tweet|neg)) \\ positive = log(P(tweet|pos)) &amp;= \sum_{i=0}^{n}{log P(W_i|pos)}\\ negative = log(P(tweet|neg)) &amp;= \sum_{i=0}^{n}{log P(W_i|neg)}\\ \end{align}
+<p>So, let's get the log-likelihoods.</p>
+<div class="highlight">
+<pre><span></span><span class="n">COUNTS</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">counts</span>
+
+<span class="n">positive_loglikelihood</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">negative_loglikelihood</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">log_ratio</span> <span class="o">=</span> <span class="p">{}</span>
+
+<span class="n">all_positive_words</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+    <span class="p">(</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="n">sentiment</span><span class="p">)]</span> <span class="k">for</span> <span class="n">token</span><span class="p">,</span> <span class="n">sentiment</span> <span class="ow">in</span> <span class="n">COUNTS</span>
+     <span class="k">if</span> <span class="n">sentiment</span> <span class="o">==</span> <span class="n">Sentiment</span><span class="o">.</span><span class="n">positive</span><span class="p">))</span>
+<span class="n">all_negative_words</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+    <span class="p">(</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="n">sentiment</span><span class="p">)]</span> <span class="k">for</span> <span class="n">token</span><span class="p">,</span> <span class="n">sentiment</span> <span class="ow">in</span> <span class="n">COUNTS</span>
+     <span class="k">if</span> <span class="n">sentiment</span> <span class="o">==</span> <span class="n">Sentiment</span><span class="o">.</span><span class="n">negative</span><span class="p">))</span>
+
+<span class="n">vocabulary</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">COUNTS</span><span class="p">}</span>
+<span class="n">vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">vocabulary</span><span class="p">:</span>
+    <span class="n">this_word_positive_count</span> <span class="o">=</span> <span class="n">COUNTS</span><span class="p">[(</span><span class="n">word</span><span class="p">,</span> <span class="n">Sentiment</span><span class="o">.</span><span class="n">positive</span><span class="p">)]</span>
+    <span class="n">this_word_negative_count</span> <span class="o">=</span> <span class="n">COUNTS</span><span class="p">[(</span><span class="n">word</span><span class="p">,</span> <span class="n">Sentiment</span><span class="o">.</span><span class="n">negative</span><span class="p">)]</span>
+
+    <span class="n">probability_word_is_positive</span> <span class="o">=</span> <span class="p">((</span><span class="n">this_word_positive_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">/</span>
+                                    <span class="p">(</span><span class="n">all_positive_words</span> <span class="o">+</span> <span class="n">vocabulary_size</span><span class="p">))</span>
+    <span class="n">probability_word_is_negative</span> <span class="o">=</span> <span class="p">((</span><span class="n">this_word_negative_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">/</span>
+                                    <span class="p">(</span><span class="n">all_negative_words</span> <span class="o">+</span> <span class="n">vocabulary_size</span><span class="p">))</span>
+    <span class="n">positive_loglikelihood</span><span class="p">[</span><span class="n">word</span><span class="p">]</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">probability_word_is_positive</span><span class="p">)</span>
+    <span class="n">negative_loglikelihood</span><span class="p">[</span><span class="n">word</span><span class="p">]</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">probability_word_is_negative</span><span class="p">)</span>
+    <span class="n">log_ratio</span><span class="p">[</span><span class="n">word</span><span class="p">]</span> <span class="o">=</span> <span class="n">positive_loglikelihood</span><span class="p">[</span><span class="n">word</span><span class="p">]</span> <span class="o">-</span> <span class="n">negative_loglikelihood</span><span class="p">[</span><span class="n">word</span><span class="p">]</span>
+</pre></div>
+<p>So now we have our positive and negative log-likelihoods and I'll put them into a pandas DataFrame to make it easier to plot.</p>
+<div class="highlight">
+<pre><span></span><span class="n">positive_document_likelihood</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">negative_document_likelihood</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">sentiment</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">train_raw</span><span class="o">.</span><span class="n">itertuples</span><span class="p">():</span>
+    <span class="n">tokens</span> <span class="o">=</span> <span class="n">counter</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">row</span><span class="o">.</span><span class="n">tweet</span><span class="p">)</span>
+
+    <span class="n">positive_document_likelihood</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">positive_loglikelihood</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                                            <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">))</span>
+    <span class="n">negative_document_likelihood</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">negative_loglikelihood</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                                            <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">))</span>
+    <span class="n">sentiment</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="o">.</span><span class="n">label</span><span class="p">)</span>
+
+<span class="n">features</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span>
+    <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">positive</span> <span class="o">=</span> <span class="n">positive_document_likelihood</span><span class="p">,</span>
+        <span class="n">negative</span> <span class="o">=</span> <span class="n">negative_document_likelihood</span><span class="p">,</span>
+        <span class="n">sentiment</span><span class="o">=</span><span class="n">sentiment</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">features</span><span class="o">.</span><span class="n">head</span><span class="p">())</span>
+</pre></div>
+<pre class="example">
+     positive   negative  sentiment
+0  -26.305672 -33.940649          1
+1  -30.909803 -37.634516          1
+2  -42.936400 -33.403567          0
+3  -15.983546 -25.501140          1
+4 -107.899933 -99.191875          0
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org28f89e9">
+<h4 id="org28f89e9">Plotting the Likelihoods</h4>
+<div class="outline-text-4" id="text-org28f89e9">
+<div class="highlight">
+<pre><span></span><span class="n">plot</span> <span class="o">=</span> <span class="n">features</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span>
+                               <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+                                   <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative"</span><span class="p">,</span>
+                                   <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                                   <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                                   <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+                               <span class="p">)</span>
+
+<span class="n">outcome</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_vs_negative_sentiment"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/visualizing-naive-bayes/positive_vs_negative_sentiment.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>It looks like the log likelihoods for the negatives are linearly separable.</p>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org2aa4a1e">
+<h3 id="org2aa4a1e">Confidence Ellipses</h3>
+<div class="outline-text-3" id="text-org2aa4a1e">
+<p>Now we're going to plot a <a href="https://www.wikiwand.com/en/Confidence_region">Confidence Region</a>, which is a generalization of a confidence interval to higher dimensions. In this case we're going to create confidence ellipses. I'm not really sure about the details of the math to get them, but matplotlib has <a href="https://matplotlib.org/3.1.1/gallery/statistics/confidence_ellipse.html">a page</a> with a function to create a matplotlib plot for a confidence ellipse that I'm going to adapt.</p>
+</div>
+<div class="outline-4" id="outline-container-orge39d75f">
+<h4 id="orge39d75f">The Ellipse Function</h4>
+<div class="outline-text-4" id="text-orge39d75f">
+<p>This is taken almost verbatim from matplotlib's page.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">confidence_ellipse</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="s1">'none'</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="sd">"""</span>
+<span class="sd">    Create a plot of the covariance confidence ellipse of `x` and `y`</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    x, y : array_like, shape (n, )</span>
+<span class="sd">       Input data.</span>
+
+<span class="sd">    ax : matplotlib.axes.Axes</span>
+<span class="sd">       The axes object to draw the ellipse into.</span>
+
+<span class="sd">    n_std : float</span>
+<span class="sd">       The number of standard deviations to determine the ellipse's radiuses.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    matplotlib.patches.Ellipse</span>
+
+<span class="sd">    Other parameters</span>
+<span class="sd">    ----------------</span>
+<span class="sd">    kwargs : `~matplotlib.patches.Patch` properties</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">size</span> <span class="o">!=</span> <span class="n">y</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"x and y must be the same size"</span><span class="p">)</span>
+
+    <span class="n">cov</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+    <span class="n">pearson</span> <span class="o">=</span> <span class="n">cov</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">/</span><span class="n">numpy</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">cov</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">cov</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+    <span class="c1"># Using a special case to obtain the eigenvalues of this</span>
+    <span class="c1"># two-dimensionl dataset.</span>
+    <span class="n">ell_radius_x</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">pearson</span><span class="p">)</span>
+    <span class="n">ell_radius_y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">pearson</span><span class="p">)</span>
+    <span class="n">ellipse</span> <span class="o">=</span> <span class="n">Ellipse</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                      <span class="n">width</span><span class="o">=</span><span class="n">ell_radius_x</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span>
+                      <span class="n">height</span><span class="o">=</span><span class="n">ell_radius_y</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span>
+                      <span class="n">facecolor</span><span class="o">=</span><span class="n">facecolor</span><span class="p">,</span>
+                      <span class="o">**</span><span class="n">kwargs</span>
+                      <span class="p">)</span>
+
+    <span class="c1"># Calculating the stdandard deviation of x from</span>
+    <span class="c1"># the squareroot of the variance and multiplying</span>
+    <span class="c1"># with the given number of standard deviations.</span>
+    <span class="n">scale_x</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">cov</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span> <span class="o">*</span> <span class="n">n_std</span>
+    <span class="n">mean_x</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+    <span class="c1"># calculating the stdandard deviation of y ...</span>
+    <span class="n">scale_y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">cov</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span> <span class="o">*</span> <span class="n">n_std</span>
+    <span class="n">mean_y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+
+    <span class="n">transf</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Affine2D</span><span class="p">()</span> \
+        <span class="o">.</span><span class="n">rotate_deg</span><span class="p">(</span><span class="mi">45</span><span class="p">)</span> \
+        <span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="n">scale_x</span><span class="p">,</span> <span class="n">scale_y</span><span class="p">)</span> \
+        <span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">mean_x</span><span class="p">,</span> <span class="n">mean_y</span><span class="p">)</span>
+
+    <span class="n">ellipse</span><span class="o">.</span><span class="n">set_transform</span><span class="p">(</span><span class="n">transf</span> <span class="o">+</span> <span class="n">ax</span><span class="o">.</span><span class="n">transData</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span><span class="n">ellipse</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">figure</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">12</span><span class="p">))</span>
+
+<span class="n">positives</span> <span class="o">=</span> <span class="n">features</span><span class="p">[</span><span class="n">features</span><span class="o">.</span><span class="n">sentiment</span><span class="o">==</span><span class="n">Sentiment</span><span class="o">.</span><span class="n">positive</span><span class="p">]</span>
+<span class="n">negatives</span> <span class="o">=</span> <span class="n">features</span><span class="p">[</span><span class="n">features</span><span class="o">.</span><span class="n">sentiment</span><span class="o">==</span><span class="n">Sentiment</span><span class="o">.</span><span class="n">negative</span><span class="p">]</span>
+
+<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">positives</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">positives</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                   <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$2\sigma$'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">red</span><span class="p">)</span>
+<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">negatives</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">negatives</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">)</span>
+
+<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">positives</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">positives</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+                   <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$3\sigma$'</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">red</span><span class="p">)</span>
+<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">negatives</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">negatives</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">)</span>
+
+<span class="c1"># Color base on sentiment</span>
+<span class="c1"># seaborn.scatterplot(x="positive", y="negative",  ax=axis, data=features,</span>
+<span class="c1">#                    hue="sentiment", facecolors="none")</span>
+
+<span class="n">SIZE</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="n">_</span> <span class="o">=</span> <span class="n">positives</span><span class="o">.</span><span class="n">plot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="n">SIZE</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axis</span><span class="p">,</span> <span class="n">facecolors</span><span class="o">=</span><span class="s2">"none"</span><span class="p">,</span>
+                           <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">)</span>
+<span class="n">negatives</span><span class="o">.</span><span class="n">plot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="n">SIZE</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axis</span><span class="p">,</span>
+                       <span class="n">label</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">red</span><span class="p">)</span>
+
+<span class="n">LIMITS</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="mi">200</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+<span class="n">axis</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="n">LIMITS</span><span class="p">)</span>
+<span class="n">axis</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="n">LIMITS</span><span class="p">)</span>
+<span class="n">axis</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">axis</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">"Confidence Ellipses"</span><span class="p">)</span>
+
+<span class="n">figure</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">"ellipses.png"</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="ellipses.png" src="posts/nlp/visualizing-naive-bayes/ellipses.png"></p>
+</div>
+<p>It's a bit squashed looking, since the results are so tight, but you can sort of see that the distributions are "left-skewed", with the points that fall outside of the \(3 \sigma\) range being the cases where the "positive" and "negative" values are both negative.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org8e88f6e">
+<h2 id="org8e88f6e">End</h2>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/">Class-Based Naive Bayes Tweet Sentiment Classifier</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
@@ -62,53 +411,54 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgdacaaf9">Beginning</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org24e45d1">The Naive Bayes Classifier</a>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orged9c18b">Beginning</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org9e38758">The Naive Bayes Classifier</a>
 <ul>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org4fb9c67">Imports</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb6ba78c">The Sentiment Constants</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org5cb3e05">The Declaration</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org7d3b1b3">The Counter</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org1468b10">The Vocabulary</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgd240afd">The logprior</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org0569712">The loglikelihood</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org584be3c">Predict Probability</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org9b7d1f4">Predict Sentiment</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb7edd70">Check Rep</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org89aaaad">Imports</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org7df13cb">The Sentiment Constants</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orga454d48">The Declaration</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orga47d8e3">The Counter</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgd3dff11">The Vocabulary</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org173cacc">The logprior</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orga2955b4">The loglikelihood</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org91fd3f4">Predict Probability</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org0633832">Predict Sentiment</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgcc8f480">Check Rep</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb3595b9">Testing</a>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org035ab93">Testing</a>
 <ul>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgf07e55c">Imports</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org367855c">Test Setup</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orge93937d">Can you construct it?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgccae771">Does it build the counter?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgd9a13c2">Does it build the logprior?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgd05a7cb">Does it build the vocabulary?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orge0a3038">Does it build the log-likelihood?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgccbb577">Does it predict probabilities?</a></li>
-<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgfbecb10">Does it predict the sentiment?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org4c8d9fb">Imports</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org94eaf13">Test Setup</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org7639fb1">Can you construct it?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgbc8d994">Does it build the counter?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb91c568">Does it build the logprior?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb1cca3e">Does it build the vocabulary?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgf7f93f6">Does it build the log-likelihood?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#orgb22af01">Does it predict probabilities?</a></li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org8b75b8b">Does it predict the sentiment?</a></li>
 </ul>
 </li>
+<li><a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/#org6c71627">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgdacaaf9">
-<h2 id="orgdacaaf9">Beginning</h2>
-<div class="outline-text-2" id="text-orgdacaaf9">
+<div class="outline-2" id="outline-container-orged9c18b">
+<h2 id="orged9c18b">Beginning</h2>
+<div class="outline-text-2" id="text-orged9c18b">
 <p>I <a href="posts/nlp/naive-bayes-twitter-sentiment-classification/">previously implemented</a> a Naive Bayes Classifier for Tweets as separate functions, and while that is useful for learningi I want to re-use it so I'm going to re-implement it as a class-based system.</p>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org24e45d1">
-<h2 id="org24e45d1">The Naive Bayes Classifier</h2>
-<div class="outline-text-2" id="text-org24e45d1"></div>
-<div class="outline-3" id="outline-container-org4fb9c67">
-<h3 id="org4fb9c67">Imports</h3>
-<div class="outline-text-3" id="text-org4fb9c67">
+<div class="outline-2" id="outline-container-org9e38758">
+<h2 id="org9e38758">The Naive Bayes Classifier</h2>
+<div class="outline-text-2" id="text-org9e38758"></div>
+<div class="outline-3" id="outline-container-org89aaaad">
+<h3 id="org89aaaad">Imports</h3>
+<div class="outline-text-3" id="text-org89aaaad">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
-<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Iterable</span>
 
 <span class="c1"># pypi</span>
@@ -120,9 +470,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgb6ba78c">
-<h3 id="orgb6ba78c">The Sentiment Constants</h3>
-<div class="outline-text-3" id="text-orgb6ba78c">
+<div class="outline-3" id="outline-container-org7df13cb">
+<h3 id="org7df13cb">The Sentiment Constants</h3>
+<div class="outline-text-3" id="text-org7df13cb">
 <div class="highlight">
 <pre><span></span><span class="n">Sentiment</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
     <span class="n">negative</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
@@ -131,9 +481,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org5cb3e05">
-<h3 id="org5cb3e05">The Declaration</h3>
-<div class="outline-text-3" id="text-org5cb3e05">
+<div class="outline-3" id="outline-container-orga454d48">
+<h3 id="orga454d48">The Declaration</h3>
+<div class="outline-text-3" id="text-orga454d48">
 <div class="highlight">
 <pre><span></span><span class="nd">@attr.s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">NaiveBayes</span><span class="p">:</span>
@@ -152,9 +502,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org7d3b1b3">
-<h3 id="org7d3b1b3">The Counter</h3>
-<div class="outline-text-3" id="text-org7d3b1b3">
+<div class="outline-3" id="outline-container-orga47d8e3">
+<h3 id="orga47d8e3">The Counter</h3>
+<div class="outline-text-3" id="text-orga47d8e3">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WordCounter</span><span class="p">:</span>
@@ -165,9 +515,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org1468b10">
-<h3 id="org1468b10">The Vocabulary</h3>
-<div class="outline-text-3" id="text-org1468b10">
+<div class="outline-3" id="outline-container-orgd3dff11">
+<h3 id="orgd3dff11">The Vocabulary</h3>
+<div class="outline-text-3" id="text-orgd3dff11">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">vocabulary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">:</span>
@@ -178,9 +528,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd240afd">
-<h3 id="orgd240afd">The logprior</h3>
-<div class="outline-text-3" id="text-orgd240afd">
+<div class="outline-3" id="outline-container-org173cacc">
+<h3 id="org173cacc">The logprior</h3>
+<div class="outline-text-3" id="text-org173cacc">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">logprior</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
@@ -193,15 +543,15 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org0569712">
-<h3 id="org0569712">The loglikelihood</h3>
-<div class="outline-text-3" id="text-org0569712">
+<div class="outline-3" id="outline-container-orga2955b4">
+<h3 id="orga2955b4">The loglikelihood</h3>
+<div class="outline-text-3" id="text-orga2955b4">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">loglikelihood</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
     <span class="sd">"""The log-likelihoods for words"""</span>
     <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loglikelihood</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_loglikelihood</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="mi">0</span><span class="p">)</span>        
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loglikelihood</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="n">counts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span>        
 
         <span class="n">all_positive_words</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
@@ -227,9 +577,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org584be3c">
-<h3 id="org584be3c">Predict Probability</h3>
-<div class="outline-text-3" id="text-org584be3c">
+<div class="outline-3" id="outline-container-org91fd3f4">
+<h3 id="org91fd3f4">Predict Probability</h3>
+<div class="outline-text-3" id="text-org91fd3f4">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">predict_ratio</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
     <span class="sd">"""predict the odds-ratio positive/negative</span>
@@ -241,13 +591,13 @@
 <span class="sd">     log-odds-ratio for tweet (positive/negative)</span>
 <span class="sd">    """</span>
     <span class="n">tokens</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span>
-    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">logprior</span> <span class="o">+</span> <span class="nb">sum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">loglikelihood</span><span class="p">[</span><span class="n">token</span><span class="p">]</span> <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">logprior</span> <span class="o">+</span> <span class="nb">sum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">loglikelihood</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9b7d1f4">
-<h3 id="org9b7d1f4">Predict Sentiment</h3>
-<div class="outline-text-3" id="text-org9b7d1f4">
+<div class="outline-3" id="outline-container-org0633832">
+<h3 id="org0633832">Predict Sentiment</h3>
+<div class="outline-text-3" id="text-org0633832">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">predict_sentiment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
     <span class="sd">"""Predict whether the tweet's sentiment is positive or negative</span>
@@ -262,9 +612,9 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgb7edd70">
-<h3 id="orgb7edd70">Check Rep</h3>
-<div class="outline-text-3" id="text-orgb7edd70">
+<div class="outline-3" id="outline-container-orgcc8f480">
+<h3 id="orgcc8f480">Check Rep</h3>
+<div class="outline-text-3" id="text-orgcc8f480">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">check_rep</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
     <span class="sd">"""Does some basic checks of the input arguments"""</span>
@@ -274,12 +624,12 @@
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgb3595b9">
-<h2 id="orgb3595b9">Testing</h2>
-<div class="outline-text-2" id="text-orgb3595b9"></div>
-<div class="outline-3" id="outline-container-orgf07e55c">
-<h3 id="orgf07e55c">Imports</h3>
-<div class="outline-text-3" id="text-orgf07e55c">
+<div class="outline-2" id="outline-container-org035ab93">
+<h2 id="org035ab93">Testing</h2>
+<div class="outline-text-2" id="text-org035ab93"></div>
+<div class="outline-3" id="outline-container-org4c8d9fb">
+<h3 id="org4c8d9fb">Imports</h3>
+<div class="outline-text-3" id="text-org4c8d9fb">
 <div class="highlight">
 <pre><span></span><span class="sd">"""NaiveBayes Tweet Sentiment Classifier feature tests."""</span>
 
@@ -315,17 +665,17 @@
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org367855c">
-<h3 id="org367855c">Test Setup</h3>
-<div class="outline-text-3" id="text-org367855c">
+<div class="outline-3" id="outline-container-org94eaf13">
+<h3 id="org94eaf13">Test Setup</h3>
+<div class="outline-text-3" id="text-org94eaf13">
 <div class="highlight">
 <pre><span></span><span class="n">scenarios</span><span class="p">(</span><span class="s2">"../../features/twitter/naive_bayes.feature"</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orge93937d">
-<h3 id="orge93937d">Can you construct it?</h3>
-<div class="outline-text-3" id="text-orge93937d">
+<div class="outline-3" id="outline-container-org7639fb1">
+<h3 id="org7639fb1">Can you construct it?</h3>
+<div class="outline-text-3" id="text-org7639fb1">
 <div class="highlight">
 <pre><span></span>Feature: NaiveBayes Tweet Sentiment Classifier
 
@@ -362,9 +712,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgccae771">
-<h3 id="orgccae771">Does it build the counter?</h3>
-<div class="outline-text-3" id="text-orgccae771">
+<div class="outline-3" id="outline-container-orgbc8d994">
+<h3 id="orgbc8d994">Does it build the counter?</h3>
+<div class="outline-text-3" id="text-orgbc8d994">
 <div class="highlight">
 <pre><span></span>Scenario: The user checks the counter
   Given a Naive Bayes classifier
@@ -397,9 +747,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd9a13c2">
-<h3 id="orgd9a13c2">Does it build the logprior?</h3>
-<div class="outline-text-3" id="text-orgd9a13c2">
+<div class="outline-3" id="outline-container-orgb91c568">
+<h3 id="orgb91c568">Does it build the logprior?</h3>
+<div class="outline-text-3" id="text-orgb91c568">
 <div class="highlight">
 <pre><span></span>Scenario: The user checks the log-prior
  Given a valid Naive Bayes Classifier
@@ -439,9 +789,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd05a7cb">
-<h3 id="orgd05a7cb">Does it build the vocabulary?</h3>
-<div class="outline-text-3" id="text-orgd05a7cb">
+<div class="outline-3" id="outline-container-orgb1cca3e">
+<h3 id="orgb1cca3e">Does it build the vocabulary?</h3>
+<div class="outline-text-3" id="text-orgb1cca3e">
 <div class="highlight">
 <pre><span></span>Scenario: The user checks the vocabulary
   Given a valid Naive Bayes Classifier
@@ -467,9 +817,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orge0a3038">
-<h3 id="orge0a3038">Does it build the log-likelihood?</h3>
-<div class="outline-text-3" id="text-orge0a3038">
+<div class="outline-3" id="outline-container-orgf7f93f6">
+<h3 id="orgf7f93f6">Does it build the log-likelihood?</h3>
+<div class="outline-text-3" id="text-orgf7f93f6">
 <div class="highlight">
 <pre><span></span>Scenario: The user gets the log-likelihood dictionary
   Given a valid Naive Bayes Classifier
@@ -501,9 +851,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgccbb577">
-<h3 id="orgccbb577">Does it predict probabilities?</h3>
-<div class="outline-text-3" id="text-orgccbb577">
+<div class="outline-3" id="outline-container-orgb22af01">
+<h3 id="orgb22af01">Does it predict probabilities?</h3>
+<div class="outline-text-3" id="text-orgb22af01">
 <div class="highlight">
 <pre><span></span>Scenario: User predicts tweet positive probability
   Given a valid Naive Bayes Classifier
@@ -533,9 +883,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgfbecb10">
-<h3 id="orgfbecb10">Does it predict the sentiment?</h3>
-<div class="outline-text-3" id="text-orgfbecb10">
+<div class="outline-3" id="outline-container-org8b75b8b">
+<h3 id="org8b75b8b">Does it predict the sentiment?</h3>
+<div class="outline-text-3" id="text-org8b75b8b">
 <div class="highlight">
 <pre><span></span>Scenario: The user predicts tweet sentiment
   Given a valid Naive Bayes Classifier
@@ -566,6 +916,12 @@ Scenario: The user builds the classifier
 </div>
 </div>
 </div>
+<div class="outline-2" id="outline-container-org6c71627">
+<h2 id="org6c71627">End</h2>
+<div class="outline-text-2" id="text-org6c71627">
+<p>Now that we have the class-based version let's do a little <a href="posts/nlp/visualizing-naive-bayes/">visualization of the model</a>.</p>
+</div>
+</div>
 </div>
 </article>
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
@@ -581,37 +937,37 @@ Scenario: The user builds the classifier
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#orgcc79db5">Beginning</a>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org7dbc949">Beginning</a>
 <ul>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#orgb951593">Set Up</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org89b4a70">Set Up</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org67911ea">Middle</a>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org8fbeb8a">Middle</a>
 <ul>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org31c1b68">Implementing the Model</a></li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org1665935">Making Predictions</a></li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org8e46227">Filtering Words</a></li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org6e9341d">Error Analysis</a></li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#orgaf9d352">Predict Your Own Tweet</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org257a319">Implementing the Model</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org6cb5e31">Making Predictions</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org81ac327">Filtering Words</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#orgd923c1d">Error Analysis</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org9d154e4">Predict Your Own Tweet</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#org5c0e415">End</a></li>
+<li><a href="posts/nlp/naive-bayes-twitter-sentiment-classification/#orgf03561d">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgcc79db5">
-<h2 id="orgcc79db5">Beginning</h2>
-<div class="outline-text-2" id="text-orgcc79db5">
-<p>In this post I'll create a Naive Bayes Classifier to classify tweets by whether they are positive in sentiment or negative. The Naive Bayes model uses Bayes' rule to make its predictions and it's called "naive" because it makes the assumption that words in the document are independent (in the probability event sense) which allows us to use the multiplication rule to calculate our probabilities. It also uses the <i>Bag of Words</i> assumption that word ordering isn't important.</p>
+<div class="outline-2" id="outline-container-org7dbc949">
+<h2 id="org7dbc949">Beginning</h2>
+<div class="outline-text-2" id="text-org7dbc949">
+<p>In the <a href="posts/nlp/naive-bayes-twitter-sentiment-classification-background/">previous post</a> I went through some of the background of how Naive Bayes works. In this post I'll implement a Naive Bayes Classifier to classify tweets by whether they are positive in sentiment or negative. The Naive Bayes model uses Bayes' rule to make its predictions and it's called "naive" because it makes the assumption that words in the document are independent (in the probability event sense) which allows us to use the multiplication rule to calculate our probabilities. It also uses the \(\textit{Bag of Words}\) assumption that word ordering isn't important.</p>
 </div>
-<div class="outline-3" id="outline-container-orgb951593">
-<h3 id="orgb951593">Set Up</h3>
-<div class="outline-text-3" id="text-orgb951593">
+<div class="outline-3" id="outline-container-org89b4a70">
+<h3 id="org89b4a70">Set Up</h3>
+<div class="outline-text-3" id="text-org89b4a70">
 <p>This first bit imports the needed dependencies followed by setting up the data and some helpers.</p>
 </div>
-<div class="outline-4" id="outline-container-orgd5810a5">
-<h4 id="orgd5810a5">Imports</h4>
-<div class="outline-text-4" id="text-orgd5810a5">
+<div class="outline-4" id="outline-container-orgdec7ea1">
+<h4 id="orgdec7ea1">Imports</h4>
+<div class="outline-text-4" id="text-orgdec7ea1">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">defaultdict</span>
@@ -633,18 +989,18 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgf930aa5">
-<h4 id="orgf930aa5">Tabulate</h4>
-<div class="outline-text-4" id="text-orgf930aa5">
+<div class="outline-4" id="outline-container-orge76bdf1">
+<h4 id="orge76bdf1">Tabulate</h4>
+<div class="outline-text-4" id="text-orge76bdf1">
 <p>This sets up tabulate to make it a little simpler to display pandas DataFrames in org.</p>
 <div class="highlight">
 <pre><span></span><span class="n">TABLE</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">tabulate</span><span class="p">,</span> <span class="n">tablefmt</span><span class="o">=</span><span class="s2">"orgtbl"</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="s2">"keys"</span><span class="p">,</span> <span class="n">showindex</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org97d1e31">
-<h4 id="org97d1e31">The Dotenv</h4>
-<div class="outline-text-4" id="text-org97d1e31">
+<div class="outline-4" id="outline-container-org788a447">
+<h4 id="org788a447">The Dotenv</h4>
+<div class="outline-text-4" id="text-org788a447">
 <p>I put the path to the data files in a .env file so this loads it into the environment.</p>
 <div class="highlight">
 <pre><span></span><span class="n">env_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
@@ -653,9 +1009,9 @@ Scenario: The user builds the classifier
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org1001713">
-<h4 id="org1001713">Load the Twitter Data</h4>
-<div class="outline-text-4" id="text-org1001713">
+<div class="outline-4" id="outline-container-orgcfb4a10">
+<h4 id="orgcfb4a10">Load the Twitter Data</h4>
+<div class="outline-text-4" id="text-orgcfb4a10">
 <p>I split the data <a href="posts/nlp/01-twitter-preprocessing-with-nltk/">previously</a> for the Logistic Regression twitter sentiment classifier so I'll load it here and skip building the sets.</p>
 <div class="highlight">
 <pre><span></span><span class="n">train_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
@@ -678,9 +1034,9 @@ Testing: 2,000
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org6102dd1">
-<h4 id="org6102dd1">Constants</h4>
-<div class="outline-text-4" id="text-org6102dd1">
+<div class="outline-4" id="outline-container-org9d9af38">
+<h4 id="org9d9af38">Constants</h4>
+<div class="outline-text-4" id="text-org9d9af38">
 <p>This was an object I created to store a few constant values.</p>
 <div class="highlight">
 <pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_SENTIMENT"</span><span class="p">],</span> <span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
@@ -693,17 +1049,17 @@ Namespace(decode={1: 'positive', 0: 'negative'}, encode={'positive': 1, 'negativ
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org67911ea">
-<h2 id="org67911ea">Middle</h2>
-<div class="outline-text-2" id="text-org67911ea"></div>
-<div class="outline-3" id="outline-container-org31c1b68">
-<h3 id="org31c1b68">Implementing the Model</h3>
-<div class="outline-text-3" id="text-org31c1b68">
+<div class="outline-2" id="outline-container-org8fbeb8a">
+<h2 id="org8fbeb8a">Middle</h2>
+<div class="outline-text-2" id="text-org8fbeb8a"></div>
+<div class="outline-3" id="outline-container-org257a319">
+<h3 id="org257a319">Implementing the Model</h3>
+<div class="outline-text-3" id="text-org257a319">
 <p>In an <a href="posts/nlp/naive-bayes-twitter-sentiment-classification-background/">earlier post</a> I wrote up a little of the background behind what we're doing and now I'm going to translate the math in that post into code.</p>
 </div>
-<div class="outline-4" id="outline-container-org5100f69">
-<h4 id="org5100f69">Implementing The Training Function</h4>
-<div class="outline-text-4" id="text-org5100f69">
+<div class="outline-4" id="outline-container-org38cb2b2">
+<h4 id="org38cb2b2">Implementing The Training Function</h4>
+<div class="outline-text-4" id="text-org38cb2b2">
 <p>The first part of the problem - training the model by building up the probabilities.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">train_naive_bayes</span><span class="p">(</span><span class="n">counts</span><span class="p">:</span> <span class="n">Counter</span><span class="p">,</span>
@@ -786,9 +1142,9 @@ Log Likelihood: 9172
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org1665935">
-<h3 id="org1665935">Making Predictions</h3>
-<div class="outline-text-3" id="text-org1665935">
+<div class="outline-3" id="outline-container-org6cb5e31">
+<h3 id="org6cb5e31">Making Predictions</h3>
+<div class="outline-text-3" id="text-org6cb5e31">
 <p>Now that we have the model we can use it to make some predictions.</p>
 <p>\[ p = logprior + \sum_i^N (loglikelihood_i) \]</p>
 <div class="highlight">
@@ -817,9 +1173,9 @@ The positive to negative ratio is 1.44.
 </pre>
 <p>Since the ratio is greater than 0, we're predicting that the tweet has a positive sentiment.</p>
 </div>
-<div class="outline-4" id="outline-container-org4a2dc99">
-<h4 id="org4a2dc99">Test The Model</h4>
-<div class="outline-text-4" id="text-org4a2dc99">
+<div class="outline-4" id="outline-container-org9ad2871">
+<h4 id="org9ad2871">Test The Model</h4>
+<div class="outline-text-4" id="text-org9ad2871">
 <p>Now we'll calculate the accuracy of the model against the test set.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">test_naive_bayes</span><span class="p">(</span><span class="n">test_x</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">test_y</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
@@ -896,9 +1252,9 @@ umwelt: 0.00
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org8e46227">
-<h3 id="org8e46227">Filtering Words</h3>
-<div class="outline-text-3" id="text-org8e46227">
+<div class="outline-3" id="outline-container-org81ac327">
+<h3 id="org81ac327">Filtering Words</h3>
+<div class="outline-text-3" id="text-org81ac327">
 <p>This is sort of an aside, but one way to quickly filter tweets based on how positive or negative they are is to use the ratio of positive to negative counts and setting a threshold that has to be met to be included in the output.</p>
 <p>\[ ratio = \frac{\text{pos_words} + 1}{\text{neg_words} + 1} \]</p>
 <table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
@@ -937,9 +1293,9 @@ umwelt: 0.00
 </tbody>
 </table>
 </div>
-<div class="outline-4" id="outline-container-orgab60988">
-<h4 id="orgab60988">Get The Ratio</h4>
-<div class="outline-text-4" id="text-orgab60988">
+<div class="outline-4" id="outline-container-org02f0030">
+<h4 id="org02f0030">Get The Ratio</h4>
+<div class="outline-text-4" id="text-org02f0030">
 <p>As an intermediate step we'll create a function named <code>get_ratio</code> that looks up a word and calculates the positive to negative ratio.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">get_ratio</span><span class="p">(</span><span class="n">freqs</span><span class="p">:</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">word</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
@@ -969,9 +1325,9 @@ umwelt: 0.00
 {'positive': 160, 'negative': 23, 'ratio': 6.708333333333333}
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org7b668e6">
-<h4 id="org7b668e6">Get Words By Threshold</h4>
-<div class="outline-text-4" id="text-org7b668e6">
+<div class="outline-4" id="outline-container-org0a2074c">
+<h4 id="org0a2074c">Get Words By Threshold</h4>
+<div class="outline-text-4" id="text-org0a2074c">
 <p>Now we'll create the filter function. To make it simpler we'll assume that if we're filtering on the positive label then the ratio for a word to be included has to be equal to or greater than the given threshold while if the label is negative then a word has to be less than or equal to the threshold. Doing this means we're filtering to get words that are further toward the extremes of positive or negative (further from 0).</p>
 <p>An example key-value pair would have this structure:</p>
 <div class="highlight">
@@ -1069,9 +1425,9 @@ umwelt: 0.00
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org6e9341d">
-<h3 id="org6e9341d">Error Analysis</h3>
-<div class="outline-text-3" id="text-org6e9341d">
+<div class="outline-3" id="outline-container-orgd923c1d">
+<h3 id="orgd923c1d">Error Analysis</h3>
+<div class="outline-text-3" id="text-orgd923c1d">
 <p>Now let's look at some tweets that we got wrong. We're going to use <a href="https://numpy.org/doc/stable/reference/generated/numpy.sign.html">numpy.sign</a> which reduces numbers to <code>-1</code>, <code>0</code>, or <code>1</code>.</p>
 <div class="highlight">
 <pre><span></span><span class="k">print</span><span class="p">(</span><span class="s1">'Truth Predicted Tweet'</span><span class="p">)</span>
@@ -1097,9 +1453,9 @@ Truth Predicted Tweet
 <p>For some reason it misses the <code>&gt;:-(</code> emoji and the <code>:)</code> - maybe they didn't occur in the training set. I think these woud be hard for a human to get too, unless you were well versed in tweets and emojis and maybe even then it would be hard…</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgaf9d352">
-<h3 id="orgaf9d352">Predict Your Own Tweet</h3>
-<div class="outline-text-3" id="text-orgaf9d352">
+<div class="outline-3" id="outline-container-org9d154e4">
+<h3 id="org9d154e4">Predict Your Own Tweet</h3>
+<div class="outline-text-3" id="text-org9d154e4">
 <p>Let's try a random tweet not in the given training or test sets.</p>
 <div class="highlight">
 <pre><span></span><span class="n">my_tweet</span> <span class="o">=</span> <span class="s1">'my balls itch'</span>
@@ -1114,9 +1470,9 @@ my balls itch is a positive tweet: True
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org5c0e415">
-<h2 id="org5c0e415">End</h2>
-<div class="outline-text-2" id="text-org5c0e415">
+<div class="outline-2" id="outline-container-orgf03561d">
+<h2 id="orgf03561d">End</h2>
+<div class="outline-text-2" id="text-orgf03561d">
 <p>I want to do more work with the Naive Bayes Classifier but this post is getting too long so I'm going to move on to other posts, the next being a <a href="posts/nlp/class-based-naive-bayes-tweet-sentiment-classifier/">class-based implementation</a> of the model.</p>
 </div>
 </div>
@@ -1213,283 +1569,6 @@ my balls itch is a positive tweet: True
 <h2 id="org1884b3a">End</h2>
 <div class="outline-text-2" id="text-org1884b3a">
 <p>Now that we have the math I'm going to implement the model using python in <a href="posts/nlp/naive-bayes-twitter-sentiment-classification/">this post</a>.</p>
-</div>
-</div>
-</div>
-</article>
-<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
-<header>
-<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/visualizing-naive-bayes/">Visualizing Naive Bayes</a></h1>
-<div class="metadata">
-<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
-<p class="dateline"><a href="posts/nlp/visualizing-naive-bayes/" rel="bookmark"><time class="published dt-published" datetime="2020-08-18T06:16:19-07:00" itemprop="datePublished" title="2020-08-18 06:16">2020-08-18 06:16</time></a></p>
-</div>
-</header>
-<div class="e-content entry-content">
-<div id="table-of-contents">
-<h2>Table of Contents</h2>
-<div id="text-table-of-contents">
-<ul>
-<li><a href="posts/nlp/visualizing-naive-bayes/#org37ecc8f">Beginning</a>
-<ul>
-<li><a href="posts/nlp/visualizing-naive-bayes/#org134fa4e">Set Up</a></li>
-</ul>
-</li>
-<li><a href="posts/nlp/visualizing-naive-bayes/#orgc5e431c">Middle</a>
-<ul>
-<li><a href="posts/nlp/visualizing-naive-bayes/#orga12be23">Calculating Likelihoods</a></li>
-</ul>
-</li>
-<li><a href="posts/nlp/visualizing-naive-bayes/#orgda7b7c9">End</a></li>
-<li><a href="posts/nlp/visualizing-naive-bayes/#org3fa8e30">Raw</a></li>
-</ul>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org37ecc8f">
-<h2 id="org37ecc8f">Beginning</h2>
-<div class="outline-text-2" id="text-org37ecc8f"></div>
-<div class="outline-3" id="outline-container-org134fa4e">
-<h3 id="org134fa4e">Set Up</h3>
-<div class="outline-text-3" id="text-org134fa4e"></div>
-<div class="outline-4" id="outline-container-org303455a">
-<h4 id="org303455a">Imports</h4>
-<div class="outline-text-4" id="text-org303455a">
-<div class="highlight">
-<pre><span></span><span class="c1"># python</span>
-<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
-<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
-
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">pickle</span>
-
-<span class="c1"># from pypi</span>
-<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
-
-<span class="kn">import</span> <span class="nn">holoviews</span>
-<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
-<span class="kn">import</span> <span class="nn">pandas</span>
-
-<span class="c1"># graeae</span>
-<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgb491396">
-<h4 id="orgb491396">Plotting</h4>
-<div class="outline-text-4" id="text-orgb491396">
-<div class="highlight">
-<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
-<span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"visualizing-naive-bayes"</span>
-<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
-                <span class="n">folder_path</span><span class="o">=</span><span class="n">f</span><span class="s2">"files/posts/nlp/{SLUG}"</span><span class="p">,</span> <span class="n">create_folder</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
-
-<span class="n">plot_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_PLOT"</span><span class="p">])</span>
-<span class="k">assert</span> <span class="n">plot_path</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
-<span class="k">with</span> <span class="n">plot_path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
-    <span class="n">Plot</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
-<span class="c1"># Plot = Namespace(</span>
-<span class="c1">#     width=990,</span>
-<span class="c1">#     height=780,</span>
-<span class="c1">#     tan="#ddb377",</span>
-<span class="c1">#     blue="#4687b7",</span>
-<span class="c1">#     red="#ce7b6d",</span>
-<span class="c1">#     font_scale=2,</span>
-<span class="c1">#     color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])</span>
-<span class="c1"># )</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-orgc5e431c">
-<h2 id="orgc5e431c">Middle</h2>
-<div class="outline-text-2" id="text-orgc5e431c"></div>
-<div class="outline-3" id="outline-container-orga12be23">
-<h3 id="orga12be23">Calculating Likelihoods</h3>
-<div class="outline-text-3" id="text-orga12be23">
-<p>This starts with the likelihoods pre-calculated. I'll add in the calculations later.</p>
-\begin{align} log \frac{P(tweet|pos)}{P(tweet|neg)} &amp;= log(P(tweet|pos)) - log(P(tweet|neg)) \\ positive = log(P(tweet|pos)) &amp;= \sum_{i=0}^{n}{log P(W_i|pos)}\\ negative = log(P(tweet|neg)) &amp;= \sum_{i=0}^{n}{log P(W_i|neg)}\\ \end{align}
-<div class="highlight">
-<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
-<span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"BAYES_FEATURES"</span><span class="p">])</span>
-<span class="k">assert</span> <span class="n">path</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
-
-<span class="n">features</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-<span class="k">print</span><span class="p">(</span><span class="n">features</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
-</pre></div>
-<pre class="example">
-    positive   negative  sentiment
-0 -45.763393 -63.351354        1.0
-</pre>
-<div class="highlight">
-<pre><span></span><span class="n">plot</span> <span class="o">=</span> <span class="n">features</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span>
-                               <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
-                                   <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative"</span><span class="p">,</span>
-                                   <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
-                                   <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
-                                   <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
-                               <span class="p">)</span>
-
-<span class="n">outcome</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_vs_negative_sentiment"</span><span class="p">)()</span>
-</pre></div>
-<div class="highlight">
-<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
-</pre></div>
-<object data="posts/nlp/visualizing-naive-bayes/positive_vs_negative_sentiment.html" height="800" style="width:100%" type="text/html">
-<p>Figure Missing</p>
-</object></div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-orgda7b7c9">
-<h2 id="orgda7b7c9">End</h2>
-</div>
-<div class="outline-2" id="outline-container-org3fa8e30">
-<h2 id="org3fa8e30">Raw</h2>
-<div class="outline-text-2" id="text-org3fa8e30">
-<div class="highlight">
-<pre><span></span><span class="c1">#  ## Calculate the likelihoods for each tweet</span>
-<span class="c1"># </span>
-<span class="c1"># For each tweet, we have calculated the likelihood of the tweet to be positive and the likelihood to be negative. We have calculated in different columns the numerator and denominator of the likelihood ratio introduced previously.  </span>
-<span class="c1"># </span>
-<span class="c1"># $$log \frac{P(tweet|pos)}{P(tweet|neg)} = log(P(tweet|pos)) - log(P(tweet|neg)) $$</span>
-<span class="c1"># $$positive = log(P(tweet|pos)) = \sum_{i=0}^{n}{log P(W_i|pos)}$$</span>
-<span class="c1"># $$negative = log(P(tweet|neg)) = \sum_{i=0}^{n}{log P(W_i|neg)}$$</span>
-<span class="c1"># </span>
-<span class="c1"># We did not include the code because this is part of this week's assignment.  The __'bayes_features.csv'__ file contains the final result of this process. </span>
-<span class="c1"># </span>
-<span class="c1"># The cell below loads the table in a dataframe. Dataframes are data structures that simplify the manipulation of data, allowing filtering, slicing, joining, and summarization.</span>
-
-<span class="c1"># In[ ]:</span>
-
-
-
-
-<span class="c1"># Plot the samples using columns 1 and 2 of the matrix</span>
-
-<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span> <span class="c1">#Create a new figure with a custom size</span>
-
-<span class="n">colors</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'red'</span><span class="p">,</span> <span class="s1">'green'</span><span class="p">]</span> <span class="c1"># Define a color palete</span>
-
-<span class="c1"># Color base on sentiment</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> 
-    <span class="n">c</span><span class="o">=</span><span class="p">[</span><span class="n">colors</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">k</span><span class="p">)]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">sentiment</span><span class="p">],</span> <span class="n">s</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s1">'*'</span><span class="p">)</span>  <span class="c1"># Plot a dot for each tweet</span>
-
-<span class="c1"># Custom limits for this chart</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">xlim</span><span class="p">(</span><span class="o">-</span><span class="mi">250</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylim</span><span class="p">(</span><span class="o">-</span><span class="mi">250</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span>
-
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"Positive"</span><span class="p">)</span> <span class="c1"># x-axis label</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"Negative"</span><span class="p">)</span> <span class="c1"># y-axis label</span>
-
-
-<span class="c1"># # Using Confidence Ellipses to interpret Naïve Bayes</span>
-<span class="c1"># </span>
-<span class="c1"># In this section, we will use the [confidence ellipse]( https://matplotlib.org/3.1.1/gallery/statistics/confidence_ellipse.html#sphx-glr-gallery-statistics-confidence-ellipse-py) to give us an idea of what the Naïve Bayes model see.</span>
-<span class="c1"># </span>
-<span class="c1"># A confidence ellipse is a way to visualize a 2D random variable. It is a better way than plotting the points over a cartesian plane because, with big datasets, the points can overlap badly and hide the real distribution of the data. Confidence ellipses summarize the information of the dataset with only four parameters: </span>
-<span class="c1"># </span>
-<span class="c1"># * Center: It is the numerical mean of the attributes</span>
-<span class="c1"># * Height and width: Related with the variance of each attribute. The user must specify the desired amount of standard deviations used to plot the ellipse. </span>
-<span class="c1"># * Angle: Related with the covariance among attributes.</span>
-<span class="c1"># </span>
-<span class="c1"># The parameter __n_std__ stands for the number of standard deviations bounded by the ellipse. Remember that for normal random distributions:</span>
-<span class="c1"># </span>
-<span class="c1"># * About 68% of the area under the curve falls within 1 standard deviation around the mean.</span>
-<span class="c1"># * About 95% of the area under the curve falls within 2 standard deviations around the mean.</span>
-<span class="c1"># * About 99.7% of the area under the curve falls within 3 standard deviations around the mean.</span>
-<span class="c1"># </span>
-<span class="c1"># &lt;img src=std.jpg width="400" &gt;</span>
-<span class="c1"># </span>
-<span class="c1"># </span>
-<span class="c1"># In the next chart, we will plot the data and its corresponding confidence ellipses using 2 std and 3 std. </span>
-
-<span class="c1"># In[ ]:</span>
-
-
-<span class="c1"># Plot the samples using columns 1 and 2 of the matrix</span>
-<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
-
-<span class="n">colors</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'red'</span><span class="p">,</span> <span class="s1">'green'</span><span class="p">]</span> <span class="c1"># Define a color palete</span>
-
-<span class="c1"># Color base on sentiment</span>
-
-<span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="p">[</span><span class="n">colors</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">k</span><span class="p">)]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">sentiment</span><span class="p">],</span> <span class="n">s</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s1">'*'</span><span class="p">)</span>  <span class="c1"># Plot a dot for tweet</span>
-
-<span class="c1"># Custom limits for this chart</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">xlim</span><span class="p">(</span><span class="o">-</span><span class="mi">200</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>  
-<span class="n">plt</span><span class="o">.</span><span class="n">ylim</span><span class="p">(</span><span class="o">-</span><span class="mi">200</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>
-
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"Positive"</span><span class="p">)</span> <span class="c1"># x-axis label</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"Negative"</span><span class="p">)</span> <span class="c1"># y-axis label</span>
-
-<span class="n">data_pos</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># Filter only the positive samples</span>
-<span class="n">data_neg</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span> <span class="c1"># Filter only the negative samples</span>
-
-<span class="c1"># Print confidence ellipses of 2 std</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_pos</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_pos</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$2\sigma$'</span> <span class="p">)</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_neg</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_neg</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'orange'</span><span class="p">)</span>
-
-<span class="c1"># Print confidence ellipses of 3 std</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_pos</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_pos</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">':'</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$3\sigma$'</span><span class="p">)</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_neg</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_neg</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'orange'</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">':'</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
-
-<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
-
-
-<span class="c1"># In the next cell, we will modify the features of the samples with positive sentiment (1), in a way that the two distributions overlap. In this case, the Naïve Bayes method will produce a lower accuracy than with the original data.</span>
-
-<span class="c1"># In[ ]:</span>
-
-
-<span class="n">data2</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="c1"># Copy the whole data frame</span>
-
-<span class="c1"># The following 2 lines only modify the entries in the data frame where sentiment == 1</span>
-<span class="n">data2</span><span class="o">.</span><span class="n">negative</span><span class="p">[</span><span class="n">data</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span>  <span class="n">data2</span><span class="o">.</span><span class="n">negative</span> <span class="o">*</span> <span class="mf">1.5</span> <span class="o">+</span> <span class="mi">50</span> <span class="c1"># Modify the negative attribute</span>
-<span class="n">data2</span><span class="o">.</span><span class="n">positive</span><span class="p">[</span><span class="n">data</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span>  <span class="n">data2</span><span class="o">.</span><span class="n">positive</span> <span class="o">/</span> <span class="mf">1.5</span> <span class="o">-</span> <span class="mi">50</span> <span class="c1"># Modify the positive attribute </span>
-
-
-<span class="c1"># Now let us plot the two distributions and the confidence ellipses</span>
-
-<span class="c1"># In[ ]:</span>
-
-
-<span class="c1"># Plot the samples using columns 1 and 2 of the matrix</span>
-<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
-
-<span class="n">colors</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'red'</span><span class="p">,</span> <span class="s1">'green'</span><span class="p">]</span> <span class="c1"># Define a color palete</span>
-
-<span class="c1"># Color base on sentiment</span>
-
-<span class="c1">#data.negative[data.sentiment == 1] =  data.negative * 2</span>
-
-<span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">data2</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data2</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="p">[</span><span class="n">colors</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">k</span><span class="p">)]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">data2</span><span class="o">.</span><span class="n">sentiment</span><span class="p">],</span> <span class="n">s</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s1">'*'</span><span class="p">)</span>  <span class="c1"># Plot a dot for tweet</span>
-<span class="c1"># Custom limits for this chart</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">xlim</span><span class="p">(</span><span class="o">-</span><span class="mi">200</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>  
-<span class="n">plt</span><span class="o">.</span><span class="n">ylim</span><span class="p">(</span><span class="o">-</span><span class="mi">200</span><span class="p">,</span><span class="mi">40</span><span class="p">)</span>
-
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"Positive"</span><span class="p">)</span> <span class="c1"># x-axis label</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"Negative"</span><span class="p">)</span> <span class="c1"># y-axis label</span>
-
-<span class="n">data_pos</span> <span class="o">=</span> <span class="n">data2</span><span class="p">[</span><span class="n">data2</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># Filter only the positive samples</span>
-<span class="n">data_neg</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">data2</span><span class="o">.</span><span class="n">sentiment</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span> <span class="c1"># Filter only the negative samples</span>
-
-<span class="c1"># Print confidence ellipses of 2 std</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_pos</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_pos</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$2\sigma$'</span> <span class="p">)</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_neg</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_neg</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'orange'</span><span class="p">)</span>
-
-<span class="c1"># Print confidence ellipses of 3 std</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_pos</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_pos</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'black'</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">':'</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">r</span><span class="s1">'$3\sigma$'</span><span class="p">)</span>
-<span class="n">confidence_ellipse</span><span class="p">(</span><span class="n">data_neg</span><span class="o">.</span><span class="n">positive</span><span class="p">,</span> <span class="n">data_neg</span><span class="o">.</span><span class="n">negative</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">n_std</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">'orange'</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">':'</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
-
-<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
-
-
-<span class="c1"># To give away: Understanding the data allows us to predict if the method will perform well or not. Alternatively, it will allow us to understand why it worked well or bad.</span>
-</pre></div>
 </div>
 </div>
 </div>
