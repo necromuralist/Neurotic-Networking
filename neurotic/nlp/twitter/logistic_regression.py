@@ -18,7 +18,7 @@ class LogisticRegression:
     iterations: int
     learning_rate: float
     _weights: numpy.array = None
-    final_loss: float=None
+    loss: float=None
 
     @property
     def weights(self) -> numpy.array:
