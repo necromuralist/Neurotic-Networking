@@ -30,6 +30,12 @@ class LogisticRegression:
             self._weights = numpy.zeros((3, 1))
         return self._weights
 
+    @weights.setter
+    def weights(self, new_weights: numpy.array) -> None:
+        """Set the weights to a new value"""
+        self._weights = new_weights
+        return
+
     def sigmoid(self, vectors: numpy.ndarray) -> float:
         """Calculates the logistic function value
     
