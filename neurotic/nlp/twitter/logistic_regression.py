@@ -30,16 +30,16 @@ class LogisticRegression:
             self._weights = numpy.zeros((3, 1))
         return self._weights
 
-    def sigmoid(self, vectors: numpy.ndarray) -> fl:o
+    def sigmoid(self, vectors: numpy.ndarray) -> float:
         """Calculates the logistic function value
     
-            Args:
-             vectors: a matrix of bias, positive, negative counts
+        Args:
+         vectors: a matrix of bias, positive, negative counts
     
-            Returns:
-             array of probabilities that the tweets are positive
-            """
-            return 1/(1 + numpy.exp(-vectors))
+        Returns:
+         array of probabilities that the tweets are positive
+        """
+        return 1/(1 + numpy.exp(-vectors))
 
     def gradient_descent(self, x: numpy.ndarray, y: numpy.ndarray):
         """Finds the weights for the model
