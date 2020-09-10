@@ -52,7 +52,7 @@ class LogisticRegression:
         rows = len(x)
         self.learning_rate /= rows
         for iteration in range(self.iterations):
-            y_hat = sigmoid(x.dot(self.weights))
+            y_hat = self.sigmoid(x.dot(self.weights))
             # average loss
             loss = numpy.squeeze(-((y.T.dot(numpy.log(y_hat))) +
                                    (1 - y.T).dot(numpy.log(1 - y_hat))))/rows
