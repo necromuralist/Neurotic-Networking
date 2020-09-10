@@ -17,7 +17,7 @@ class LogisticRegression:
     """
     iterations: int
     learning_rate: float
-    _weights: numpy.array = None
+    _weights: numpy.array
     final_loss: float=None
 
     @property
@@ -63,7 +63,7 @@ class LogisticRegression:
         vectorizer = TweetVectorizer(x_train, self.counter.counts, processed=False)
         y = y_train.values.reshape((-1, 1))
         self.loss = self.gradient_descent(vectorizer.vectors, y)
-        return self.loss
+        return
 
     def predict(self, x: numpy.ndarray) -> numpy.ndarray:
         """Predict the labels for the inputs
