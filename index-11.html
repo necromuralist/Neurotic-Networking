@@ -51,6 +51,941 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/implementing-twitter-logistic-regression/">Implementing Logistic Regression for Tweet Sentiment Analysis</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nlp/implementing-twitter-logistic-regression/" rel="bookmark"><time class="published dt-published" datetime="2020-07-14T16:16:22-07:00" itemprop="datePublished" title="2020-07-14 16:16">2020-07-14 16:16</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orgce5e298">Beginning</a>
+<ul>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orge428b1b">Set Up</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#org3645766">Middle</a>
+<ul>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#org708f9ec">Logistic Regression</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#org3c18474">Train the Model</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orgead4851">Test the Model</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orgeff372d">The Wrong Stuff</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#org50f3056">Some Fresh Tweets</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#org353875b">Compare to SKLearn</a></li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orgf123b6d">Vizualizing the Model</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/implementing-twitter-logistic-regression/#orgebd3898">End</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgce5e298">
+<h2 id="orgce5e298">Beginning</h2>
+<div class="outline-text-2" id="text-orgce5e298">
+<p>In the previous post in this series (<a href="posts/nlp/the-tweet-vectorizer/">The Tweet Vectorizer</a>) I transformed some tweet data to vectors based on the sums of the positive and negative tokens in each tweet. This post will implement a Logistic Regression model to train on those vectors to classify tweets by sentiment.</p>
+</div>
+<div class="outline-3" id="outline-container-orge428b1b">
+<h3 id="orge428b1b">Set Up</h3>
+<div class="outline-text-3" id="text-orge428b1b"></div>
+<div class="outline-4" id="outline-container-org1edda2c">
+<h4 id="org1edda2c">Imports</h4>
+<div class="outline-text-4" id="text-org1edda2c">
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Union</span>
+
+<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">bokeh.models.tools</span> <span class="kn">import</span> <span class="n">HoverTool</span>
+<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+<span class="kn">from</span> <span class="nn">expects</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">be_true</span><span class="p">,</span>
+    <span class="n">expect</span><span class="p">,</span>
+    <span class="n">equal</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">nltk.corpus</span> <span class="kn">import</span> <span class="n">twitter_samples</span>
+<span class="kn">from</span> <span class="nn">sklearn.model_selection</span> <span class="kn">import</span> <span class="n">train_test_split</span><span class="p">,</span> <span class="n">GridSearchCV</span>
+<span class="kn">from</span> <span class="nn">sklearn.linear_model</span> <span class="kn">import</span> <span class="n">LogisticRegressionCV</span>
+
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">nltk</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+
+<span class="c1"># this package</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.counter</span> <span class="kn">import</span> <span class="n">WordCounter</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.sentiment</span> <span class="kn">import</span> <span class="n">TweetSentiment</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.vectorizer</span> <span class="kn">import</span> <span class="n">TweetVectorizer</span>
+
+<span class="c1"># for plotting</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">Timer</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org0ec83e2">
+<h4 id="org0ec83e2">The Timer</h4>
+<div class="outline-text-4" id="text-org0ec83e2">
+<div class="highlight">
+<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org2427df0">
+<h4 id="org2427df0">The Dotenv</h4>
+<div class="outline-text-4" id="text-org2427df0">
+<p>This loads the locations of previous data and object saves I made.</p>
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org96f1c09">
+<h4 id="org96f1c09">The Data</h4>
+<div class="outline-text-4" id="text-org96f1c09">
+<p>I made vectors earlier but to process new tweets I need the Twitter Vectorizer anyway, so I'm going to reprocess everything here.</p>
+<div class="highlight">
+<pre><span></span><span class="n">train_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+
+<span class="n">test_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TEST_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Training: {len(train_raw):,}"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Testing: {len(test_raw):,}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Training: 8,000
+Testing: 2,000
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">columns</span> <span class="o">=</span> <span class="s2">"bias positive negative"</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+<span class="n">counter</span> <span class="o">=</span> <span class="n">WordCounter</span><span class="p">(</span><span class="n">train_raw</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">train_raw</span><span class="o">.</span><span class="n">label</span><span class="p">)</span>
+<span class="n">train_vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">train_raw</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="p">,</span> <span class="n">processed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<span class="n">test_vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">test_raw</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="p">,</span> <span class="n">processed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</pre></div>
+<p>But it's easier to work with the DataFrame when exploring and I've been going back and fiddling with different parts of the pipeline and not all the data-files are up to date so it's safer to start from the raw files again.</p>
+<div class="highlight">
+<pre><span></span><span class="n">training</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">train_vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">)</span>
+<span class="n">testing</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">test_vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">)</span>
+
+<span class="n">training</span><span class="p">[</span><span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">train_raw</span><span class="o">.</span><span class="n">label</span>
+<span class="n">testing</span><span class="p">[</span><span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">test_raw</span><span class="o">.</span><span class="n">label</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Training: {len(training):,}"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Testing: {len(testing):,}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Training: 8,000
+Testing: 2,000
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org6e8e117">
+<h4 id="org6e8e117">For Plotting</h4>
+<div class="outline-text-4" id="text-org6e8e117">
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"implementing-twitter-logistic-regression"</span>
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
+                <span class="n">folder_path</span><span class="o">=</span><span class="n">f</span><span class="s2">"files/posts/nlp/{SLUG}"</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_PLOT"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Plot</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org9a2ae88">
+<h4 id="org9a2ae88">Types</h4>
+<div class="outline-text-4" id="text-org9a2ae88">
+<p>Some stuff for type hinting.</p>
+<div class="highlight">
+<pre><span></span><span class="n">Tweet</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span>
+<span class="n">PositiveProbability</span> <span class="o">=</span> <span class="n">Tweet</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org3645766">
+<h2 id="org3645766">Middle</h2>
+<div class="outline-text-2" id="text-org3645766"></div>
+<div class="outline-3" id="outline-container-org708f9ec">
+<h3 id="org708f9ec">Logistic Regression</h3>
+<div class="outline-text-3" id="text-org708f9ec">
+<p>Now that we have the data it's time to implement the <a href="https://www.wikiwand.com/en/Logistic_regression">Logistic Regression</a> model to classify tweets as positive or negative.</p>
+</div>
+<div class="outline-4" id="outline-container-org9ff241b">
+<h4 id="org9ff241b">The Sigmoid Function</h4>
+<div class="outline-text-4" id="text-org9ff241b">
+<p>Logistic Regression uses a version of <a href="https://www.wikiwand.com/en/Sigmoid_function">the Sigmoid Function</a> called the Standard <a href="https://www.wikiwand.com/en/Logistic_function">Logistic Function</a> to measure whether an entry has passed the threshold for classification. This is the mathematical definition:</p>
+<p>\[ \sigma(z) = \frac{1}{1 + e^{-x \cdot \theta}} \]</p>
+<p>The numerator (1) determines the maximum value for the function, so in this case the range is from 0 to 1 and we can interpret \(\sigma(z)\) as the probability that a tweet (<i>z</i>) is positive (<i>1</i>). The interpretation of \(\sigma(z)\) is it's the probability that <i>z</i> (a vector representation of a tweet times the weights) is classified as 1 (having a positive sentiment). So we could re-write this as:</p>
+<p>\[ P(Y=1 | z) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x_1 + \beta_2 x_2)}} \]</p>
+<p>Where \(x_1\) is the sum of the positive tweet counts for the tokens in \(x\) and \(x_2\) is the sum of the negative tweet counts for the tokens. \(\beta_0\) is our bias and \(\beta_1\) and \(\beta_2\) are the weights that we're going to find by training our model.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="n">z</span><span class="p">:</span> <span class="n">Tweet</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PositiveProbability</span><span class="p">:</span>
+    <span class="sd">"""Calculates the logistic function value</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     z: input to the logistic function (float or array)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     calculated sigmoid for z</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="mi">1</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">numpy</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">z</span><span class="p">))</span>
+</pre></div>
+</div>
+<ul class="org-ul">
+<li><a id="org5611b1e"></a>A Little Test<br>
+<div class="outline-text-5" id="text-org5611b1e">
+<p>We have a couple of given values to test that our sigmoid is correct.</p>
+<div class="highlight">
+<pre><span></span><span class="n">expect</span><span class="p">(</span><span class="n">sigmoid</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">equal</span><span class="p">(</span><span class="mf">0.5</span><span class="p">))</span>
+
+<span class="n">expect</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">sigmoid</span><span class="p">(</span><span class="mf">4.92</span><span class="p">),</span> <span class="mf">0.9927537604041685</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.9927537604041685</span><span class="p">])</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mf">4.92</span><span class="p">]))</span>
+
+<span class="n">expect</span><span class="p">(</span><span class="nb">all</span><span class="p">(</span><span class="n">actual</span><span class="o">==</span><span class="n">expected</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org8fad220"></a>Plotting It<br>
+<div class="outline-text-5" id="text-org8fad220">
+<p>Let's see what the output looks like.</p>
+<div class="highlight">
+<pre><span></span><span class="n">min_x</span> <span class="o">=</span> <span class="o">-</span><span class="mi">6</span>
+<span class="n">max_x</span> <span class="o">=</span> <span class="mi">6</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">max_x</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">halfway</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">plot_data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y</span><span class="p">))</span>
+<span class="n">curve</span> <span class="o">=</span> <span class="n">plot_data</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"x"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"y"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">)</span>
+
+<span class="n">line</span> <span class="o">=</span> <span class="n">holoviews</span><span class="o">.</span><span class="n">Curve</span><span class="p">([(</span><span class="n">min_x</span><span class="p">,</span> <span class="n">halfway</span><span class="p">),</span> <span class="p">(</span><span class="n">max_x</span><span class="p">,</span> <span class="n">halfway</span><span class="p">)],</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="p">(</span><span class="n">curve</span> <span class="o">*</span> <span class="n">line</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Sigmoid"</span><span class="p">,</span>
+    <span class="n">show_grid</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">embedded</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"sigmoid_function"</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">embedded</span><span class="p">()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/sigmoid_function.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>Looking at the plot you can see that the probability that a tweet is positive is 0.5 when the input is 0, becomes more likely the more positive the input is, and is less likely the more negative an input is. Next we'll need to look at how to train our model.</p>
+</div>
+</li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-orge83be99">
+<h4 id="orge83be99">The Loss Function</h4>
+<div class="outline-text-4" id="text-orge83be99">
+<p>To train our model we need a way to measure how well (or in this case poorly) it's doing. For this we'll use the <a href="http://wiki.fast.ai/index.php/Log_Loss">Log Loss</a> function which is the negative logarithm of our probability - so for each tweet, we'll calculate \(\sigma\) (which is the probability that it's positive) and take the negative logarithm of it to get the log-loss.</p>
+<p>The formula for loss:</p>
+<p>\[ Loss = - \left( y\log (p) + (1-y)\log (1-p) \right) \]</p>
+<p>\(y\) is the classification of the tweet (1 or 0) so when the tweet is classified 1 (positive) the right term becomes 0 and when the tweet is classified 0 (negative) the left term becomes 0 so this is the equivalent of:</p>
+<div class="highlight">
+<pre><span></span><span class="k">if</span> <span class="n">y</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">log</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">p</span><span class="p">)</span>
+</pre></div>
+<p>Where \(p\) is the probability that the tweet is positive and \(1 - p\) is the probability that it isn't (so it's negative since that's the only alternative). We take the negative of the logarithm because \(log(p)\) is negative (all the values of \(p\) are between 0 and 1) so negating it makes the output positive.</p>
+<p>We can fill it in to make it match what we're going to actually calculate - for the \(i^{th}\) item in our dataset \(p = \sigma(z^i \cdot \theta)\) and the equation becomes:</p>
+<p>\[ Loss = - \left( y^{(i)}\log (\sigma(z^{(i)} \cdot \theta)) + (1-y^{(i)})\log (1-\sigma(z^{(i)} \cdot \theta)) \right) \]</p>
+<div class="highlight">
+<pre><span></span><span class="n">epsilon</span> <span class="o">=</span> <span class="mf">1e-3</span>
+<span class="n">steps</span> <span class="o">=</span> <span class="mi">10</span><span class="o">**</span><span class="mi">3</span>
+<span class="n">probabilities</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">epsilon</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="n">steps</span><span class="p">)</span>
+<span class="n">losses</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="o">*</span> <span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">probabilities</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span>
+    <span class="s2">"p"</span><span class="p">:</span> <span class="n">probabilities</span><span class="p">,</span>
+    <span class="s2">"Log-Loss"</span><span class="p">:</span> <span class="n">losses</span> 
+<span class="p">})</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"p"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"Log-Loss"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Log-Loss (Y=1)"</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+    <span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">losses</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="p">)</span>
+
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"log_loss_example"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/log_loss_example.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>So what is this telling us? This is for the case where a tweet is labeled positive and at the far left, near 0 (<code>log(0)</code> is undefined so you can use a really small probability but not 0) our model is saying that it probably isn't a positive tweet, so the log-loss is fairly high, then as we move along the x-axis our model is saying that it is more and more likely that the tweet is positive so our log-loss goes down, until we reach the point where our model says that it's 100% guaranteed to be a positive tweet, at which point our log-loss drops to zero. Fairly intuitive.</p>
+<p>Let's look at the case where the tweet is actually negative (<i>y=0</i>). Since <i>p</i> is the probability that it's positive, when the label is 0 we need to take the log of <i>1-p</i> to see what the model thinks the probability is that it's negative.</p>
+<div class="highlight">
+<pre><span></span><span class="n">epsilon</span> <span class="o">=</span> <span class="mf">1e-3</span>
+<span class="n">steps</span> <span class="o">=</span> <span class="mi">10</span><span class="o">**</span><span class="mi">3</span>
+<span class="n">probabilities</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">epsilon</span><span class="p">,</span> <span class="mi">1</span><span class="o">-</span><span class="n">epsilon</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="n">steps</span><span class="p">)</span>
+<span class="n">losses</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="o">*</span> <span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">probabilities</span><span class="p">))</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span>
+    <span class="s2">"p"</span><span class="p">:</span> <span class="n">probabilities</span><span class="p">,</span>
+    <span class="s2">"Log-Loss"</span><span class="p">:</span> <span class="n">losses</span> 
+<span class="p">})</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"p"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"Log-Loss"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Log-Loss (Y=0)"</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+    <span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">losses</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="p">)</span>
+
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"log_loss_y_0_example"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/log_loss_y_0_example.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>So now we have basically the opposite loss. In this case the tweet is not positive so when the model puts a low likelihood that the tweet is positive the log-loss is small, but as you move along the x-axis the model is giving more probability to the notion that the tweet is positive so the log-loss gets larger.</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orge50d57a">
+<h4 id="orge50d57a">Training the Model</h4>
+<div class="outline-text-4" id="text-orge50d57a">
+<p>To train the model we're going to use <a href="https://www.wikiwand.com/en/Gradient_descent">Gradient Descent</a>. What this means is that we're going to use the <i>gradient</i> of our loss function to figure out how to update our weights. The <i>gradient</i> is just the slope of the loss-function (but generalized to multiple dimensions).</p>
+<p>How do we do this? First we calculate our model's estimate of the input being positive, then we calculate the gradient of its loss. If you remember from calculus the slope of a line is the derivative of its function so instead of calculating the loss, we'll calculate the derivative of the loss-function which is given as:</p>
+<p>\[ \nabla_{\theta}L_{\theta} = \left [ \sigma(x \cdot \theta) - y \right] x_j \]</p>
+<p>The rightmost term \(x_j\) represents one term in the input vector, the one that matches the weight - this has to be repeated for each \(\beta\) in \(\theta\) so in our case it will be repeated three times, with \(x\) being 1 for the bias term.</p>
+<p>It's called stochastic gradient descent because the inputs are chosen randomly from our training set. This turns out to not give you a smooth descent so we're going to do <b>batch training</b> which changes our gradient a little.</p>
+<p>\[ \nabla_{\theta_j}L_{\theta} = \frac{1}{m} \sum_{i=1}^m(\sigma(x \cdot \theta)-y)x_j \]</p>
+<p>Our gradient is now the average of the gradients for each of the inputs in our training set. We update the weights by subtracting a fraction of the difference between the current weights and the gradient. The fraction \(\eta\) is called the <i>learning rate</i> and it controls how much the weights change, representng how fast our model will learn. If it is too large we can miss the minimum and if it's too large it will take too long to train the model, so we need to choose the right value for it to reach the minima within a feasible time.</p>
+<p>Here's the algorithm in the rough.</p>
+<ul class="org-ul">
+<li><i>L</i>: Loss Function</li>
+<li>\(\sigma\): probability function parameterized by \(\theta\)</li>
+<li><i>x</i>: set of training inputs</li>
+<li><i>y</i>: set of training labels</li>
+</ul>
+<script>
+    MathJax = {
+        tex: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script>
+<pre id="gradientdescent" style="display:hidden">
+\begin{algorithm}
+\caption{Gradient Descent}
+\begin{algorithmic}
+\STATE $\theta \gets 0$
+\WHILE{not done}
+
+ \FOR{each $(x^{(i)},y^{(i)})$ in training data}
+  \State $\hat{y} \gets \sigma(x^{(i)}; \theta)$
+  \State $loss \gets L(\hat{y}^{(i)}, y^{(i)})$
+  \State $g \gets \nabla_{\theta} L(\hat{y}^{(i)}, y^{(i)})$
+  \State $\theta \gets \theta - \eta g$
+ \ENDFOR
+
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+</pre>
+<script>
+    pseudocode.renderElement(document.getElementById("gradientdescent"));
+</script>
+<p>We can translate this a little more.</p>
+<pre id="gradientdescentengrish" style="display:hidden">
+\begin{algorithm}
+\caption{Gradient Descent}
+\begin{algorithmic}
+\STATE Initialize the weights
+\WHILE{the loss is still too high}
+
+ \FOR{each $(x^{(i)},y^{(i)})$ in training data}
+  \State What is our probability that the input is positive?
+  \State How far off are we?
+  \State What direction would we need to head to maximize the error?
+  \State Let's go in the opposite direction.
+ \ENDFOR
+
+\ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+</pre>
+<script>
+    pseudocode.renderElement(document.getElementById("gradientdescentengrish"));
+</script>
+<p>Note that the losses aren't needed for the algorithm to train the model, just for assessing how well the model did.</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc01c93c">
+<h4 id="orgc01c93c">Implement It</h4>
+<div class="outline-text-4" id="text-orgc01c93c"></div>
+<ul class="org-ul">
+<li><a id="org1f0968d"></a>The Function<br>
+<div class="outline-text-5" id="text-org1f0968d">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">gradient_descent</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+                     <span class="n">weights</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                     <span class="n">iterations</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="sd">"""Finds the weights for the model</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     x: the tweet vectors</span>
+<span class="sd">     y: the positive/negative labels</span>
+<span class="sd">     weights: the regression weights</span>
+<span class="sd">     learning_rate: (eta) how much to update the weights</span>
+<span class="sd">     iterations: the number of times to repeat training</span>
+<span class="sd">    """</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">losses</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">learning_rate</span> <span class="o">/=</span> <span class="n">rows</span>
+    <span class="k">for</span> <span class="n">iteration</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">iterations</span><span class="p">):</span>
+        <span class="n">y_hat</span> <span class="o">=</span> <span class="n">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">weights</span><span class="p">))</span>
+        <span class="c1"># average loss</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="o">-</span><span class="p">((</span><span class="n">y</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">y_hat</span><span class="p">)))</span> <span class="o">+</span>
+                               <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">y</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">y_hat</span><span class="p">))))</span><span class="o">/</span><span class="n">rows</span>
+        <span class="n">losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">loss</span><span class="p">)</span>
+        <span class="n">gradient</span> <span class="o">=</span> <span class="p">((</span><span class="n">y_hat</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">x</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">weights</span> <span class="o">-=</span> <span class="n">learning_rate</span> <span class="o">*</span> <span class="n">gradient</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">loss</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">losses</span>
+</pre></div>
+<p>If you look at the implementation you can see that there are some changes made to it from what I wrote earlier. This is because the algorithm I wrote in pseudocode came from a book while the implementation that I made came from a Coursera assignment. The main differences being that we use a set number of iterations to train the model and the learning rate is divided by the number of training examples. Of course, you could just divide the learning rate before passing it in to the function so it doesn't really change it that much. I also had to take into account the fact that you can't just take a dot product of two matrices if their shapes aren't compatible - the rows of the left hand matrix has to match the columns of the right hand matrix) so there's some transposing of matrices being done. Our actual implementation might be more like this.</p>
+<pre id="gradientdescentimplementation" style="display:hidden">
+\begin{algorithm}
+\caption{Gradient Descent Implemented}
+\begin{algorithmic}
+\STATE $\theta \gets 0$
+\STATE $m \gets rows(X)$
+\FOR{$iteration \in$ \{0 $\ldots iterations-1$ \}}
+  \STATE $\hat{Y} \gets \sigma(X \cdot \theta)$
+  \STATE $loss \gets -\frac{1}{m}(Y^T \cdot \ln \hat{Y}) + (1 - Y)^T \cdot (\ln 1 - \hat{Y})$
+  \STATE $\nabla \gets \sum (\hat{Y} - Y)^T \cdot x$
+  \STATE $\theta \gets \theta - \frac{\eta}{m} \nabla^T$
+ \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+</pre>
+<script>
+    pseudocode.renderElement(document.getElementById("gradientdescentimplementation"));
+</script></div>
+</li>
+<li><a id="orgbb241f9"></a>Test It<br>
+<div class="outline-text-5" id="text-orgbb241f9">
+<p>First we'll make a fake (random) input set to make it easier to check the gradient descent.</p>
+<div class="highlight">
+<pre><span></span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">bias</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="mi">10</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">fake</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2000</span>
+<span class="n">fake_tweet_vectors</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">bias</span><span class="p">,</span> <span class="n">fake</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+<p>Now, the fake labels - we'll make around 35% of them negative and the rest positive.</p>
+<div class="highlight">
+<pre><span></span><span class="n">fake_labels</span> <span class="o">=</span> <span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.35</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org97bd20f"></a>Do the Descent<br>
+<div class="outline-text-5" id="text-org97bd20f">
+<p>So now we can pass our test data into the gradient descent function and see what happens.</p>
+<div class="highlight">
+<pre><span></span><span class="n">fake_weights</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">fake_loss</span><span class="p">,</span> <span class="n">fake_weights</span><span class="p">,</span> <span class="n">losses</span> <span class="o">=</span> <span class="n">gradient_descent</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">fake_tweet_vectors</span><span class="p">,</span>
+                                           <span class="n">y</span><span class="o">=</span><span class="n">fake_labels</span><span class="p">,</span> 
+                                           <span class="n">weights</span><span class="o">=</span><span class="n">fake_weights</span><span class="p">,</span>
+                                           <span class="n">learning_rate</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span>
+                                           <span class="n">iterations</span><span class="o">=</span><span class="mi">700</span><span class="p">)</span>
+<span class="n">expect</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">fake_loss</span><span class="p">,</span> <span class="mf">0.67094970</span><span class="p">,</span> <span class="n">rel_tol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"The log-loss after training is {fake_loss:.8f}."</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"The trained weights are {[round(t, 8) for t in numpy.squeeze(fake_weights)]}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+The log-loss after training is 0.67094970.
+The trained weights are [4.1e-07, 0.00035658, 7.309e-05]
+</pre></div>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org3c18474">
+<h3 id="org3c18474">Train the Model</h3>
+<div class="outline-text-3" id="text-org3c18474">
+<p>Now that we have our parts let's actually train the model using the real training data. I originally did this expecting numpy arrays (like in earlier steps I was expecting python lists instead of numpy arrays - stuff changes) so I'll be extracting the relevant columns from the pandas DataFrame and converting them back to arrays.</p>
+<div class="highlight">
+<pre><span></span><span class="n">weights</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">eta</span> <span class="o">=</span> <span class="mf">1e-9</span>
+<span class="n">iterations</span> <span class="o">=</span> <span class="mi">1500</span>
+<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">final_loss</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">losses</span> <span class="o">=</span> <span class="n">gradient_descent</span><span class="p">(</span>
+        <span class="n">x</span><span class="o">=</span><span class="n">train_vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">,</span>
+        <span class="n">y</span><span class="o">=</span><span class="n">training</span><span class="o">.</span><span class="n">sentiment</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span> <span class="n">weights</span><span class="o">=</span><span class="n">weights</span><span class="p">,</span>
+        <span class="n">learning_rate</span><span class="o">=</span><span class="n">eta</span><span class="p">,</span> <span class="n">iterations</span><span class="o">=</span><span class="n">iterations</span><span class="p">)</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"The log-loss after training is {final_loss:.8f}."</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"The resulting vector of weights is "</span>
+      <span class="n">f</span><span class="s2">"{[round(t, 8) for t in numpy.squeeze(weights)]}"</span><span class="p">)</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">TweetSentiment</span><span class="p">(</span><span class="n">train_vectorizer</span><span class="p">,</span> <span class="n">weights</span><span class="p">)</span>
+<span class="n">predictions</span> <span class="o">=</span> <span class="n">model</span><span class="p">()</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">predictions</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">training</span><span class="o">.</span><span class="n">sentiment</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Training Accuracy: {correct/len(training)}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+2020-07-27 17:54:58,357 graeae.timers.timer start: Started: 2020-07-27 17:54:58.357765
+2020-07-27 17:54:58,776 graeae.timers.timer end: Ended: 2020-07-27 17:54:58.776834
+2020-07-27 17:54:58,777 graeae.timers.timer end: Elapsed: 0:00:00.419069
+The log-loss after training is 0.22043072.
+The resulting vector of weights is [6e-08, 0.00053899, -0.0005613]
+Training Accuracy: 0.997625
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">plot_losses</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span><span class="s2">"Log-Loss"</span><span class="p">:</span> <span class="n">losses</span><span class="p">})</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">plot_losses</span><span class="o">.</span><span class="n">hvplot</span><span class="p">()</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Training Losses"</span><span class="p">,</span>
+                            <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                            <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                            <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+                            <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">blue</span>
+                            <span class="p">)</span>
+
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"training_loss"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/training_loss.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>As you can see, the losses are still on the decline, but we'll stop here to see how it's doing.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgead4851">
+<h3 id="orgead4851">Test the Model</h3>
+<div class="outline-text-3" id="text-orgead4851">
+<p>This will be a class to predict the sentiment of a tweet using our model.</p>
+<div class="highlight">
+<pre><span></span><span class="c1"># pypi</span>
+<span class="kn">import</span> <span class="nn">attr</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="c1"># this project</span>
+<span class="kn">from</span> <span class="nn">.vectorizer</span> <span class="kn">import</span> <span class="n">TweetVectorizer</span>
+
+
+<span class="nd">@attr.s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">TweetSentiment</span><span class="p">:</span>
+    <span class="sd">"""Predicts the sentiment of a tweet</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     vectorizer: something to vectorize tweets</span>
+<span class="sd">     theta: vector of weights for the logistic regression model</span>
+<span class="sd">    """</span>
+    <span class="n">vectorizer</span><span class="p">:</span> <span class="n">TweetVectorizer</span>
+    <span class="n">theta</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span>
+
+    <span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vectors</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="sd">"""the logistic function</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        vectors: a matrix of bias, positive, negative counts</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        array of probabilities that the tweets are positive</span>
+<span class="sd">       """</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">numpy</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">vectors</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">probability_positive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="sd">"""Calculates the probability of the tweet being positive</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        tweet: a tweet to classify</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        the probability that the tweet is a positive one</span>
+<span class="sd">       """</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">extract_features</span><span class="p">(</span><span class="n">tweet</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">)))</span>
+
+    <span class="k">def</span> <span class="nf">classify</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="sd">"""Decides if the tweet was positive or not</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        tweet: the tweet message to classify.</span>
+<span class="sd">       """</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">probability_positive</span><span class="p">(</span><span class="n">tweet</span><span class="p">)))</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="sd">"""Get the sentiments of the vectorized tweets</span>
+
+<span class="sd">       Note:</span>
+<span class="sd">        this assumes that the vectorizer passed in has the tweets</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        array of predicted sentiments (1 for positive 0 for negative)</span>
+<span class="sd">       """</span>
+        <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">)))</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">sentiment</span> <span class="o">=</span> <span class="n">TweetSentiment</span><span class="p">(</span><span class="n">test_vectorizer</span><span class="p">,</span> <span class="n">weights</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">tweet</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">'I am happy'</span><span class="p">,</span> <span class="s1">'I am bad'</span><span class="p">,</span> <span class="s1">'this movie should have been great.'</span><span class="p">,</span> <span class="s1">'great'</span><span class="p">,</span> <span class="s1">'great great'</span><span class="p">,</span> <span class="s1">'great great great'</span><span class="p">,</span> <span class="s1">'great great great great'</span><span class="p">]:</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s1">'{tweet} -&gt; {sentiment.probability_positive(tweet)}'</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+I am happy -&gt; 0.5183237992258976
+I am bad -&gt; 0.4924963884222927
+this movie should have been great. -&gt; 0.5156997144475827
+great -&gt; 0.5158056039006712
+great great -&gt; 0.5315796358935646
+great great great -&gt; 0.5472908064541816
+great great great great -&gt; 0.5629083094155534
+</pre>
+<p>Strangely very near the center. Probably because the words weren't that commonly used in our training set.</p>
+<div class="highlight">
+<pre><span></span><span class="n">totals</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Great positive percentage: {100 * counter.counts[('great', 1)]/totals:.2f} %"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Great negative percentage: {100 * counter.counts[('great', 0)]/totals:.2f} % "</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Great positive percentage: 0.24 %
+Great negative percentage: 0.03 % 
+</pre>
+<p>Now we can see how it did overall.</p>
+<div class="highlight">
+<pre><span></span><span class="n">predictions</span> <span class="o">=</span> <span class="n">sentiment</span><span class="p">()</span>
+<span class="n">correct</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">predictions</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">testing</span><span class="o">.</span><span class="n">sentiment</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Accuracy: {correct/len(testing)}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Accuracy: 0.996
+</pre>
+<p>Almost suspiciously good.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgeff372d">
+<h3 id="orgeff372d">The Wrong Stuff</h3>
+<div class="outline-text-3" id="text-orgeff372d">
+<div class="highlight">
+<pre><span></span><span class="n">wrong_places</span> <span class="o">=</span> <span class="n">predictions</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">testing</span><span class="o">.</span><span class="n">sentiment</span>
+<span class="n">wrong</span> <span class="o">=</span> <span class="n">testing</span><span class="p">[</span><span class="n">wrong_places</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">wrong</span><span class="p">))</span>
+</pre></div>
+<pre class="example">
+8
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">wrong</span><span class="o">.</span><span class="n">itertuples</span><span class="p">():</span>
+    <span class="k">print</span><span class="p">(</span><span class="s2">"*"</span> <span class="o">*</span> <span class="mi">10</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Tweet number {row.Index}"</span><span class="p">)</span>
+    <span class="n">raw</span> <span class="o">=</span> <span class="n">test_raw</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">row</span><span class="o">.</span><span class="n">Index</span><span class="p">]</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Tweet: {raw.tweet}"</span><span class="p">)</span>
+    <span class="n">tokens</span> <span class="o">=</span> <span class="n">train_vectorizer</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">tweet</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Tokens: {tokens}"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Probability Positive: {sentiment.probability_positive(raw.tweet)}"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Actual Classification: {row.sentiment}"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"{token} </span><span class="se">\t</span><span class="s2">Positive: {counter.counts[(token, 1)]} "</span>
+              <span class="n">f</span><span class="s2">"Negative: {counter.counts[(token, 0)]}"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">()</span>
+</pre></div>
+<pre class="example">
+**********
+Tweet number 64
+Tweet: @_sarah_mae omg you can't just tell this and don't say more :p can't wait to know !!!! ❤️
+Tokens: ['omg', "can't", 'tell', 'say', ':p', "can't", 'wait', 'know', '❤', '️']
+Probability Positive: 0.48137283482824483
+Actual Classification: 1
+
+omg     Positive: 11 Negative: 51
+can't   Positive: 36 Negative: 145
+tell    Positive: 20 Negative: 19
+say     Positive: 48 Negative: 52
+:p      Positive: 113 Negative: 0
+can't   Positive: 36 Negative: 145
+wait    Positive: 59 Negative: 37
+know    Positive: 123 Negative: 100
+❤       Positive: 18 Negative: 20
+️       Positive: 9 Negative: 18
+
+**********
+Tweet number 118
+Tweet: @bae_ts WHATEVER STIL L YOUNG &amp;gt;:-(
+Tokens: ['whatev', 'stil', 'l', 'young', '&gt;:-(']
+Probability Positive: 0.5006402767570053
+Actual Classification: 0
+
+whatev  Positive: 5 Negative: 0
+stil    Positive: 0 Negative: 0
+l       Positive: 4 Negative: 1
+young   Positive: 2 Negative: 3
+&gt;:-(         Positive: 0 Negative: 2
+
+**********
+Tweet number 435
+Tweet: @wtfxmbs AMBS please it's harry's jeans :)):):):(
+Tokens: ['amb', 'pleas', "harry'", 'jean', ':)', '):', '):', '):']
+Probability Positive: 0.821626817973081
+Actual Classification: 0
+
+amb     Positive: 0 Negative: 0
+pleas   Positive: 76 Negative: 215
+harry'  Positive: 0 Negative: 1
+jean    Positive: 0 Negative: 1
+:)      Positive: 2967 Negative: 1
+):      Positive: 7 Negative: 1
+):      Positive: 7 Negative: 1
+):      Positive: 7 Negative: 1
+
+**********
+Tweet number 458
+Tweet: @GODDAMMlT SRSLY FUCK U UNFOLLOWER HOPE UR FUTURE CHILD UNPARENTS U &amp;gt;:-(
+Tokens: ['srsli', 'fuck', 'u', 'unfollow', 'hope', 'ur', 'futur', 'child', 'unpar', 'u', '&gt;:-(']
+Probability Positive: 0.5157383070453547
+Actual Classification: 0
+
+srsli   Positive: 1 Negative: 4
+fuck    Positive: 19 Negative: 48
+u       Positive: 193 Negative: 162
+unfollow        Positive: 55 Negative: 8
+hope    Positive: 119 Negative: 77
+ur      Positive: 28 Negative: 20
+futur   Positive: 13 Negative: 1
+child   Positive: 3 Negative: 3
+unpar   Positive: 0 Negative: 0
+u       Positive: 193 Negative: 162
+&gt;:-(         Positive: 0 Negative: 2
+
+**********
+Tweet number 493
+Tweet: 5h + kids makes all ://:(\\\
+Tokens: ['5h', 'kid', 'make', ':/']
+Probability Positive: 0.5003797971971914
+Actual Classification: 0
+
+5h      Positive: 0 Negative: 0
+kid     Positive: 17 Negative: 16
+make    Positive: 87 Negative: 77
+:/      Positive: 4 Negative: 8
+
+**********
+Tweet number 788
+Tweet: i love got7's outfit for just right &amp;gt;:( its so fun
+Tokens: ['love', 'got', '7', 'outfit', 'right', '&gt;:(', 'fun']
+Probability Positive: 0.5197464496373044
+Actual Classification: 0
+
+love    Positive: 306 Negative: 114
+got     Positive: 55 Negative: 70
+7       Positive: 5 Negative: 11
+outfit  Positive: 3 Negative: 3
+right   Positive: 41 Negative: 39
+&gt;:(  Positive: 0 Negative: 36
+fun     Positive: 48 Negative: 26
+
+**********
+Tweet number 995
+Tweet: I ATE YOUR LAST COOKIE SHIR0 &amp;gt;:D
+Tokens: ['ate', 'last', 'cooki', 'shir', '0', '&gt;:d']
+Probability Positive: 0.4961173289819544
+Actual Classification: 1
+
+ate     Positive: 3 Negative: 8
+last    Positive: 35 Negative: 58
+cooki   Positive: 0 Negative: 2
+shir    Positive: 0 Negative: 0
+0       Positive: 1 Negative: 0
+&gt;:d  Positive: 3 Negative: 0
+
+**********
+Tweet number 1662
+Tweet: Sr. Financial Analyst - Expedia, Inc.: (#Bellevue, WA) http://t.co/ktknMhvwCI #Finance #ExpediaJobs #Job #Jobs #Hiring
+Tokens: ['sr', 'financi', 'analyst', 'expedia', 'inc', 'bellevu', 'wa', 'financ', 'expediajob', 'job', 'job', 'hire']
+Probability Positive: 0.5038917149486426
+Actual Classification: 0
+
+sr      Positive: 0 Negative: 1
+financi         Positive: 0 Negative: 0
+analyst         Positive: 0 Negative: 0
+expedia         Positive: 0 Negative: 0
+inc     Positive: 1 Negative: 2
+bellevu         Positive: 0 Negative: 0
+wa      Positive: 0 Negative: 0
+financ  Positive: 0 Negative: 0
+expediajob      Positive: 0 Negative: 0
+job     Positive: 28 Negative: 12
+job     Positive: 28 Negative: 12
+hire    Positive: 0 Negative: 0
+</pre>
+<p>It looks like these were tweets with uncommon tokens. Personally I'm not sure what to make of some of them myself. And I'm not sure about the classifications - why is a job posting considered a negative tweet?</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org50f3056">
+<h3 id="org50f3056">Some Fresh Tweets</h3>
+<div class="outline-text-3" id="text-org50f3056">
+<p>First someone reacting to a post about the <a href="https://www.atlasobscura.com/places/clown-motel">Clown Motel</a> in Tonopah, Nevada. The previous link was to Atlas Obscura, but the tweet came from <a href="https://www.thrillist.com/travel/nation/clown-motel-nevada-hame-anand">thrillist</a>.</p>
+<div class="highlight">
+<pre><span></span><span class="n">tweet</span> <span class="o">=</span> <span class="s2">"Nah dude. I drove by that at night and it was the creepiest thing ever. The whole town gave me bad vibes. I still shudder when I think about it."</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Classified as {sentiments[sentiment.classify(tweet)]}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Classified as negative
+</pre>
+<p>Seems reasonable.</p>
+<div class="highlight">
+<pre><span></span><span class="n">tweet</span> <span class="o">=</span> <span class="s2">"This is just dope. Quaint! I’d love to have an ironic drive-in wedding in Las Vegas and then stay in a clown motel as newly weds for one night. I bet they have Big Clown Suits for newly weds, haha."</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Classified as {sentiments[sentiment.classify(tweet)]}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Classified as positive
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org353875b">
+<h3 id="org353875b">Compare to SKLearn</h3>
+<div class="outline-text-3" id="text-org353875b">
+<div class="highlight">
+<pre><span></span><span class="n">columns</span> <span class="o">=</span> <span class="s2">"bias positive negative"</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+<span class="n">classifier</span> <span class="o">=</span> <span class="n">LogisticRegressionCV</span><span class="p">(</span>
+    <span class="n">random_state</span><span class="o">=</span><span class="mi">2020</span><span class="p">,</span>
+    <span class="n">max_iter</span><span class="o">=</span><span class="mi">1500</span><span class="p">,</span>
+    <span class="n">scoring</span><span class="o">=</span><span class="s2">"neg_log_loss"</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">training</span><span class="p">[</span><span class="n">columns</span><span class="p">],</span> <span class="n">training</span><span class="o">.</span><span class="n">sentiment</span><span class="p">)</span>
+
+<span class="n">predictions</span> <span class="o">=</span> <span class="n">classifier</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">testing</span><span class="p">[</span><span class="n">columns</span><span class="p">])</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">correct</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">predictions</span> <span class="o">==</span> <span class="n">testing</span><span class="o">.</span><span class="n">sentiment</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)))</span>
+<span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"Accuracy: {correct[0]/len(testing)}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Accuracy: 0.995
+</pre>
+<p>So it did pretty much the same just using the default parameters. We could probably do a parameter search but that's okay for now.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgf123b6d">
+<h3 id="orgf123b6d">Vizualizing the Model</h3>
+<div class="outline-text-3" id="text-orgf123b6d">
+<p>Since we've been given the model's weights we can plot its output when fed the vectors to see how it separates the data. To get the equation for the separation line we need to solve for the positive or negative terms when the product of the weights and the vector is 0 (\(\theta \times x = 0\), where <i>x</i> is our vector \(\langle bias, positive, negative \rangle\)).</p>
+<p>Get ready for some algebra.</p>
+\begin{align} \theta \times x &amp;= 0\\ \theta \times \langle bias, positive, negative \rangle &amp;= 0\\ \theta \times \langle 1, positive, negative \rangle &amp;= 0\\ \theta_0 + \theta_1 \times positive + \theta_2 \times negative &amp;= 0\\ \theta_2 \times negative &amp;= -\theta_0 - \theta_1 \times positive\\ negative &amp;= \frac{-\theta_0 - \theta_1 \times positive}{\theta_2}\\ \end{align}
+<p>This is the equation for our separation line (on our plot <code>positive</code> is the <i>x-axis</i> and <code>negative</code> is the <i>y-axis</i>, which we can translate to a function to apply to our data.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">negative</span><span class="p">(</span><span class="n">theta</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">positive</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="sd">"""Calculate the negative value</span>
+
+<span class="sd">    This calculates the value for the separation line</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     theta: list of weights for the logistic regression</span>
+<span class="sd">     positive: count of positive tweets matching tweet</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     the calculated negative value for the separation line</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="p">(</span><span class="o">-</span><span class="n">theta</span><span class="o">.</span><span class="n">bias</span>
+            <span class="o">-</span> <span class="n">positive</span> <span class="o">*</span> <span class="n">theta</span><span class="o">.</span><span class="n">positive</span><span class="p">)</span><span class="o">/</span><span class="n">theta</span><span class="o">.</span><span class="n">negative</span>
+
+<span class="n">theta</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">weights</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">columns</span><span class="p">)</span>
+<span class="n">negative_</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">negative</span><span class="p">,</span> <span class="n">theta</span><span class="o">=</span><span class="n">theta</span><span class="p">)</span>
+</pre></div>
+<p>We plotted the vectorized data before, now we can add our regression line.</p>
+<div class="highlight">
+<pre><span></span><span class="n">hover</span> <span class="o">=</span> <span class="n">HoverTool</span><span class="p">(</span>
+    <span class="n">tooltips</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s2">"Positive"</span><span class="p">,</span> <span class="s2">"@positive{0,0}"</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"Negative"</span><span class="p">,</span> <span class="s2">"@negative{0,0}"</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"Sentiment"</span><span class="p">,</span> <span class="s2">"@Sentiment"</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+
+
+<span class="n">training</span><span class="p">[</span><span class="s2">"regression negative"</span><span class="p">]</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">positive</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">positive</span><span class="p">:</span> <span class="n">negative_</span><span class="p">(</span><span class="n">positive</span><span class="o">=</span><span class="n">positive</span><span class="p">))</span>
+
+<span class="n">line</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"regression negative"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span>
+<span class="n">scatter</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span> <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">])</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+                               <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                               <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                               <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+                               <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative Tweet Sentiment"</span><span class="p">,</span>
+                           <span class="p">)</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="n">scatter</span> <span class="o">*</span> <span class="n">line</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_negative_scatter_with_model"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/positive_negative_scatter_with_model.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>Let's see if a log-log scale helps.</p>
+<div class="highlight">
+<pre><span></span><span class="n">line</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"regression negative"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span>
+<span class="n">scatter</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"sentiment"</span><span class="p">,</span>
+                                  <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                                  <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">])</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="p">(</span><span class="n">scatter</span> <span class="o">*</span> <span class="n">line</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+    <span class="n">xrotation</span><span class="o">=</span><span class="mi">45</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative Tweet Sentiment"</span><span class="p">,</span>
+    <span class="n">logx</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+    <span class="n">logy</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_negative_scatter_log"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/implementing-twitter-logistic-regression/positive_negative_scatter_log.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>The log-scale seems to break the auto-scaling of the plot so you'll have to zoom out a little bit (with the <i>Wheel Zoom</i> tool on the toolbar) which will show you that the model did a pretty good job of separating the positive from the negative. You can see that some of the points aren't really linearly separable using our vectors so this is probably as good as it can get.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgebd3898">
+<h2 id="orgebd3898">End</h2>
+<div class="outline-text-2" id="text-orgebd3898">
+<p>This concludes the series begun with the post on <a href="posts/nlp/01-twitter-preprocessing-with-nltk/">pre-processing tweets</a>.</p>
+<p>I should mention that I used <a href="posts/bibliographies/bib-speech-and-language-processing-jurafsky-martin/">Speech and Language Processing</a> to understanding the math.</p>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/twitter-word-frequencies/">Twitter Word Frequencies</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
@@ -684,7 +1619,28 @@ Total token-sentiment pairs: 11,476
 <li class="previous"><a href="." rel="prev">Newer posts</a></li>
 <li class="next"><a href="index-10.html" rel="next">Older posts</a></li>
 </ul>
-<!--End of body content-->
+<script async id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" type="text/javascript"></script>
+<script type="text/x-mathjax-config">
+
+        MathJax.Hub.Config({tex2jax: {inlineMath: [['$latex ','$'], ['\\(','\\)']],},
+
+        });
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script>
+<script>
+
+    MathJax = {
+        tex: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script><!--End of body content-->
 <footer id="footer"><a href="http://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://i.creativecommons.org/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
 </div>
 </div>

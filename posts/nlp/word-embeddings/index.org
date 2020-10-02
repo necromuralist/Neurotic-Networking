@@ -1,0 +1,291 @@
+#+BEGIN_COMMENT
+.. title: Word Embeddings
+.. slug: word-embeddings
+.. date: 2020-09-29 19:25:16 UTC-07:00
+.. tags: nlp
+.. category: NLP 
+.. link: 
+.. description: Word Embeddings for Natural Language Processing.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8a1ec67c-df91-4efc-be78-7e34cd99275f-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is a walk through a lab for week 3 of Coursera's Natural Language Processing course. It's going to use some pretrained word embeddings to develop some sense of how to use them.
+** Set Up
+*** Imports
+#+begin_src python :results none
+# python
+from functools import partial
+from pathlib import Path
+
+import os
+import pickle
+
+# pypi
+from dotenv import load_dotenv
+from expects import (
+    equal,
+    expect,
+)
+
+import hvplot.pandas
+import numpy
+import pandas
+
+# my stuff
+from graeae import EmbedHoloviews
+#+end_src
+*** Plotting
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+SLUG = "word-embeddings"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{SLUG}")
+plot_path = Path(os.environ["TWITTER_PLOT"])
+assert plot_path.is_file()
+with plot_path.open("rb") as reader:
+    Plot = pickle.load(reader)
+#+end_src
+** The Embeddings
+   Like I mentioned abovve, I'm going to use pre-trained word embeddings that have been pickled so I'll load them here.
+#+begin_src python :results none
+path = Path(os.environ["WORD_EMBEDDINGS"])
+with path.open("rb") as reader:
+    embeddings = pickle.load(reader)
+expect(len(embeddings)).to(equal(243))
+#+end_src
+
+* Middle
+** Inspecting the Embeddings
+The =embeddings= is a dictionary of words to word-vectors that represent them. Here's the first 5 words.
+
+#+begin_src python :results output :exports both
+print(type(embeddings))
+print(list(embeddings.keys())[:5])
+#+end_src
+
+#+RESULTS:
+: <class 'dict'>
+: ['country', 'city', 'China', 'Iraq', 'oil']
+
+#+begin_src python :results output :exports both
+vector = embeddings["country"]
+print(type(vector))
+print(vector.shape)
+#+end_src
+
+#+RESULTS:
+: <class 'numpy.ndarray'>
+: (300,)
+
+Each word-embedding vector has 300 entries.
+*** Plotting
+    Since there are 300 columns you can't easily visualize them without using PCA or some other method, but this is more about getting an intuition as to how the linear-algebra works, so instead we're going to reduce a subset of words to only two columns so that we can plot them.
+
+#+begin_src python :results none
+words = ['oil', 'gas', 'happy', 'sad', 'city', 'town', 'village', 'country', 'continent', 'petroleum', 'joyful']
+plot_data = pandas.DataFrame([embeddings[word] for word in words])
+plot_columns = [3, 2]
+plot_data = plot_data[plot_columns]
+plot_data.columns = ["x", "y"]
+plot_data["Word"] = words
+origins = plot_data * 0
+origins["Word"] = words
+combined_plot_data = pandas.concat([origins, plot_data])
+
+segment_plot = combined_plot_data.hvplot(x="x", y="y", by="Word")
+scatter_plot = plot_data.hvplot.scatter(x="x", y="y", by="Word")
+
+plot = (segment_plot * scatter_plot).opts(
+    title="Embeddings Columns 3 and 2",
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.font_scale
+)
+outcome = Embed(plot=plot, file_name="embeddings_segments")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="embeddings_segments.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+You can see that words like "village" and "town" are similar while "city" and "oil" are opposites for whatever reason. Oddly, "joyful" and "country" are also very similar (although I'm only looking at two out of three-hundred columns so that might not be the case once the other columns enter into place).
+
+** Word Distance
+   This is supposed to be a visualization of the difference vectors between /sad/ and /happy/ and /town/ and /village/, but as far as I can see holoviews doesn't have the equivalent of matplotlib's  arrow which lets you use the base coordinate and distance in each dimension to draw arrows, so it's kind of a fake version where I use the points directly. Oh, well.
+
+#+begin_src python :results none
+words = ['sad', 'happy', 'town', 'village']
+plot_data = pandas.DataFrame([embeddings[word] for word in words])
+plot_data = plot_data[plot_columns]
+plot_data.columns = ["x", "y"]
+plot_data.index = words
+#+end_src
+
+This is the fake part - when you take the difference between two "points" it gives you a vector with the base at the origin so you have to add the base point back in to move it from the origin, but then all you're doing is undoing the subtraction, giving you what you started with.
+
+#+begin_src python :results none
+difference = pandas.DataFrame([
+    plot_data.loc["happy"] - plot_data.loc["sad"] + plot_data.loc["sad"],
+    plot_data.loc["town"] - plot_data.loc["village"] + plot_data.loc["village"]
+])
+
+difference["Word"] = ["sad", "village"]
+plot_data = plot_data.reset_index().rename(columns=dict(index="Word"))
+
+difference = pandas.concat([difference,
+                            plot_data[plot_data.Word=="sad"],
+                            plot_data[plot_data.Word=="village"]])
+
+
+with_origin = pandas.concat([origins[origins.Word.isin(words)], plot_data])
+scatter = plot_data.hvplot.scatter(x="x", y="y", by="Word")
+segments = with_origin.hvplot(x="x", y="y", by="Word")
+distances = difference.hvplot(x="x", y="y", by="Word")
+
+plot = (distances * segments * scatter).opts(
+    title="Vector Differences",
+    height=Plot.height,
+    width=Plot.width,
+    fontscale=Plot.font_scale,
+)
+
+outcome = Embed(plot=plot, file_name="vector_differences")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="vector_differences.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+** Linear Algebra on Word Embeddings
+*** The **norm**
+    First I'll check out the [[https://www.wikiwand.com/en/Norm_(mathematics)][norm]] of some word vectors using [[https://numpy.org/doc/stable/reference/generated/numpy.linalg.norm.html][numpy.linalg.norm]]. This calculates the Euclidean Distance between vectors (but oddly we won't use it here).
+
+#+begin_src python :results output :exports both
+print(numpy.linalg.norm(embeddings["town"]))
+print(numpy.linalg.norm(embeddings["sad"]))
+#+end_src
+
+#+RESULTS:
+: 2.3858097
+: 2.9004838
+** Predicting Capitals
+   Here we'll see how to use the embeddings to predict what country a city is the capital of. To encode the concept of "capital" into a vector we'll use the difference between a specific country and its real capital (in this case /France/ and /Paris/).
+
+#+begin_src python :results none
+capital = embeddings["France"] - embeddings["Paris"]
+#+end_src
+
+Now that we have the concept of a capital encoded as a word embedding we can add it to the embedding of "Madrid" to get a vector near where "Spain" would be. Note that although there is a "Spain" in the embeddings we're going to use this to see if we can find it without knowing that Madrid is the capital of Spain.
+
+#+begin_src python :results output :exports both
+country = embeddings["Madrid"] + capital
+#+end_src
+
+To make a prediction we have to find the embeddings that are closest to a country. We're going to convert the embeddings to a pandas DataFrame and since our embeddings are a dictionary of arrays we'll have to do a little unpacking first.
+
+#+begin_src python :results none
+keys = embeddings.keys()
+embeddings = pandas.DataFrame([embeddings[key] for key in keys], index=keys)
+#+end_src
+
+Now we'll make a function to find the closest embeddings for a word vector.
+
+#+begin_src python :results none
+def closest_word(vector: numpy.ndarray) -> str:
+    """Find the word closest to a given vector
+
+    Args:
+     vector: the vector to match
+
+    Returns:
+     name of the closest embedding
+    """
+    differences = embeddings - vector
+    expect(differences.shape).to(equal(embeddings.shape))
+    
+    distances = (differences**2).sum(axis="columns")
+    expect(distances.shape).to(equal((len(differences),)))
+
+    return embeddings.iloc[numpy.argmin(distances)].name
+#+end_src
+
+Now we can check what word most closesly matches /Madrid + (France - Paris)/.
+
+#+begin_src python :results output :exports both
+print(closest_word(country))
+#+end_src
+
+#+RESULTS:
+: Spain
+
+Like magic.
+** More Countries
+   What happens if we use a different know country and its capital instead of France and Paris?
+
+#+begin_src python :results output :exports both
+print(closest_word(embeddings.loc['Italy'] - embeddings.loc['Rome']
+                   + embeddings.loc['Madrid']))
+#+end_src
+
+#+RESULTS:
+: Spain
+
+So swapping the capital derivation didn't change the prediction. Now we'll go back to using =France - Paris= but try different cities.
+
+#+begin_src python :results output :exports both
+for word in "Tokyo Moscow".split():
+    print(f"{word} is the capital of {closest_word(embeddings.loc[word] + capital)}")
+#+end_src
+
+#+RESULTS:
+: Tokyo is the capital of Japan
+: Moscow is the capital of Russia
+
+That seems to be working, but here's a case where our search fails.
+
+#+begin_src python :results output :exports both
+print(closest_word(embeddings.loc['Lisbon'] + capital))
+#+end_src
+
+#+RESULTS:
+: Lisbon
+
+For some reason "Lisbon" is closer to itself than portugal. I tried it with Germany and Italy instead of France as the template capital but it still didn't work. If you try random cities from the embeddings you'll see that a fair amount of them fail.
+
+** Sentence Vectors
+   To use this for sentences you construct a vector with all the vectors for each word and then sum up all the columns to get back to a single vector.
+
+#+begin_src python :results output :exports both
+sentence = "Canada oil city town".split()
+vectors = [embeddings.loc[token] for token in sentence]
+summed = numpy.sum(vectors, axis=0)
+print(closest_word(summed))
+#+end_src
+
+#+RESULTS:
+: city
+
+Not exciting, but that's how you do it.
