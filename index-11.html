@@ -51,6 +51,709 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/the-tweet-vectorizer/">The Tweet Vectorizer</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nlp/the-tweet-vectorizer/" rel="bookmark"><time class="published dt-published" datetime="2020-07-24T16:51:53-07:00" itemprop="datePublished" title="2020-07-24 16:51">2020-07-24 16:51</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nlp/the-tweet-vectorizer/#org5b6fb74">Beginning</a>
+<ul>
+<li><a href="posts/nlp/the-tweet-vectorizer/#orge0949da">Set Up</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/the-tweet-vectorizer/#orgf4e8b4f">Middle</a>
+<ul>
+<li><a href="posts/nlp/the-tweet-vectorizer/#org304a92e">The Tweet Vectors</a></li>
+<li><a href="posts/nlp/the-tweet-vectorizer/#org8866183">The Tweet Vectorizer</a></li>
+<li><a href="posts/nlp/the-tweet-vectorizer/#org500c898">Plotting The Vectors</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/the-tweet-vectorizer/#orgd6addf0">End</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5b6fb74">
+<h2 id="org5b6fb74">Beginning</h2>
+<div class="outline-text-2" id="text-org5b6fb74">
+<p>In the previous post (<a href="posts/nlp/twitter-word-frequencies/">Twitter Word Frequencies</a>) I built up a word-counter now we're going to use it to create word-counters for our tweets.</p>
+<p>We are going to be classifying <a href="https://help.twitter.com/en/using-twitter/how-to-tweet">tweets</a> by positive or negative sentiment, but tweets are free-form text (and images, but we're ignoring them) and we want numbers in a table form so in order to be able to work with the tweets we'll have to convert them somehow. That's what we'll be doing here.</p>
+</div>
+<div class="outline-3" id="outline-container-orge0949da">
+<h3 id="orge0949da">Set Up</h3>
+<div class="outline-text-3" id="text-orge0949da">
+<p>This is some preliminary stuff so we have python ready to go.</p>
+</div>
+<div class="outline-4" id="outline-container-orgbe1961f">
+<h4 id="orgbe1961f">Imports</h4>
+<div class="outline-text-4" id="text-orgbe1961f">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+
+<span class="c1"># pypi</span>
+<span class="kn">from</span> <span class="nn">bokeh.models.tools</span> <span class="kn">import</span> <span class="n">HoverTool</span>
+<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+<span class="kn">from</span> <span class="nn">nltk.corpus</span> <span class="kn">import</span> <span class="n">twitter_samples</span>
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+
+<span class="c1"># the vectorizer</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.vectorizer</span> <span class="kn">import</span> <span class="n">TweetVectorizer</span>
+
+<span class="c1"># some helper stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgde2e65e">
+<h4 id="orgde2e65e">The Environment</h4>
+<div class="outline-text-4" id="text-orgde2e65e">
+<p>I'm using environment variables (well, in this case a <code>.env</code> file) to keep track of where I save files so this loads the paths into the environment.</p>
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">,</span> <span class="n">override</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgb853b2a">
+<h4 id="orgb853b2a">The Data</h4>
+<div class="outline-text-4" id="text-orgb853b2a">
+<div class="highlight">
+<pre><span></span><span class="n">training</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_PROCESSED"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+
+<span class="n">train_raw</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span>
+    <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAINING_RAW"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+
+<span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_SENTIMENT"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Sentiment</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+<p>The <code>training</code> frame has the cleaned, stemmed, and tokenized version of the tweets.</p>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">training</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+tweet    [park, get, sunlight, :)]
+label                            1
+Name: 0, dtype: object
+</pre>
+<p>This is what we need for when things are working. The <code>train_raw</code> frame has the tweets as they come from NLTK.</p>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">train_raw</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+tweet    off to the park to get some sunlight : )
+label                                           1
+Name: 0, dtype: object
+</pre>
+<p>This is just for double-checking if things aren't working the way we expect.</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org7aa73ef">
+<h4 id="org7aa73ef">For Plotting</h4>
+<div class="outline-text-4" id="text-org7aa73ef">
+<p>These are some helpers for the plotting that I'll do later on.</p>
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"the-tweet-vectorizer"</span>
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span>
+                <span class="n">folder_path</span><span class="o">=</span><span class="n">f</span><span class="s2">"files/posts/nlp/{SLUG}"</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_PLOT"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">Plot</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org3f12c99">
+<h4 id="org3f12c99">The Token Counter</h4>
+<div class="outline-text-4" id="text-org3f12c99">
+<p>I made the counts in a previous post (<a href="posts/nlp/twitter-word-frequencies/">Twitter Word Frequencies</a>) so I'll just load it here.</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_COUNTER"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">counter</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgf4e8b4f">
+<h2 id="orgf4e8b4f">Middle</h2>
+<div class="outline-text-2" id="text-orgf4e8b4f"></div>
+<div class="outline-3" id="outline-container-org304a92e">
+<h3 id="org304a92e">The Tweet Vectors</h3>
+<div class="outline-text-3" id="text-org304a92e">
+<p>In an earlier post we built a dictionary-like set to count the number of times each token was in a positive tweet and the number of times it was in a negative tweet. To represent a tweet as a vector we're going to sum the total counts for the tokens in the tweet when they are positive and when they are positive.</p>
+<p>Come again?</p>
+<p>Lets say you have a tweet <code>"a b c"</code> which tokenizes to <code>a, b, c</code> and you look up the positive and negative tweet counts for each token so you add them up, getting this:</p>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-right">
+<col class="org-right"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Token</th>
+<th class="org-right" scope="col">Positive</th>
+<th class="org-right" scope="col">Negative</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">a</td>
+<td class="org-right">1</td>
+<td class="org-right">4</td>
+</tr>
+<tr>
+<td class="org-left">b</td>
+<td class="org-right">2</td>
+<td class="org-right">5</td>
+</tr>
+<tr>
+<td class="org-left">c</td>
+<td class="org-right">3</td>
+<td class="org-right">6</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-left">Total</td>
+<td class="org-right">6</td>
+<td class="org-right">15</td>
+</tr>
+</tbody>
+</table>
+<p>The bottom row (<code>total</code>) has the values for our vector for any tweet containing the tokens <i>a, b,</i> and <i>c</i>. So to represent this tweet you would create a vector of the form:</p>
+\begin{align} \hat{v} &amp;= \langle bias, positive, negative \rangle\\ &amp;= \langle 1, 6, 15\rangle\\ \end{align}
+<p><b>Note:</b> The bias is always one (it just is).</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org8866183">
+<h3 id="org8866183">The Tweet Vectorizer</h3>
+<div class="outline-text-3" id="text-org8866183">
+<p>Here's where I'll create the class to create the vectors.</p>
+</div>
+<div class="outline-4" id="outline-container-org5491d81">
+<h4 id="org5491d81">The Testing</h4>
+<div class="outline-text-4" id="text-org5491d81">
+<p>We'll start with some vaguely BDD-ish testing. First the tangles.</p>
+<div class="highlight">
+<pre><span></span>Feature: A Tweet Count Vectorizer
+
+&lt;&lt;extract-features-feature&gt;&gt;
+
+&lt;&lt;get-vectors-feature&gt;&gt;
+
+&lt;&lt;reset-vectors-feature&gt;&gt;
+
+&lt;&lt;check-rep-vectorizer-tweets-feature&gt;&gt;
+
+&lt;&lt;check-rep-vectorizer-counter-feature&gt;&gt;
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">expects</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">be</span><span class="p">,</span>
+    <span class="n">be_true</span><span class="p">,</span>
+    <span class="n">contain_exactly</span><span class="p">,</span>
+    <span class="n">expect</span><span class="p">,</span>
+    <span class="n">raise_error</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">pytest_bdd</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">given</span><span class="p">,</span>
+    <span class="n">scenarios</span><span class="p">,</span>
+    <span class="n">when</span><span class="p">,</span>
+    <span class="n">then</span>
+<span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="c1"># this testing</span>
+<span class="kn">from</span> <span class="nn">fixtures</span> <span class="kn">import</span> <span class="n">katamari</span>
+
+<span class="c1"># software under test</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.vectorizer</span> <span class="kn">import</span> <span class="n">Columns</span><span class="p">,</span> <span class="n">TweetVectorizer</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.counter</span> <span class="kn">import</span> <span class="n">WordCounter</span>
+
+<span class="n">and_also</span> <span class="o">=</span> <span class="n">then</span>
+<span class="n">scenarios</span><span class="p">(</span><span class="s2">"../../features/twitter/tweet_vectorizer.feature"</span><span class="p">)</span>
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">extract</span><span class="o">-</span><span class="n">features</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">vectors</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">reset</span><span class="o">-</span><span class="n">vectors</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">vectorizer</span><span class="o">-</span><span class="n">tweets</span><span class="o">-</span><span class="n">check</span><span class="o">-</span><span class="n">rep</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">test</span><span class="o">-</span><span class="n">vectorizer</span><span class="o">-</span><span class="n">counter</span><span class="o">-</span><span class="n">check</span><span class="o">-</span><span class="n">rep</span><span class="o">&gt;&gt;</span>
+</pre></div>
+<p>And now we can move on to the tests.</p>
+</div>
+<ul class="org-ul">
+<li><a id="orgf044700"></a>Extract Features<br>
+<div class="outline-text-5" id="text-orgf044700">
+<p>For training and testing I'm going to want to convert them in bulk, but first I'll create a method so that a single tweet can be vectorized.</p>
+<div class="highlight">
+<pre><span></span>Scenario: A user converts a tweet to a feature-vector
+
+Given a Tweet Vectorizer
+When the user converts a tweet to a feature-vector
+Then it's the expected feature-vector
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: A user converts a tweet to a feature-vector</span>
+
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a Tweet Vectorizer"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_tweet_vectorizer</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">mocker</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span> <span class="o">*</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span>
+    <span class="n">TWEETS</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="n">TOKENS</span> <span class="o">=</span> <span class="s2">"A B C"</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">tweets</span> <span class="o">=</span> <span class="p">[</span><span class="n">TOKENS</span> <span class="k">for</span> <span class="n">tweet</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">TWEETS</span><span class="p">)]</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">counts</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">({(</span><span class="s1">'A'</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span><span class="mi">1</span><span class="p">,</span>
+                               <span class="p">(</span><span class="s1">'B'</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span><span class="mi">2</span><span class="p">,</span>
+                               <span class="p">(</span><span class="s1">'C'</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span><span class="mi">3</span><span class="p">})</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">counter</span> <span class="o">=</span> <span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">WordCounter</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">processed</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">tweets</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">tweets</span><span class="p">,</span>
+                                          <span class="n">counts</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">counts</span><span class="p">,</span>
+                                          <span class="n">bias</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_process</span> <span class="o">=</span> <span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="s2">"A B C"</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@when</span><span class="p">(</span><span class="s2">"the user converts a tweet to a feature-vector"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">extract_features</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">actual</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">extract_features</span><span class="p">(</span><span class="s2">"A B C"</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">actual_array</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">extract_features</span><span class="p">(</span><span class="s2">"A B C"</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="p">[</span><span class="n">katamari</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">expected_array</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">expected</span><span class="p">)</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@then</span><span class="p">(</span><span class="s2">"it's the expected feature-vector"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_feature_vectors</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">actual_array</span><span class="p">,</span> <span class="n">katamari</span><span class="o">.</span><span class="n">expected_array</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">actual</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">contain_exactly</span><span class="p">(</span><span class="o">*</span><span class="n">katamari</span><span class="o">.</span><span class="n">expected</span><span class="p">))</span>
+
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">actual_array</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">contain_exactly</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org0ae88db"></a>Get the Vectors<br>
+<div class="outline-text-5" id="text-org0ae88db">
+<div class="highlight">
+<pre><span></span>Scenario: A user retrieves the count vectors
+Given a user sets up the Count Vectorizer with tweets
+When the user checks the count vectors
+Then the first column is the bias colum
+And the positive counts are correct
+And the negative counts are correct
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Feature: A Tweet Count Vectorizer</span>
+
+<span class="c1"># Scenario: A user retrieves the count vectors</span>
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a user sets up the Count Vectorizer with tweets"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_vectorizer</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">faker</span><span class="p">,</span> <span class="n">mocker</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span> <span class="o">*</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span>
+    <span class="n">TWEETS</span> <span class="o">=</span> <span class="mi">3</span>
+
+    <span class="n">TOKENS</span> <span class="o">=</span> <span class="s2">"A B C"</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">tweets</span> <span class="o">=</span> <span class="p">[</span><span class="n">TOKENS</span> <span class="k">for</span> <span class="n">tweet</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">TWEETS</span><span class="p">)]</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">counter</span> <span class="o">=</span> <span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">WordCounter</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">({(</span><span class="s1">'A'</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span><span class="mi">1</span><span class="p">,</span>
+                                       <span class="p">(</span><span class="s1">'B'</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span><span class="mi">2</span><span class="p">,</span>
+                                       <span class="p">(</span><span class="s1">'C'</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span><span class="mi">3</span><span class="p">})</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">tweets</span><span class="p">,</span>
+                                          <span class="n">counts</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="p">,</span>
+                                          <span class="n">bias</span><span class="o">=</span><span class="n">katamari</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_process</span> <span class="o">=</span> <span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="n">TOKENS</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">negative</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">sum</span><span class="p">([</span><span class="n">katamari</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="mi">0</span><span class="p">)]</span>
+                                      <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">TOKENS</span><span class="p">])</span>
+                                      <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">TWEETS</span><span class="p">)])</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">positive</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">sum</span><span class="p">([</span><span class="n">katamari</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+                                      <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">TOKENS</span><span class="p">])</span>
+                                     <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">TWEETS</span><span class="p">)])</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@when</span><span class="p">(</span><span class="s2">"the user checks the count vectors"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_count_vectors</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="c1"># kind of silly, but useful for troubleshooting</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">actual_vectors</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">vectors</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@then</span><span class="p">(</span><span class="s2">"the first column is the bias colum"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_bias</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="nb">all</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">actual_vectors</span><span class="p">[:,</span> <span class="n">Columns</span><span class="o">.</span><span class="n">bias</span><span class="p">]</span><span class="o">==</span><span class="n">katamari</span><span class="o">.</span><span class="n">bias</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@and_also</span><span class="p">(</span><span class="s2">"the positive counts are correct"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_positive_counts</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">positive</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">actual_vectors</span><span class="p">[:,</span> <span class="n">Columns</span><span class="o">.</span><span class="n">positive</span><span class="p">]</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">positive</span><span class="p">,</span> <span class="n">katamari</span><span class="o">.</span><span class="n">positive</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@and_also</span><span class="p">(</span><span class="s2">"the negative counts are correct"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_negative_counts</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">negative</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">actual_vectors</span><span class="p">[:,</span> <span class="n">Columns</span><span class="o">.</span><span class="n">negative</span><span class="p">]</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">negative</span><span class="p">,</span> <span class="n">katamari</span><span class="o">.</span><span class="n">negative</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org5a04bf9"></a>Reset the Vectors<br>
+<div class="outline-text-5" id="text-org5a04bf9">
+<div class="highlight">
+<pre><span></span>Scenario: The vectors are reset
+Given a Tweet Vectorizer with the vectors set
+When the user calls the reset method
+Then the vectors are gone
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: The vectors are reset</span>
+
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a Tweet Vectorizer with the vectors set"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_vectors</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">faker</span><span class="p">,</span> <span class="n">mocker</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectors</span> <span class="o">=</span> <span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span> <span class="o">=</span> <span class="p">[</span><span class="n">faker</span><span class="o">.</span><span class="n">sentence</span><span class="p">()],</span> <span class="n">counts</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_vectors</span> <span class="o">=</span> <span class="n">katamari</span><span class="o">.</span><span class="n">vectors</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@when</span><span class="p">(</span><span class="s2">"the user calls the reset method"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">call_reset</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">vectors</span><span class="p">))</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@then</span><span class="p">(</span><span class="s2">"the vectors are gone"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_vectors_gone</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">_vectors</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be</span><span class="p">(</span><span class="bp">None</span><span class="p">))</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</li>
+<li><a id="orgcb18948"></a>Check Rep<br>
+<div class="outline-text-5" id="text-orgcb18948">
+<div class="highlight">
+<pre><span></span>Scenario: the check-rep is called with bad tweets
+Given a Tweet Vectorizer with bad tweets
+When check-rep is called
+Then it raises an AssertionError
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: the check-rep is called with bad tweets</span>
+
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a Tweet Vectorizer with bad tweets"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_bad_tweets</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="p">[</span><span class="mi">5</span><span class="p">],</span>
+                                          <span class="n">counts</span><span class="o">=</span><span class="n">Counter</span><span class="p">())</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@when</span><span class="p">(</span><span class="s2">"check-rep is called"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">call_check_rep</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">bad_call</span><span class="p">():</span>
+        <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">check_rep</span><span class="p">()</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">bad_call</span> <span class="o">=</span> <span class="n">bad_call</span>
+    <span class="k">return</span>
+
+
+<span class="nd">@then</span><span class="p">(</span><span class="s2">"it raises an AssertionError"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">check_assertion_error</span><span class="p">(</span><span class="n">katamari</span><span class="p">):</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">katamari</span><span class="o">.</span><span class="n">bad_call</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">raise_error</span><span class="p">(</span><span class="ne">AssertionError</span><span class="p">))</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span>Scenario: the check-rep is called with a bad word-counter
+Given a Tweet Vectorizer with the wrong counter object
+When check-rep is called
+Then it raises an AssertionError
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># Scenario: the check-rep is called with a bad word-counter</span>
+
+
+<span class="nd">@given</span><span class="p">(</span><span class="s2">"a Tweet Vectorizer with the wrong counter object"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_bad_counter</span><span class="p">(</span><span class="n">katamari</span><span class="p">,</span> <span class="n">mocker</span><span class="p">):</span>
+    <span class="n">katamari</span><span class="o">.</span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="p">[</span><span class="s2">"apple"</span><span class="p">],</span> <span class="n">counts</span><span class="o">=</span><span class="n">mocker</span><span class="o">.</span><span class="n">MagicMock</span><span class="p">())</span>
+    <span class="k">return</span>
+
+<span class="c1"># When check-rep is called</span>
+<span class="c1"># Then it raises an AssertionError</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-org5c91b8b">
+<h4 id="org5c91b8b">The Implementation</h4>
+<div class="outline-text-4" id="text-org5c91b8b">
+<p>Okay, so now for the actual class.</p>
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="c1"># pypi</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">attr</span>
+
+
+<span class="c1"># this package</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.processor</span> <span class="kn">import</span> <span class="n">TwitterProcessor</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.twitter.counter</span> <span class="kn">import</span> <span class="n">WordCounter</span>
+
+<span class="n">Columns</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
+    <span class="n">bias</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">positive</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">negative</span><span class="o">=</span><span class="mi">2</span>
+<span class="p">)</span>
+
+<span class="n">TweetClass</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
+    <span class="n">positive</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">negative</span><span class="o">=</span><span class="mi">0</span>
+<span class="p">)</span>
+
+<span class="c1"># some types</span>
+<span class="n">Tweets</span> <span class="o">=</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>
+<span class="n">Vector</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="nb">list</span><span class="p">]</span>
+
+
+<span class="nd">@attr.s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">TweetVectorizer</span><span class="p">:</span>
+    <span class="sd">"""A tweet vectorizer</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     tweets: the pre-processed/tokenized tweets to vectorize</span>
+<span class="sd">     counts: the counter with the tweet token counts</span>
+<span class="sd">     processed: to not process the bulk tweets</span>
+<span class="sd">     bias: constant to use for the bias</span>
+<span class="sd">    """</span>
+    <span class="n">tweets</span><span class="p">:</span> <span class="n">Tweets</span>
+    <span class="n">counts</span><span class="p">:</span> <span class="n">Counter</span>
+    <span class="n">processed</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="bp">True</span>
+    <span class="n">bias</span><span class="p">:</span> <span class="nb">float</span><span class="o">=</span><span class="mi">1</span>
+    <span class="n">_process</span><span class="p">:</span> <span class="n">TwitterProcessor</span><span class="o">=</span><span class="bp">None</span>
+    <span class="n">_vectors</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="o">=</span><span class="bp">None</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TwitterProcessor</span><span class="p">:</span>
+        <span class="sd">"""Processes tweet strings to tokens"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_process</span> <span class="o">=</span> <span class="n">TwitterProcessor</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">vectors</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+        <span class="sd">"""The vectorized tweet counts"""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_vectors</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">rows</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">extract_features</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span> <span class="k">for</span> <span class="n">tweet</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tweets</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_vectors</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_vectors</span>
+
+    <span class="k">def</span> <span class="nf">extract_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tweet</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">as_array</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Vector</span><span class="p">:</span>
+        <span class="sd">"""converts a single tweet to an array of counts</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        tweet: a string tweet to count up</span>
+<span class="sd">        as_array: whether to return an array instead of a list</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        either a list of floats or a 1 x 3 array</span>
+<span class="sd">       """</span>
+        <span class="c1"># this is a hack to make this work both in bulk and one tweet at a time</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="n">tweet</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processed</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span>
+        <span class="n">vector</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+            <span class="nb">sum</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="n">TweetClass</span><span class="o">.</span><span class="n">positive</span><span class="p">)]</span>
+                 <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">)),</span>
+            <span class="nb">sum</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">counts</span><span class="p">[(</span><span class="n">token</span><span class="p">,</span> <span class="n">TweetClass</span><span class="o">.</span><span class="n">negative</span><span class="p">)]</span>
+                                <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">))</span>
+        <span class="p">]</span>
+        <span class="n">vector</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">vector</span><span class="p">])</span> <span class="k">if</span> <span class="n">as_array</span> <span class="k">else</span> <span class="n">vector</span>
+        <span class="k">return</span> <span class="n">vector</span>
+
+    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="sd">"""Removes the vectors"""</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_vectors</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">check_rep</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="sd">"""Checks that the tweets and word-counter are set</span>
+
+<span class="sd">       Raises:</span>
+<span class="sd">        AssertionError if one of them isn't right</span>
+<span class="sd">       """</span>
+        <span class="k">for</span> <span class="n">tweet</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tweets</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">tweet</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span>
+        <span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">counts</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Counter</span>
+        <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org500c898">
+<h3 id="org500c898">Plotting The Vectors</h3>
+<div class="outline-text-3" id="text-org500c898">
+<p>Now that we have a vectorizer definition, let's see what it looks like when we plot the training set. First, we'll have to convert the training set tweets to the vectors.</p>
+<div class="highlight">
+<pre><span></span><span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">training</span><span class="o">.</span><span class="n">tweet</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">counts</span><span class="o">=</span><span class="n">counter</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span>
+                        <span class="s2">"bias positive negative"</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+
+<span class="n">data</span><span class="p">[</span><span class="s2">"Sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">training</span><span class="o">.</span><span class="n">label</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">Sentiment</span><span class="o">.</span><span class="n">decode</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">training</span><span class="o">.</span><span class="n">tweet</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="k">print</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+['park' 'get' 'sunlight' ':)']
+bias                1
+positive         3139
+negative          208
+Sentiment    positive
+Name: 0, dtype: object
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">train_raw</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tweet</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">training</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tweet</span><span class="p">:</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"{token}</span><span class="se">\t</span><span class="s2">{counter.counts[(token, 1)]}"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">f</span><span class="s2">"{token}</span><span class="se">\t</span><span class="s2">{counter.counts[(token, 0)]}"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+off to the park to get some sunlight : )
+park    6
+park    7
+get     165
+get     200
+sunlight        1
+sunlight        0
+:)      2967
+:)      1
+</pre>
+<p>So a smiley face seems to overwhelm other tokens.</p>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">Sentiment</span><span class="o">.</span><span class="n">value_counts</span><span class="p">())</span>
+</pre></div>
+<pre class="example">
+negative    4013
+positive    3987
+Name: Sentiment, dtype: int64
+</pre>
+<p>If you followed the previous post you can probably figure out that this is the training set. Weird but I hadn't noticed that they aren't exactly balanced… Anyway, now the plot.</p>
+<div class="highlight">
+<pre><span></span><span class="n">hover</span> <span class="o">=</span> <span class="n">HoverTool</span><span class="p">(</span>
+    <span class="n">tooltips</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s2">"Positive"</span><span class="p">,</span> <span class="s2">"@positive{0,0}"</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"Negative"</span><span class="p">,</span> <span class="s2">"@negative{0,0}"</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"Sentiment"</span><span class="p">,</span> <span class="s2">"@Sentiment"</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"Sentiment"</span><span class="p">,</span> <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                           <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">])</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+                               <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                               <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                               <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+                               <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative Tweet Sentiment"</span><span class="p">,</span>
+                           <span class="p">)</span>
+
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_negative_scatter"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/the-tweet-vectorizer/positive_negative_scatter.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>So, each point is a tweet and the color is what the tweet was classified as. I don't know why they seem to group in bunches, but you can sort of see that by using the token counts we've made them separable. This becomes even more obvious if we change the scale to a logarithmic one.</p>
+<div class="highlight">
+<pre><span></span><span class="n">plot</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"positive"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"negative"</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="s2">"Sentiment"</span><span class="p">,</span>
+                           <span class="n">loglog</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                           <span class="n">fill_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                           <span class="n">color</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_cycle</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">hover</span><span class="p">])</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+                               <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                               <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                               <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">font_scale</span><span class="p">,</span>
+                               <span class="n">xlim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">None</span><span class="p">),</span>
+                               <span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">None</span><span class="p">),</span>
+                               <span class="n">apply_ranges</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                               <span class="n">title</span><span class="o">=</span><span class="s2">"Positive vs Negative Tweet Sentiment (log-log)"</span><span class="p">,</span>
+                           <span class="p">)</span>
+
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"positive_negative_scatter_log"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="posts/nlp/the-tweet-vectorizer/positive_negative_scatter_log.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>I don't know why but the <code>xlim</code> and <code>ylim</code> arguments don't seem to work when you use a logarithmic scale, but if you zoom out using the <code>wheel zoom</code> tool (third icon from the top of the toolbar on the right) you'll see that there's a pretty good separation between the sentiment classifications.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgd6addf0">
+<h2 id="orgd6addf0">End</h2>
+<div class="outline-text-2" id="text-orgd6addf0">
+<p>So, that's it for vectorizing tweets I'll save the values so I don't have to re-do them again when I actually fit the model. Since I changed some values to make it better for plotting I'll change them back first.</p>
+<div class="highlight">
+<pre><span></span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">"Sentiment"</span><span class="p">:</span> <span class="s2">"sentiment"</span><span class="p">})</span>
+<span class="n">data</span><span class="p">[</span><span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">sentiment</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">Sentiment</span><span class="o">.</span><span class="n">encode</span><span class="p">)</span>
+<span class="n">data</span><span class="o">.</span><span class="n">to_feather</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TRAIN_VECTORS"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+</pre></div>
+<p>To make it consistent I'm going to convert the test set too.</p>
+<div class="highlight">
+<pre><span></span><span class="n">test</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TEST_PROCESSED"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+<span class="n">test_vectorizer</span> <span class="o">=</span> <span class="n">TweetVectorizer</span><span class="p">(</span><span class="n">tweets</span><span class="o">=</span><span class="n">test</span><span class="o">.</span><span class="n">tweet</span><span class="p">,</span> <span class="n">counter</span><span class="o">=</span><span class="n">counter</span><span class="p">)</span>
+<span class="n">test_data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">test_vectorizer</span><span class="o">.</span><span class="n">vectors</span><span class="p">,</span>
+                             <span class="n">columns</span><span class="o">=</span><span class="s2">"bias positive negative"</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+<span class="n">test_data</span><span class="p">[</span><span class="s2">"sentiment"</span><span class="p">]</span> <span class="o">=</span> <span class="n">test</span><span class="o">.</span><span class="n">label</span>
+
+<span class="n">test_data</span><span class="o">.</span><span class="n">to_feather</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_TEST_VECTORS"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">())</span>
+</pre></div>
+<p>We also need to use the vectorizers to vectorize future tweets so I'll pickle them too.</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"TWITTER_VECTORIZER"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+    <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">vectorizer</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+</pre></div>
+<p>Next up in the series: <a href="posts/nlp/implementing-twitter-logistic-regression/">Implementing Logistic Regression for Tweet Sentiment Analysis</a>.</p>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/implementing-twitter-logistic-regression/">Implementing Logistic Regression for Tweet Sentiment Analysis</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
