@@ -1,0 +1,459 @@
+#+BEGIN_COMMENT
+.. title: PCA Dimensionality Reduction and Word Vectors
+.. slug: pca-dimensionality-reduction-and-word-vectors
+.. date: 2020-10-03 19:48:52 UTC-07:00
+.. tags: pca,nlp,dimensionality reduction, visualization
+.. category: Visualization
+.. link: 
+.. description: Applying the PCA for dimensionality reduction.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3fae6b65-371b-4b7f-83c0-5acd2dc92a78-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is an extension of the previous two posts about {{% doc %}}word-embeddings{{% /doc %}} and {{% lancelot title="Principal Component Analysis" %}}pca-exploration{{% /lancelot %}}. Once again we're going to start with pre-trained word embeddings rather than train our own and then take the embeddings and explore them to better understand them.
+** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+import math
+import os
+import pickle
+
+# from pypi
+from dotenv import load_dotenv
+from expects import (
+    be_true,
+    equal,
+    expect,
+)
+from numpy.random import default_rng
+
+import holoviews
+import hvplot.pandas
+import numpy
+import pandas
+
+# my stuff
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** The Timer
+    Just something to tell how long some processes take.
+
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** Plotting
+#+begin_src python :results none
+SLUG = "pca-dimensionality-reduction-and-word-vectors"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{SLUG}")
+
+Plot = Namespace(
+    width=990,
+    height=780,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+    color_cycle = holoviews.Cycle(["#4687b7", "#ce7b6d"])
+)
+#+end_src
+*** Randomness
+#+begin_src python :results none
+numpy_random = default_rng(1)
+#+end_src
+
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Embeddings
+    These are the same embeddings as in the {{% doc %}}word-embeddings{{% /doc %}} exploration. They're loaded a dictionary of arrays (vectors). The original source is the Google News pre-trained data set available from the [[https://code.google.com/archive/p/word2vec/][Word2Vec]] archive, but it is 3.64 gigabytes so Coursera extracted a subset of it to work with.
+#+begin_src python :results none
+path = Path(os.environ["WORD_EMBEDDINGS"])
+assert path.is_file()
+
+with path.open("rb") as reader:
+    embeddings = pickle.load(reader)
+
+assert len(embeddings) == 243
+#+end_src
+
+The instructors also provide some code to show you how to create a different subset and I'm assuming that what they're showing is the actual way that they built this dataset. For future reference, this is the code given.
+
+#+begin_src python :results none
+import nltk
+from gensim.models import KeyedVectors
+
+embeddings = KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin', binary = True)
+f = open('capitals.txt', 'r').read()
+set_words = set(nltk.word_tokenize(f))
+select_words = words = ['king', 'queen', 'oil', 'gas', 'happy', 'sad', 'city', 'town', 'village', 'country', 'continent', 'petroleum', 'joyful']
+for w in select_words:
+    set_words.add(w)
+
+def get_word_embeddings(embeddings):
+
+    word_embeddings = {}
+    for word in embeddings.vocab:
+        if word in set_words:
+            word_embeddings[word] = embeddings[word]
+    return word_embeddings
+
+word_embeddings = get_word_embeddings(embeddings)
+#+end_src
+
+*** The Data
+    The data set is a space-separated-values file with no header.
+    
+#+begin_src python :results none
+path = Path(os.environ["CAPITALS"])
+assert path.is_file()
+
+data = pandas.read_csv(path, delimiter=" ",
+                       names=["City 1", "Country 1", "City 2", "Country 2"])
+#+end_src
+
+#+begin_src python :results output :exports both
+print(data.head())
+#+end_src
+
+#+RESULTS:
+:    City 1 Country 1   City 2    Country 2
+: 0  Athens    Greece  Baghdad         Iraq
+: 1  Athens    Greece  Bangkok     Thailand
+: 2  Athens    Greece  Beijing        China
+: 3  Athens    Greece   Berlin      Germany
+: 4  Athens    Greece     Bern  Switzerland
+
+It looks odd because this is actually an evaluation set. The first three columns are used to predict the fourth (e.g. /Athens, Greece,/ and /Baghdad/ are used to predict that /Baghdad/ is the capital of /Iraq/).
+* Middle
+** Predicting Relationships Among Words
+   This part is about writing a function that will use the word embeddings to predict relationships among words.
+*** Requirements
+    - The arguments will be three words
+    - The first two will be considered related to each other somehow
+    - The function will then predict a fourth word that is related to the third word in a way that is similar to the relationship between the first two words.
+
+Another way to look at is it that if you are given three words - /Athens, Greece,/ and /Bangkok/ then the function will fill in the blank for "Athens is to Greece as Bangkok is to __".
+
+Because of our input data set what the function will end up doing is finding the capital of a country. But first we need a distance function.
+*** Cosine Similarity
+\begin{align}
+\cos (\theta) &=\frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\|\|\mathbf{B}\|}\\
+ &= \frac{\sum_{i=1}^{n} A_{i} B_{i}}{\sqrt{\sum_{i=1}^{n} A_{i}^{2}} \sqrt{\sum_{i=1}^{n} B_{i}^{2}}}\\
+\end{align}
+
+ - /A/ and /B/ are the word vectors and \(A_i\) or \(B_i\) is the /ith/ item of that vector
+ - If the output is 0 then they are opposites and if the output is 1 then they are the same
+ - If the number is between 0 and 1 then it is a similarity score
+ - If the number is between 0 and -1 then it is a dissimilarity score
+
+#+begin_src python :results none
+def cosine_similarity(A: numpy.ndarray, B: numpy.ndarray) -> float:
+    '''Calculates the cosine similarity between two arrays
+
+    Args:
+        A: a numpy array which corresponds to a word vector
+        B: A numpy array which corresponds to a word vector
+    Return:
+        cos: numerical number representing the cosine similarity between A and B.
+    '''
+    dot_product = A.dot(B)
+    norm_of_A = numpy.linalg.norm(A)
+    norm_of_B = numpy.linalg.norm(B)
+    cos = dot_product/(norm_of_A * norm_of_B)
+    return cos
+#+end_src
+
+#+begin_src python :results output :exports both
+king = embeddings["king"]
+queen = embeddings["queen"]
+similarity = cosine_similarity(king, queen)
+print(f"The Cosine Similarity between 'king' and 'queen': {similarity:0.2f}.")
+expected = 0.6510956
+expect(math.isclose(similarity, expected, rel_tol=1e-6)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: The Cosine Similarity between 'king' and 'queen': 0.65.
+*** Euclidean Distance
+    In addition to the Cosine Similarity we can use the (probably better known) Euclidean Distance.
+
+\begin{aligned} d(\mathbf{A}, \mathbf{B})=d(\mathbf{B}, \mathbf{A}) &=\sqrt{\left(A_{1}-B_{1}\right)^{2}+\left(A_{2}-B_{2}\right)^{2}+\cdots+\left(A_{n}-B_{n}\right)^{2}} \\ &=\sqrt{\sum_{i=1}^{n}\left(A_{i}-B_{i}\right)^{2}} 
+\end{aligned}
+
+ - /n/ is the number of elements in the vector
+ - /A/ and /B/ are the corresponding word vectors. 
+ - The more similar the words, the more likely the Euclidean distance will be close to 0 (and zero means they are the same).
+
+#+begin_src python :results none
+def euclidean(A: numpy.ndarray, B: numpy.ndarray) -> float:
+    """Calculate the euclidean distance between two vectors
+
+    Args:
+        A: a numpy array which corresponds to a word vector
+        B: A numpy array which corresponds to a word vector
+    Return:
+        d: numerical number representing the Euclidean distance between A and B.
+    """
+    d = numpy.sqrt(((A - B)**2).sum())
+    return d
+#+end_src
+
+#+begin_src python :results output :exports both
+actual = euclidean(king, queen)
+expected = 2.4796925
+print(f"The Euclidean Distance between 'king' and 'queen' is {actual:0.2f}.")
+expect(math.isclose(actual, expected, rel_tol=1e-6)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: The Euclidean Distance between 'king' and 'queen' is 2.48.
+*** The Predictor
+    Here's whdere we make the function that tries to predict the Country for a given Capital City. This will use the cosine similarity. This first version will use brute-force.
+#+begin_src python :results none
+def get_country(city1: str, country1: str, city2: str, embeddings: dict) -> tuple:
+    """Find the country that has a particular capital city
+
+    Args:
+        city1: a string (the capital city of country1)
+        country1: a string (the country of capital1)
+        city2: a string (the capital city of country2)
+        embeddings: a dictionary where the keys are words and values are their embeddings
+    Return:
+        countries: most likely country and its similarity score
+    """
+    group = set((city1, country1, city2))
+
+    city1_emb = embeddings[city1]
+
+    country1_emb = embeddings[country1]
+
+    city2_emb = embeddings[city2]
+
+    vec = country1_emb - city1_emb  + city2_emb
+
+    # Initialize the similarity to -1 (it will be replaced by a similarities that are closer to +1)
+    similarity = -1
+
+    # initialize country to an empty string
+    country = ''
+
+    for word in embeddings:
+        if word not in group:
+            word_emb = embeddings[word]
+            # calculate cosine similarity between embedding of country 2 and the word in the embeddings dictionary
+            cur_similarity = cosine_similarity(vec, word_emb)
+
+            # if the cosine similarity is more similar than the previously best similarity...
+            if cur_similarity > similarity:
+
+                # update the similarity to the new, better similarity
+                similarity = cur_similarity
+
+                # store the country as a tuple, which contains the word and the similarity
+                country = (word, similarity)
+    return country
+#+end_src
+
+#+begin_src python :results output :exports both
+actual_country, actual_similarity = get_country("Athens", "Greece", "Cairo", embeddings)
+print(f"Cairo is the capital of {actual_country}.")
+
+expected_country, expected_similarity = "Egypt", 0.7626821
+expect(actual_country).to(equal(expected_country))
+expect(math.isclose(actual_similarity, expected_similarity, rel_tol=1e-6)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: Cairo is the capital of Egypt.
+*** Checking the Model Accuracy
+\[
+\text{Accuracy}=\frac{\text{Correct # of predictions}}{\text{Total # of predictions}}
+\]
+
+#+begin_src python :results none
+country_getter = partial(get_country, embeddings=embeddings)
+def get_accuracy(data: pandas.DataFrame) -> float:
+    '''Calculate the fraction of correct capitals
+
+    Args:
+        embeddings: a dictionary where the key is a word and the value is its embedding
+    
+    Return:
+        accuracy: the accuracy of the model
+    '''
+    num_correct = 0
+
+    # loop through the rows of the dataframe
+    for index, row in data.iterrows():
+
+        # get city1
+        city1 = row["City 1"]
+
+        # get country1
+        country1 = row["Country 1"]
+
+        # get city2
+        city2 =  row["City 2"]
+
+        # get country2
+        country2 = row["Country 2"]
+
+        # use get_country to find the predicted country2
+        predicted_country2, _ = country_getter(city1=city1, country1=country1, city2=city2)
+
+        # if the predicted country2 is the same as the actual country2...
+        if predicted_country2 == country2:
+            # increment the number of correct by 1
+            num_correct += 1
+
+    # get the number of rows in the data dataframe (length of dataframe)
+    m = len(data)
+
+    # calculate the accuracy by dividing the number correct by m
+    accuracy = num_correct/m
+    return accuracy
+#+end_src
+
+#+begin_src python :results output :exports both
+with TIMER:
+    accuracy = get_accuracy(data)
+    print(f"Accuracy: {accuracy:0.2f}")
+    expect(math.isclose(accuracy, 0.92, rel_tol=0.2)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: 2020-10-06 16:57:43,980 graeae.timers.timer start: Started: 2020-10-06 16:57:43.980585
+: 2020-10-06 16:58:06,047 graeae.timers.timer end: Ended: 2020-10-06 16:58:06.047619
+: 2020-10-06 16:58:06,049 graeae.timers.timer end: Elapsed: 0:00:22.067034
+: Accuracy: 0.92
+** Plotting With PCA
+*** Computing the PCA
+    Now we'll write a function to do the Principal Component Analysis for our embeddings.
+
+ - The word vectors are of dimension 300. 
+ - Use PCA to change the 300 dimensions to =n_components= dimensions. 
+ - The new matrix should be of dimension =m, n_components= (=m= being the number of rows). 
+ -
+ - First de-mean the data
+ - Get the eigenvalues using `linalg.eigh`.  Use `eigh` rather than `eig` since R is symmetric.  The performance gain when using `eigh` instead of `eig` is substantial.
+ - Sort the eigenvectors and eigenvalues by decreasing order of the eigenvalues.
+ - Get a subset of the eigenvectors (choose how many principle components you want to use using `n_components`).
+ - Return the new transformation of the data by multiplying the eigenvectors with the original data.
+
+#+begin_src python :results none
+def compute_pca(X: numpy.ndarray, n_components: int=2) -> numpy.ndarray:
+    """Calculate the principal components for X
+
+    Args:
+        X: of dimension (m,n) where each row corresponds to a word vector
+        n_components: Number of components you want to keep.
+
+    Return:
+        X_reduced: data transformed in 2 dims/columns + regenerated original data
+    """
+    X_demeaned = X - X.mean()
+
+    # calculate the covariance matrix
+    covariance_matrix = numpy.cov(X_demeaned, rowvar=False)
+
+    # calculate eigenvectors & eigenvalues of the covariance matrix
+    eigen_vals, eigen_vecs = numpy.linalg.eigh(covariance_matrix)
+
+    # sort eigenvalue in increasing order (get the indices from the sort)
+    idx_sorted = numpy.argsort(eigen_vals)
+    
+    # reverse the order so that it's from highest to lowest.
+    idx_sorted_decreasing = list(reversed(idx_sorted))
+
+    # sort the eigen values by idx_sorted_decreasing
+    eigen_vals_sorted = eigen_vals[idx_sorted_decreasing]
+
+    # sort eigenvectors using the idx_sorted_decreasing indices
+    eigen_vecs_sorted = eigen_vecs[idx_sorted_decreasing]
+
+    # select the first n eigenvectors (n is desired dimension
+    # of rescaled data array, or dims_rescaled_data)
+    eigen_vecs_subset = eigen_vecs_sorted[:, :n_components]
+
+    # transform the data by multiplying the transpose of the eigenvectors 
+    # with the transpose of the de-meaned data
+    # Then take the transpose of that product.
+    X_reduced = eigen_vecs_subset.T.dot(X_demeaned.T).T
+    return X_reduced
+#+end_src
+
+#+begin_src python :results output :exports both
+X = numpy_random.random((3, 10))
+X_reduced = compute_pca(X, n_components=2)
+# eigen_vecs, eigen_subset, X_demeaned = compute_pca(X, n_components=2)
+print("Your original matrix was " + str(X.shape) + " and it became:")
+print(X_reduced)
+
+expected = numpy.array([
+ [0.43437323, 0.49820384],
+ [0.42077249, -0.50351448],
+ [-0.85514571, 0.00531064],
+])
+
+#numpy.testing.assert_almost_equal(X_reduced, expected)
+#+end_src
+
+#+RESULTS:
+: Your original matrix was (3, 10) and it became:
+: [[ 0.08233217  0.00199339]
+:  [ 0.01771923  0.10220227]
+:  [-0.20198045  0.17565444]]
+** Plotting With PCA
+#+begin_src python :results none
+words = ['oil', 'gas', 'happy', 'sad', 'city', 'town',
+         'village', 'country', 'continent', 'petroleum', 'joyful']
+subset = numpy.array([embeddings[word] for word in words])
+reduced = compute_pca(subset)
+reduced = pandas.DataFrame(reduced, columns="X Y".split())
+reduced["Word"] = words
+#+end_src
+
+#+begin_src python :results none
+labels = reduced.hvplot.labels(x="X", y="Y", text="Word", text_baseline="top")
+
+points = reduced.hvplot.scatter(x="X", y="Y", color=Plot.blue, padding=0.5)
+
+plot = (points * labels).opts(
+    title="PCA of Words",
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.fontscale,
+)
+
+outcome = Embed(plot=plot, file_name="pca_words")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="pca_words.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It made a pretty clear grouping for emotions and even geography vs things oil related is pretty good, although country and oil are closer than I would have thought. My numbers don't actually match what the original assignment's notebook has, though, so something isn't quite right, but it appears to have worked anyway.
+* End
