@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3fae6b65-371b-4b7f-83c0-5acd2dc92a78-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3dfd8523-c01d-4f63-9522-7a6c39579a42-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -339,9 +339,9 @@ with TIMER:
 #+end_src
 
 #+RESULTS:
-: 2020-10-06 16:57:43,980 graeae.timers.timer start: Started: 2020-10-06 16:57:43.980585
-: 2020-10-06 16:58:06,047 graeae.timers.timer end: Ended: 2020-10-06 16:58:06.047619
-: 2020-10-06 16:58:06,049 graeae.timers.timer end: Elapsed: 0:00:22.067034
+: 2020-10-07 17:50:28,897 graeae.timers.timer start: Started: 2020-10-07 17:50:28.897165
+: 2020-10-07 17:50:50,755 graeae.timers.timer end: Ended: 2020-10-07 17:50:50.755424
+: 2020-10-07 17:50:50,756 graeae.timers.timer end: Elapsed: 0:00:21.858259
 : Accuracy: 0.92
 ** Plotting With PCA
 *** Computing the PCA
@@ -368,9 +368,11 @@ def compute_pca(X: numpy.ndarray, n_components: int=2) -> numpy.ndarray:
     Return:
         X_reduced: data transformed in 2 dims/columns + regenerated original data
     """
-    X_demeaned = X - X.mean()
+    # you need to set axis to 0 or it will calculate the mean of the entire matrix instead of one per row
+    X_demeaned = X - X.mean(axis=0)
 
     # calculate the covariance matrix
+    # the default numpy.cov assumes the rows are variables, not columns so set rowvar to False
     covariance_matrix = numpy.cov(X_demeaned, rowvar=False)
 
     # calculate eigenvectors & eigenvalues of the covariance matrix
@@ -386,21 +388,36 @@ def compute_pca(X: numpy.ndarray, n_components: int=2) -> numpy.ndarray:
     eigen_vals_sorted = eigen_vals[idx_sorted_decreasing]
 
     # sort eigenvectors using the idx_sorted_decreasing indices
-    eigen_vecs_sorted = eigen_vecs[idx_sorted_decreasing]
+    # We're only sorting the columns so remember to get all the rows in the slice
+    eigen_vecs_sorted = eigen_vecs[:, idx_sorted_decreasing]
 
     # select the first n eigenvectors (n is desired dimension
     # of rescaled data array, or dims_rescaled_data)
+    # once again, make sure to get all the rows and only slice the columns
     eigen_vecs_subset = eigen_vecs_sorted[:, :n_components]
 
     # transform the data by multiplying the transpose of the eigenvectors 
     # with the transpose of the de-meaned data
     # Then take the transpose of that product.
-    X_reduced = eigen_vecs_subset.T.dot(X_demeaned.T).T
+    X_reduced = numpy.dot(eigen_vecs_subset.T, X_demeaned.T).T
     return X_reduced
 #+end_src
 
+I was getting the wrong values because for some reason so I decided to take out the call to random (since the seed was being set the values were always the same anyway) and just declare the test input array.
+
+#+begin_src python :results none
+X = numpy.array([[4.17022005e-01, 7.20324493e-01, 1.14374817e-04, 3.02332573e-01,
+                  1.46755891e-01, 9.23385948e-02, 1.86260211e-01, 3.45560727e-01,
+                  3.96767474e-01, 5.38816734e-01],
+                 [4.19194514e-01, 6.85219500e-01, 2.04452250e-01, 8.78117436e-01,
+                  2.73875932e-02, 6.70467510e-01, 4.17304802e-01, 5.58689828e-01,
+                  1.40386939e-01, 1.98101489e-01],
+                 [8.00744569e-01, 9.68261576e-01, 3.13424178e-01, 6.92322616e-01,
+                  8.76389152e-01, 8.94606664e-01, 8.50442114e-02, 3.90547832e-02,
+                  1.69830420e-01, 8.78142503e-01]])
+#+end_src
+
 #+begin_src python :results output :exports both
-X = numpy_random.random((3, 10))
 X_reduced = compute_pca(X, n_components=2)
 # eigen_vecs, eigen_subset, X_demeaned = compute_pca(X, n_components=2)
 print("Your original matrix was " + str(X.shape) + " and it became:")
@@ -412,15 +429,17 @@ expected = numpy.array([
  [-0.85514571, 0.00531064],
 ])
 
-#numpy.testing.assert_almost_equal(X_reduced, expected)
+numpy.testing.assert_almost_equal(X_reduced, expected)
 #+end_src
 
 #+RESULTS:
 : Your original matrix was (3, 10) and it became:
-: [[ 0.08233217  0.00199339]
-:  [ 0.01771923  0.10220227]
-:  [-0.20198045  0.17565444]]
+: [[ 0.43437323  0.49820384]
+:  [ 0.42077249 -0.50351448]
+:  [-0.85514571  0.00531064]]
 *** Plot It
+    We'll use most of the non-country words to create a plot to see how well the PCA does.
+    
 #+begin_src python :results none
 words = ['oil', 'gas', 'happy', 'sad', 'city', 'town',
          'village', 'country', 'continent', 'petroleum', 'joyful']
@@ -456,8 +475,11 @@ print(outcome)
 </object>
 #+end_export
 
-It made a pretty clear grouping for emotions and even geography vs things oil related is pretty good, although country and oil are closer than I would have thought. My numbers don't actually match what the original assignment's notebook has, though, so something isn't quite right, but it appears to have worked anyway.
+It appears to have worked fairly well.
+
 *** Sklearn Comparison
+    As a comparison here's what SKlearn's PCA does.
+    
 #+begin_src python :results none
 model = PCA(n_components=2)
 reduced = model.fit(subset).transform(subset)
@@ -489,7 +511,4 @@ print(outcome)
 </object>
 #+end_export
 
-Hmmm... SKLearn did a much better job than I did. Which is to be expected, since they know what they're doing, but it might also mean that I'm doing something wrong.
-
-I should also note that I added "king" and "queen" at one point to the list of words and both my implementation and SKLearn's didn't do quite so well, but mine did much worse, so choosing the words well seems to have an effect as well.
-* End
+They look fairly comparable, I'll conclude that they are close (or close enough).
