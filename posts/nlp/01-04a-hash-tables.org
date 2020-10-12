@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-5ff78b4c-ac33-42ea-89e4-81cde9619b9b-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-d4b1c4c0-d887-41ae-89ef-9310fe7a44cd-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -156,7 +156,7 @@ Now plot the plane that separates the categories. I'll scale it a little to move
 #+begin_src python :results none
 SCALE = 2
 plane_plotter = start.append(plane, ignore_index=True) * SCALE
-plane_plotter.columns = columns
+plane_plotter.columns = COLUMNS
 plot *= plane_plotter.hvplot(x="X", y="Y", color=Plot.tan, line_dash="dashed")
 
 plane_plotter *= -1
@@ -166,7 +166,6 @@ plot *= plane_plotter.hvplot(x="X", y="Y", color=Plot.tan, line_dash="dashed")
 Now we get to the points. The main lines to pay attention to are the calculation of the =side_of_plane= value and the conditional. The =side_of_plane= is an array but you can do boolean equality checks with integers as shown.
 
 #+begin_src python :results none
-
 ## Get a pair of random numbers between -4 and 4 
 POINTS = 20
 LIMIT = 4
@@ -206,291 +205,135 @@ print(outcome)
 So the dashed tan line is our separation plane and the blue line segment is the vector we use to decide which side of the plane the dots are on. The blue dots have a positive dot product with the blue vector and the red dots have a negative dot product with the blue vector.
 
 ** Multiple PLanes
-* Raw
-#+begin_src python
-# ## Basic Hash tables
+#+begin_src python :results none
+plane_1 = numpy.array([[1, 1]])
+plane_2 = numpy.array([[-1, 1]])
+plane_3 = numpy.array([[-1, -1]])
+multi_plane = [plane_1, plane_2, plane_3]
 
-# In the next cell, we will define a straightforward hash function for integer numbers. The function will receive a list of integer numbers and the desired amount of buckets. The function will produce a hash table stored as a dictionary, where keys contain the hash keys, and the values will provide the hashed elements of the input list. 
-# 
-# The hash function is just the remainder of the integer division between each element and the desired number of buckets.
+search_vector = numpy.array([[2, 2]])
+#+end_src
 
-# In[ ]:
+#+begin_src python :results none
+def side_of_plane(plane: numpy.ndarray, vector: numpy.ndarray) -> int:
+    """Finds the side of the plane that the vector is
 
+    Args:
+     plane: separating plane
+     vector: location to check 
 
-def basic_hash_table(value_l, n_buckets):
+    Returns:
+     sign of the dot product between the plane and the vector
+    """
+    return numpy.sign(numpy.dot(plane, vector.T)).item()
+#+end_src
+
+#+begin_src python :results none
+def hash_multi_plane(planes: list, vector: numpy.ndarray) -> int:
+    """Creates hash value for set of planes
     
-    def hash_function(value, n_buckets):
-        return int(value) % n_buckets
-    
-    hash_table = {i:[] for i in range(n_buckets)} # Initialize all the buckets in the hash table as empty lists
-
-    for value in value_l:
-        hash_value = hash_function(value,n_buckets) # Get the hash key for the given value
-        hash_table[hash_value].append(value) # Add the element to the corresponding bucket
-    
-    return hash_table
-
-
-# Now let's see the hash table function in action. The pretty print function (`pprint()`) will produce a visually appealing output. 
-
-# In[ ]:
-
-
-value_l = [100, 10, 14, 17, 97] # Set of values to hash
-hash_table_example = basic_hash_table(value_l, n_buckets=10)
-pp.pprint(hash_table_example)
-
-
-# In this case, the bucket key must be the rightmost digit of each number.
-
-# ## Planes
-# 
-# Multiplanes hash functions are other types of hash functions. Multiplanes hash functions are based on the idea of numbering every single region that is formed by the intersection of n planes. In the following code, we show the most basic forms of the multiplanes principle. First, with a single plane:
-
-# In[ ]:
-
-
-P = np.array([[1, 1]]) # Define a single plane. 
-fig, ax1 = plt.subplots(figsize=(8, 8)) # Create a plot
-
-plot_vectors([P], axes=[2, 2], ax=ax1) # Plot the plane P as a vector
-
-# Plot  random points. 
-for i in range(0, 10):
-        v1 = np.array(np.random.uniform(-2, 2, 2)) # Get a pair of random numbers between -4 and 4 
-        side_of_plane = np.sign(np.dot(P, v1.T)) 
-        
-        # Color the points depending on the sign of the result of np.dot(P, point.T)
-        if side_of_plane == 1:
-            ax1.plot([v1[0]], [v1[1]], 'bo') # Plot blue points
-        else:
-            ax1.plot([v1[0]], [v1[1]], 'ro') # Plot red points
-
-plt.show()
-
-
-# The first thing to note is that the vector that defines the plane does not mark the boundary between the two sides of the plane. It marks the direction in which you find the 'positive' side of the plane. Not intuitive at all!
-# 
-# If we want to plot the separation plane, we need to plot a line that is perpendicular to our vector `P`. We can get such a line using a $90^o$ rotation matrix.
-# 
-# Feel free to change the direction of the plane `P`.
-
-# In[ ]:
-
-
-P = np.array([[1, 2]])  # Define a single plane. You may change the direction
-
-# Get a new plane perpendicular to P. We use a rotation matrix
-PT = np.dot([[0, 1], [-1, 0]], P.T).T  
-
-fig, ax1 = plt.subplots(figsize=(8, 8)) # Create a plot with custom size
-
-plot_vectors([P], colors=['b'], axes=[2, 2], ax=ax1) # Plot the plane P as a vector
-
-# Plot the plane P as a 2 vectors. 
-# We scale by 2 just to get the arrows outside the current box
-plot_vectors([PT * 4, PT * -4], colors=['k', 'k'], axes=[4, 4], ax=ax1)
-
-# Plot 20 random points. 
-for i in range(0, 20):
-        v1 = np.array(np.random.uniform(-4, 4, 2)) # Get a pair of random numbers between -4 and 4 
-        side_of_plane = np.sign(np.dot(P, v1.T)) # Get the sign of the dot product with P
-        # Color the points depending on the sign of the result of np.dot(P, point.T)
-        if side_of_plane == 1:
-            ax1.plot([v1[0]], [v1[1]], 'bo') # Plot a blue point
-        else:
-            ax1.plot([v1[0]], [v1[1]], 'ro') # Plot a red point
-
-plt.show()
-
-
-# Now, let us see what is inside the code that color the points. 
-
-# In[ ]:
-
-
-P = np.array([[1, 1]])      # Single plane
-v1 = np.array([[1, 2]])     # Sample point 1
-v2 = np.array([[-1, 1]])    # Sample point 2
-v3 = np.array([[-2, -1]])   # Sample point 3
-
-
-# In[ ]:
-
-
-np.dot(P, v1.T)
-
-
-# In[ ]:
-
-
-np.dot(P, v2.T)
-
-
-# In[ ]:
-
-
-np.dot(P, v3.T)
-
-
-# The function below checks in which side of the plane P is located the vector `v`
-
-# In[ ]:
-
-
-def side_of_plane(P, v):
-    dotproduct = np.dot(P, v.T) # Get the dot product P * v'
-    sign_of_dot_product = np.sign(dotproduct) # The sign of the elements of the dotproduct matrix  
-   sign_of_dot_product_scalar = sign_of_dot_product.item() # The value of the first item
-    return sign_of_dot_product_scalar
-
-
-# In[ ]:
-
-
-side_of_plane(P, v1) # In which side is [1, 2]
-
-
-# In[ ]:
-
-
-side_of_plane(P, v2) # In which side is [-1, 1]
-
-
-# In[ ]:
-
-
-side_of_plane(P, v3) # In which side is [-2, -1]
-
-
-# ## Hash Function with multiple planes
-# 
-# In the following section, we are going to define a hash function with a list of three custom planes in 2D.
-
-# In[ ]:
-
-
-P1 = np.array([[1, 1]])   # First plane 2D
-P2 = np.array([[-1, 1]])  # Second plane 2D
-P3 = np.array([[-1, -1]]) # Third plane 2D
-P_l = [P1, P2, P3]  # List of arrays. It is the multi plane
-
-# Vector to search
-v = np.array([[2, 2]])
-
-
-# The next function creates a hash value based on a set of planes. The output value is a combination of the side of the plane where the vector is localized with respect to the collection of planes.
-# 
-# We can think of this list of planes as a set of basic hash functions, each of which can produce only 1 or 0 as output.
-
-# In[ ]:
-
-
-def hash_multi_plane(P_l, v):
+    Args:
+     planes: list of arrays to hash
+     vector: array to determine which side of the planes are positive
+
+    Returns:
+     hash_value: the hash for plane matching the vector
+    """
     hash_value = 0
-    for i, P in enumerate(P_l):
-        sign = side_of_plane(P,v)
-        hash_i = 1 if sign >=0 else 0
-        hash_value += 2**i * hash_i
+    for index, plane in enumerate(planes):
+        sign = side_of_plane(plane, vector)
+
+        # increment the hash if the sign is non-negative
+        hash_i = 0 if sign < 0 else 1
+        hash_value += 2**index * hash_i
     return hash_value
+#+end_src
 
+#+begin_src python :results output :exports both
+print(hash_multi_plane(multi_plane, search_vector))
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: 3
+** Random Planes
 
-
-hash_multi_plane(P_l, v) # Find the number of the plane that containes this value
-
-
-# ## Random Planes
-# 
-# In the cell below, we create a set of three random planes
-
-# In[ ]:
-
-
-np.random.seed(0)
-num_dimensions = 2 # is 300 in assignment
-num_planes = 3 # is 10 in assignment
-random_planes_matrix = np.random.normal(
+#+begin_src python :results output :exports both
+numpy_random = default_rng(0)
+num_dimensions = 2
+num_planes = 3
+random_planes_matrix = numpy_random.normal(
                        size=(num_planes,
                              num_dimensions))
 print(random_planes_matrix)
+#+end_src
 
+#+RESULTS:
+: [[ 0.12573022 -0.13210486]
+:  [ 0.64042265  0.10490012]
+:  [-0.53566937  0.36159505]]
 
-# In[ ]:
+#+begin_src python :results none
+search_vector = numpy.array([[2, 2]])
+#+end_src
 
+#+begin_src python :results none
+def side_of_plane_matrix(planes: numpy.ndarray, vector: numpy.ndarray) -> numpy.ndarray:
+    """Decides which side of planes vector is on
 
-v = np.array([[2, 2]])
+    Returns:
+     side-of-plane value for vector with respect to each plane
+    """
+    return numpy.sign(numpy.dot(planes, vector.T))
+#+end_src
 
+#+begin_src python :results output :exports both
+print(side_of_plane_matrix(random_planes_matrix, search_vector))
+#+end_src
 
-# The next function is similar to the `side_of_plane()` function, but it evaluates more than a plane each time. The result is an array with the side of the plane of `v`, for the set of planes `P`
+#+RESULTS:
+: [[-1.]
+:  [ 1.]
+:  [-1.]]
 
-# In[ ]:
-
-
-# Side of the plane function. The result is a matrix
-def side_of_plane_matrix(P, v):
-    dotproduct = np.dot(P, v.T)
-    sign_of_dot_product = np.sign(dotproduct) # Get a boolean value telling if the value in the cell is positive or negative
-    return sign_of_dot_product
-
-
-# Get the side of the plane of the vector `[2, 2]` for the set of random planes. 
-
-# In[ ]:
-
-
-sides_l = side_of_plane_matrix(
-            random_planes_matrix, v)
-sides_l
-
-
-# Now, let us use the former function to define our multiplane hash function
-
-# In[ ]:
-
-
-def hash_multi_plane_matrix(P, v, num_planes):
-    sides_matrix = side_of_plane_matrix(P, v) # Get the side of planes for P and v
+#+begin_src python :results none
+def hash_multi_plane_matrix(planes: numpy.ndarray,
+                            vector: numpy.ndarray,
+                            num_planes: int):
+    """calculates hash for vector with respect to planes"""
+    sides_matrix = side_of_plane_matrix(planes, vector)
     hash_value = 0
     for i in range(num_planes):
         sign = sides_matrix[i].item() # Get the value inside the matrix cell
         hash_i = 1 if sign >=0 else 0
         hash_value += 2**i * hash_i # sum 2^i * hash_i
-        
     return hash_value
+#+end_src
 
+#+begin_src python :results none
+sm = side_of_plane_matrix(random_planes_matrix, search_vector)
+#+end_src
+#+begin_src python :results output :exports both
+print(hash_multi_plane_matrix(random_planes_matrix, search_vector, num_planes))
+#+end_src
 
-# Print the bucket hash for the vector `v = [2, 2]`. 
-
-# In[ ]:
-
-
-hash_multi_plane_matrix(random_planes_matrix, v, num_planes)
-
-
-# #### Note
-# This showed you how to make one set of random planes.  You will make multiple sets of random planes in order to make the approximate nearest neighbors more accurate.
-
-# ## Document vectors
-# 
-# Before we finish this lab, remember that you can represent a document as a vector by adding up the word vectors for the words inside the document. In this example, our embedding contains only three words, each represented by a 3D array.
-
-# In[ ]:
-
-
-word_embedding = {"I": np.array([1,0,1]),
-                   "love": np.array([-1,0,1]),
-                   "learning": np.array([1,0,1])
+#+RESULTS:
+: 2
+** Document Vectors
+   This is how you would convert a document to an embedding using word vectors (just add up all the vectors for the words in the document).
+   
+#+begin_src python :results output :exports both
+word_embedding = {"I": numpy.array([1,0,1]),
+                  "love": numpy.array([-1,0,1]),
+                  "learning": numpy.array([1,0,1])
                   }
-words_in_document = ['I', 'love', 'learning', 'not_a_word']
-document_embedding = np.array([0,0,0])
-for word in words_in_document:
+document = ['I', 'love', 'learning', 'not_a_word']
+document_embedding = numpy.array([0,0,0])
+for word in document:
     document_embedding += word_embedding.get(word,0)
     
 print(document_embedding)
 
-
-# **Congratulations! You've now completed this lab on hash functions and multiplanes!**
-
 #+end_src
+
+#+RESULTS:
+: [1 0 3]
