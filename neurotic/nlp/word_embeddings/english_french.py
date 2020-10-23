@@ -1,6 +1,7 @@
 # pypi
 from dotenv import load_dotenv
 
+
 import attr
 import numpy
 
@@ -72,6 +73,7 @@ def get_matrices(en_fr: dict, french_vecs: dict, english_vecs: dict):
 
     # return X, Y
     return numpy.vstack(X), numpy.vstack(Y)
+
 
 @attr.s(auto_attribs=True)
 class TrainingData:
