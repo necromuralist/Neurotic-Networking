@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-cbfe76fc-d94c-4550-b792-49818e07fb09-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-93768719-c25d-4fb2-8f1a-e3a251b64367-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -523,6 +523,13 @@ working on hash universe #: 24
 <<imports>>
 
 
+<<planes-universe>>
+
+    <<planes-plane-count>>
+
+    <<planes-planes>>
+
+
 <<documents-embeddings-builder>>
 
     <<document-embedding>>
@@ -542,15 +549,71 @@ working on hash universe #: 24
 
     <<hash-index-table>>
 
-    <<hash-build-tables>>
+
+
+<<hash-tables>>
+
+    <<hash-tables-hash>>
+
+    <<hash-tables-index>>
 #+end_src
 *** Imports
 #+begin_src python :noweb-ref imports
+# python
+import math
+
 # pypi
 import attr
 import numpy
 #+end_src
+*** Planes Universe
+#+begin_src python :noweb-ref planes-universe
+@attr.s(auto_attribs=True)
+class PlanesUniverse:
+    """Creates set of planes with a random mormal distribution of points
 
+
+    Args:
+     vector_count: number of vectors that will be hashed
+     dimensions: number of columns per vector
+     universes: number of universes to create
+     vectors_per_bucket: how many vectors we want in each
+     random_seed: value to seed the random number generator
+    """
+    vector_count: int
+    dimensions: int
+    universes: int
+    vectors_per_bucket: int
+    random_seed: int=0
+    _plane_count: int=None
+    _planes: list=None
+#+end_src
+**** Plane Count
+#+begin_src python :noweb-ref planes-plane-count
+@property
+def plane_count(self) -> int:
+    """The number of planes to create
+
+    Uses the number of vectors and desired vectors per bucket
+    """
+    if self._plane_count is None:
+        buckets = self.vector_count/self.vectors_per_bucket
+        self._plane_count = math.ceil(numpy.log2(buckets))
+    return self._plane_count
+#+end_src
+**** Planes
+     The list of planes.
+#+begin_src python :noweb-ref planes-planes
+@property
+def planes(self) -> list:
+    """The list of planes"""
+    if self._planes is None:
+        numpy.random.seed(self.random_seed)
+        self._planes = [numpy.random.normal(size=(self.dimensions,
+                                                  self.plane_count))
+                        for _ in range(self.universes)]
+    return self._planes
+#+end_src
 *** Documents Embeddings Builder
 #+begin_src python :noweb-ref documents-embeddings-builder
 @attr.s(auto_attribs=True)
@@ -672,7 +735,13 @@ def hash_table(self) -> dict:
       hash_table: dictionary - keys are hashes, values are lists of vectors (hash buckets)
     """
     if self._hash_table is None:
-        self.build_tables()
+        number_of_planes = self.planes.shape[1]
+        number_of_buckets = 2**number_of_planes
+
+        self._hash_table = {index: [] for index in range(number_of_buckets)}
+
+        for index, hash_ in enumerate(self.hashes):
+            self._hash_table[hash_].append(self.vectors[index])
     return self._hash_table
 #+end_src
 **** Index Table
@@ -681,10 +750,17 @@ def hash_table(self) -> dict:
 def index_table(self) -> dict:
     """Tabel of document hash to index"""
     if self._index_table is None:
-        self.build_tables()
+        number_of_planes = self.planes.shape[1]
+        number_of_buckets = 2**number_of_planes
+
+        self._index_table = {index: [] for index in range(number_of_buckets)}
+
+        for index, hash_ in enumerate(self.hashes):            
+            self._index_table[hash_].append(index)
     return self._index_table
 #+end_src
-*** Build The Tables
+**** Build The Tables
+     The code that uses the tables doesn't actually pull them at the same time, so I'm going to keep them separate.
 #+begin_src python :noweb-ref hash-build-tables
 def build_tables(self) -> None:
     """Builds the hash and index table properties"""
@@ -699,7 +775,61 @@ def build_tables(self) -> None:
         self._index_table[hash_].append(index)
     return
 #+end_src
+*** Hash Tables
+#+begin_src python :noweb-ref hash-tables
+@attr.s(auto_attribs=True)
+class HashTables:
+    """Builds the universes of hash tables
+
+    Args:
+     universes: how many universes
+     planes: planes to hash vectors into
+     vectors: vectors to hash
+    """
+    universes: int
+    planes: list
+    vectors: numpy.ndarray
+    _hash_tables: list=None
+    _id_tables: list=None
+#+end_src
+*** Hash Tables
+#+begin_src python :noweb-ref hash-tables-hash
+@property
+def hash_tables(self) -> list:
+    """Builds the list of hash tables"""
+    if self._hash_tables is None: 
+        self._hash_tables = [
+            HashTable(vectors=self.vectors,
+                      planes=self.planes[universe]).hash_table
+            for universe in range(self.universes)
+        ]
+    return self._hash_tables
+#+end_src
+*** ID Tables
+#+begin_src python :noweb-ref hash-tables-index
+@property
+def id_tables(self) -> list:
+    """Builds the list of id tables"""
+    if self._id_tables is None: 
+        self._id_tables = [
+            HashTable(vectors=self.vectors,
+                      planes=self.planes[universe]).index_table
+            for universe in range(self.universes)
+        ]
+    return self._id_tables
+#+end_src
 ** Testing the Classes
+*** PlanesUniverse
+#+begin_src python :results none
+from neurotic.nlp.word_embeddings.hashing import PlanesUniverse
+universes = PlanesUniverse(vector_count=len(tweets),
+                        dimensions=N_DIMS,
+                        universes=N_UNIVERSES,
+                        vectors_per_bucket=16)
+
+assert universes.plane_count==10
+#+end_src
+
 *** Documents Embeddings Builder
 #+begin_src python :results output :exports both
 from neurotic.nlp.word_embeddings.hashing import DocumentsEmbeddings
@@ -744,14 +874,14 @@ from neurotic.nlp.word_embeddings.hashing import HashTable
 
 numpy.random.seed(0)
 idx = 0
-planes = planes_l[idx]  # get one 'universe' of planes to test the function
+planes = universes.planes[idx]  # get one 'universe' of planes to test the function
 vec = numpy.random.rand(1, 300)
 expected = 768
 
 hasher = HashTable(planes=planes, vectors=None)
 actual = hasher.hash_value(vec)
 
-assert expected == actual
+assert expected == actual, actual
 print(f" The hash value for this vector,",
       f"and the set of planes at index {idx},",
       f"is {actual}")
@@ -762,7 +892,7 @@ print(f" The hash value for this vector,",
 
 #+begin_src python :results output :exports both
 numpy.random.seed(0)
-planes = planes_l[0]  # get one 'universe' of planes to test the function
+planes = universes.planes[0]  # get one 'universe' of planes to test the function
 vec = numpy.random.rand(1, 300)
 
 hasher = HashTable(planes=planes, vectors=document_vecs)
@@ -780,6 +910,7 @@ print(f"The first 5 document indices stored at key {index} of are {tmp_id_table[
 : The hash table at key 2 has 21 document vectors
 : The id table at key 2 has 21
 : The first 5 document indices stored at key 2 of are [356, 529, 976, 1754, 1779]
+*** Hash Tables
 
 * End
   The next step is to use this to implement {{% lancelot title="approximate k-Nearest Neighbors" %}}machine-translation-with-approximate-knn{{% /lancelot %}} to compelete our application.

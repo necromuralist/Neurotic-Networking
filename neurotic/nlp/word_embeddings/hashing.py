@@ -1,6 +1,51 @@
+# python
+import math
+
 # pypi
 import attr
 import numpy
+
+
+@attr.s(auto_attribs=True)
+class PlanesUniverse:
+    """Creates set of planes with a random mormal distribution of points
+
+
+    Args:
+     vector_count: number of vectors that will be hashed
+     dimensions: number of columns per vector
+     universes: number of universes to create
+     vectors_per_bucket: how many vectors we want in each
+     random_seed: value to seed the random number generator
+    """
+    vector_count: int
+    dimensions: int
+    universes: int
+    vectors_per_bucket: int
+    random_seed: int=0
+    _plane_count: int=None
+    _planes: list=None
+
+    @property
+    def plane_count(self) -> int:
+        """The number of planes to create
+    
+        Uses the number of vectors and desired vectors per bucket
+        """
+        if self._plane_count is None:
+            buckets = self.vector_count/self.vectors_per_bucket
+            self._plane_count = math.ceil(numpy.log2(buckets))
+        return self._plane_count
+
+    @property
+    def planes(self) -> list:
+        """The list of planes"""
+        if self._planes is None:
+            numpy.random.seed(self.random_seed)
+            self._planes = [numpy.random.normal(size=(self.dimensions,
+                                                      self.plane_count))
+                            for _ in range(self.universes)]
+        return self._planes
 
 
 @attr.s(auto_attribs=True)
@@ -108,25 +153,63 @@ class HashTable:
           hash_table: dictionary - keys are hashes, values are lists of vectors (hash buckets)
         """
         if self._hash_table is None:
-            self.build_tables()
+            number_of_planes = self.planes.shape[1]
+            number_of_buckets = 2**number_of_planes
+    
+            self._hash_table = {index: [] for index in range(number_of_buckets)}
+    
+            for index, hash_ in enumerate(self.hashes):
+                self._hash_table[hash_].append(self.vectors[index])
         return self._hash_table
 
     @property
     def index_table(self) -> dict:
         """Tabel of document hash to index"""
         if self._index_table is None:
-            self.build_tables()
+            number_of_planes = self.planes.shape[1]
+            number_of_buckets = 2**number_of_planes
+    
+            self._index_table = {index: [] for index in range(number_of_buckets)}
+    
+            for index, hash_ in enumerate(self.hashes):            
+                self._index_table[hash_].append(index)
         return self._index_table
 
-    def build_tables(self) -> None:
-        """Builds the hash and index table properties"""
-        number_of_planes = self.planes.shape[1]
-        number_of_buckets = 2**number_of_planes
-    
-        self._hash_table = {index: [] for index in range(number_of_buckets)}
-        self._index_table = {index: [] for index in range(number_of_buckets)}
-    
-        for index, hash_ in enumerate(self.hashes):
-            self._hash_table[hash_].append(self.vectors[index])
-            self._index_table[hash_].append(index)
-        return
+
+
+@attr.s(auto_attribs=True)
+class HashTables:
+    """Builds the universes of hash tables
+
+    Args:
+     universes: how many universes
+     planes: planes to hash vectors into
+     vectors: vectors to hash
+    """
+    universes: int
+    planes: list
+    vectors: numpy.ndarray
+    _hash_tables: list=None
+    _id_tables: list=None
+
+    @property
+    def hash_tables(self) -> list:
+        """Builds the list of hash tables"""
+        if self._hash_tables is None: 
+            self._hash_tables = [
+                HashTable(vectors=self.vectors,
+                          planes=self.planes[universe]).hash_table
+                for universe in range(self.universes)
+            ]
+        return self._hash_tables
+
+    @property
+    def id_tables(self) -> list:
+        """Builds the list of id tables"""
+        if self._id_tables is None: 
+            self._id_tables = [
+                HashTable(vectors=self.vectors,
+                          planes=self.planes[universe]).index_table
+                for universe in range(self.universes)
+            ]
+        return self._id_tables

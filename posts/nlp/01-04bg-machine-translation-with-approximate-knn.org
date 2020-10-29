@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-00e0f90f-74bc-4b70-845c-866414b06b94-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -24,54 +24,101 @@
 # python
 from argparse import Namespace
 
-import os
-import pickle
-
 # pypi
 from dotenv import load_dotenv
-from gensim.models import KeyedVectors
+from nltk.corpus import twitter_samples
 
-import numpy
-import pandas
-
-# my stuff
-from neurotic.nlp.word_embeddings.english_french import X_train, Y_train
+# this repo
+from neurotic.nlp.word_embeddings.embeddings import EmbeddingsLoader
+from neurotic.nlp.word_embeddings.hashing import (DocumentsEmbeddings,
+                                                  PlanesUniverse,
+                                                  HashTable,
+                                                  HashTables)
+from neurotic.nlp.twitter.processor import TwitterProcessor
 #+end_src
 ** Set Up
-*** The Dotenv
-    This loads the paths to the files.
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Tweets
+#+begin_src python :results none
+positive_tweets = twitter_samples.strings("positive_tweets.json")
+negative_tweets = twitter_samples.strings("negative_tweets.json")
+tweets = positive_tweets + negative_tweets
+#+end_src
+*** The Twitter Processor
+#+begin_src python :results none
+process_tweet = TwitterProcessor()
+#+end_src
+*** The Embeddings
+#+begin_src python :results none
+embeddings = EmbeddingsLoader()
+#+end_src
 
 #+begin_src python :results none
-load_dotenv("posts/nlp/.env", override=True)
+documents = DocumentsEmbeddings(embeddings=embeddings.english_subset,
+                                process=process_tweet, documents=tweets)
+#+end_src
+*** The Planes
+#+begin_src python :results none
+TWEET = Namespace(
+    vectors=len(tweets),
+    dimensions=len(next(iter(embeddings.english_subset.values()))),
+    universes=25,
+    vectors_per_bucket=16
+)
+#+end_src
+
+#+begin_src python :results none
+universes = PlanesUniverse(vector_count=TWEET.vectors,
+                        dimensions=TWEET.dimensions,
+                        universes=TWEET.universes,
+                        vectors_per_bucket=TWEET.vectors_per_bucket)
+assert universes.plane_count == 10
+#+end_src
+*** The Hash Table
+#+begin_src python :results none
+hasher = HashTable(planes=universes.planes,
+                   vectors=documents.documents_embeddings)
+hash_tables = hasher.hash_table
 #+end_src
 * Middle
 ** Approximate K-NN
-*** Exercise 11
 
 Implement approximate K nearest neighbors using locality sensitive hashing, to search for documents that are similar to a given document at the index =doc_id=.
 
-**** Inputs
-     - =doc_id= is the index into the document list =all_tweets=.
-     - =v= is the document vector for the tweet in =all_tweets= at index =doc_id=.
-     - =planes_l= is the list of planes (the global variable created earlier).
-     - =k= is the number of nearest neighbors to search for.
-     - =num_universes_to_use=: to save time, we can use fewer than the total number of available universes.  By default, it's set to =N_UNIVERSES=, which is /25/ for this assignment.
+*** Arguments
+     | Variable               | Description                                                     |
+     |------------------------+-----------------------------------------------------------------|
+     | =doc_id=               | index into the document list =all_tweets=                       |
+     | =v=                    | document vector for the tweet in =all_tweets= at index =doc_id= |
+     | =planes_l=             | list of planes (the global variable created earlier)            |
+     | =k=                    | number of nearest neighbors to search for                       |
+     | =num_universes_to_use= | Number of available universes to use (25 by default)            |
+
 
 The =approximate_knn= function finds a subset of candidate vectors that are in the same "hash bucket" as the input vector 'v'.  Then it performs the usual k-nearest neighbors search on this subset (instead of searching through all 10,000 tweets).
 
-**** Hints
+*** Hints
      - There are many dictionaries used in this function.  Try to print out =planes_l=, =hash_tables=, =id_tables= to understand how they are structured, what the keys represent, and what the values contain.
      - To remove an item from a list, use =.remove()=
      - To append to a list, use =.append()=
      - To add to a set, use =.add()=
 
+#+begin_src python :results none
+tables = HashTables(universes=TWEET.universes,
+                    planes=universes.planes,
+                    vectors=documents.embeddings)
+hash_tables = tables.hash_tables
+#+end_src
 
 #+begin_src python :results none
 # UNQ_C21 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # This is the code used to do the fast nearest neighbor search. Feel free to go over it
-def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
+def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=TWEET.universes):
     """Search for k-NN using hashes."""
-    assert num_universes_to_use <= N_UNIVERSES
+    assert num_universes_to_use <= TWEET.universes
 
     # Vectors that will be checked as possible nearest neighbor
     vecs_to_consider_l = list()
@@ -81,7 +128,8 @@ def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
 
     # create a set for ids to consider, for faster checking if a document ID already exists in the set
     ids_to_consider_set = set()
-
+    hasher = HashTable(planes=planes_l, vectors=None)
+    
     # loop through the universes of planes
     for universe_id in range(num_universes_to_use):
 
@@ -89,7 +137,8 @@ def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
         planes = planes_l[universe_id]
 
         # get the hash value of the vector for this set of planes
-        hash_value = hash_value_of_vector(v, planes)
+        # hash_value = hash_value_of_vector(v, planes)
+        hash_value = HashTable(planes=planes, vectors=None).hash_value(v)
 
         # get the hash table for this particular universe_id
         hash_table = hash_tables[universe_id]
@@ -107,7 +156,7 @@ def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
 
         # remove the id of the document that we're searching
         if doc_id in new_ids_to_consider:
-            None
+            new_ids_to_consider.remove(doc_id)
             print(f"removed doc_id {doc_id} of input vector from new_ids_to_search")
 
         # loop through the subset of document vectors to consider
@@ -117,15 +166,15 @@ def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
             if new_id not in ids_to_consider_set:
                 # access document_vectors_l list at index i to get the embedding
                 # then append it to the list of vectors to consider as possible nearest neighbors
-                document_vector_at_i = None
-                None
+                document_vector_at_i = document_vectors_l[i]
+                document_vectors_l.append(document_vector_at_i)
 
                 # append the new_id (the index for the document) to the list of ids to consider
-                None
+                ids_to_consider_l.append(new_id)
 
                 # also add the new_id to the set of ids to consider
                 # (use this to check if new_id is not already in the IDs to consider)
-                None
+                ids_to_consider_set.add(new_id)
 
         ### END CODE HERE ###
 
@@ -149,13 +198,13 @@ def approximate_knn(doc_id, v, planes_l, k=1, num_universes_to_use=N_UNIVERSES):
 #+begin_src python :results none
 #document_vecs, ind2Tweet
 doc_id = 0
-doc_to_search = all_tweets[doc_id]
-vec_to_search = document_vecs[doc_id]
+doc_to_search = tweets[doc_id]
+vec_to_search = documents.documents_embeddings[doc_id]
 #+end_src
 
 #+begin_src python :results output :exports both
 nearest_neighbor_ids = approximate_knn(
-    doc_id, vec_to_search, planes_l, k=3, num_universes_to_use=5)
+    doc_id, vec_to_search, universes.planes, k=3, num_universes_to_use=5)
 
 print(f"Nearest neighbors for document {doc_id}")
 print(f"Document contents: {doc_to_search}")
@@ -165,6 +214,30 @@ for neighbor_id in nearest_neighbor_ids:
     print(f"Nearest neighbor at document id {neighbor_id}")
     print(f"document contents: {all_tweets[neighbor_id]}")
 #+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+#+begin_example
+---------------------------------------------------------------------------
+NameError                                 Traceback (most recent call last)
+<ipython-input-33-036a8ba83d58> in <module>
+----> 1 nearest_neighbor_ids = approximate_knn(
+      2     doc_id, vec_to_search, universes.planes, k=3, num_universes_to_use=5)
+      3 
+      4 print(f"Nearest neighbors for document {doc_id}")
+      5 print(f"Document contents: {doc_to_search}")
+
+<ipython-input-25-8f4e866edf27> in approximate_knn(doc_id, v, planes_l, k, num_universes_to_use)
+     26 
+     27         # get the hash table for this particular universe_id
+---> 28         hash_table = hash_tables[universe_id]
+     29 
+     30         # get the list of document vectors for this hash table, where the key is the hash_value
+
+NameError: name 'hash_tables' is not defined
+#+end_example
+:END:
 
 * End
   - The post that collects all the posts in this project is {{% doc %}}machine-translation{{% /doc %}}.
