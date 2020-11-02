@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8f5eb2be-f03e-47ab-a4d5-af03143dc038-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f0bf00d9-c349-4372-9a8d-f273071b3d65-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -233,5 +233,130 @@ print(f"accuracy on test set is {acc[0]:.3f}")
 
 
  You managed to translate words from one language to another language without ever seing them with almost 56% accuracy by using some basic linear algebra and learning a mapping of words from one language to another!
+
+** Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/nearest_neighbors.py
+<<imports>>
+
+<<nearest-neighbor>>
+
+    <<nearest-cosine-similarity>>
+
+    <<nearest-nearest-neighbor>>
+
+    <<nearest-call>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# pypi
+import attr
+import numpy
+#+end_src
+*** Nearest Neighbor
+
+#+begin_src python :noweb-ref nearest-neighbor
+@attr.s(auto_attribs=True)
+class NearestNeighbors:
+    """Finds the nearest neighbor(s) to a vector
+
+    Args:
+     candidates: set of vectors that are potential neighbors
+     k: number of neighbors to find
+    """
+    candidates: numpy.ndarray    
+    k: int=1
+#+end_src
+*** Cosine Similarity Method
+#+begin_src python :noweb-ref nearest-cosine-similarity
+def cosine_similarity(self, vector_1: numpy.ndarray, vector_2: numpy.ndarray) -> float:
+    """Calculates the similarity between two vectors
+
+    Args:
+     vector_1: array to compare
+     vector_2: array to compare to vector_1
+
+    Returns:
+     cosine similarity between the two vectors
+    """
+    return numpy.dot(vector_1, vector_2)/(numpy.linalg.norm(vector_1) *
+                                          numpy.linalg.norm(vector_2))
+#+end_src
+*** Nearest Neighbor Method
+#+begin_src python :noweb-ref nearest-nearest-neighbor
+def nearest_neighbors(self, vector: numpy.ndarray) -> numpy.ndarray:
+    """Find the nearest neghbor(s) to a vector
+
+    Args:
+      - vector, the vector you are going find the nearest neighbor for
+
+    Returns:
+      - k_idx: the indices of the top k closest vectors in sorted form
+    """
+    return numpy.argsort([self.cosine_similarity(vector, row)
+                          for row in self.candidates])[-self.k:]
+#+end_src
+*** Nearest Neighbor Call
+#+begin_src python :noweb-ref nearest-call
+def __call__(self, vector: numpy.ndarray) -> numpy.ndarray:
+    """Alias for the `nearest_neighbors` method
+
+    Args:
+      - vector, the vector you are going find the nearest neighbor for
+
+    Returns:
+      - k_idx: the indices of the top k closest vectors in sorted form
+    """
+    return self.nearest_neighbors(vector)
+#+end_src
+*** Testing It
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.nearest_neighbors import NearestNeighbors
+
+
+v = numpy.array([1, 0, 1], dtype="float64")
+candidates = numpy.array([[1, 0, 5], [-2, 5, 3], [2, 0, 1], [6, -9, 5], [9, 9, 9]])
+
+testing = NearestNeighbors(candidates=candidates, k=3)
+
+expected = numpy.array([
+    [9, 9, 9],
+    [1, 0, 5],
+    [2, 0, 1]])
+actual = candidates[testing.nearest_neighbors(v)]
+print(actual)
+assert (actual == expected).all()
+#+end_src
+
+#+RESULTS:
+: [[9 9 9]
+:  [1 0 5]
+:  [2 0 1]]
+
+#+begin_src python :results output :exports both
+with TIMER:
+    data = TrainingData()
+    trainer = TheTrainer(data.x_train, data.y_train)
+    r = trainer.fit()
+    predictions = numpy.dot(data.x_train, trainer.transformation)
+#+end_src
+#+begin_src python :results output :exports both
+with TIMER:
+    tester = NearestNeighbors(k=1, candidates=data.y_train)
+    accuracy = sum([tester(row) == index
+                    for index, row in enumerate(predictions)])/len(predictions)
+#+end_src
+
+#+RESULTS:
+: 2020-10-31 19:35:14,133 graeae.timers.timer start: Started: 2020-10-31 19:35:14.133884
+: 2020-10-31 19:43:29,695 graeae.timers.timer end: Ended: 2020-10-31 19:43:29.695745
+: 2020-10-31 19:43:29,697 graeae.timers.timer end: Elapsed: 0:08:15.561861
+
+#+begin_src python :results output :exports both
+print(f"Accuracy: {100 * accuracy[0]: 0.2f} %")
+#+end_src
+
+#+RESULTS:
+: Accuracy:  55.23 %
+
 * End
   - The next post in this series is {{% doc %}}machine-translation-with-locality-sensitive-hashing{{% /doc %}}

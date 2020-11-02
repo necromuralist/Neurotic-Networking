@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 2
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-93768719-c25d-4fb2-8f1a-e3a251b64367-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1678b52d-9177-44e0-a2b7-dd5256303c72-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -32,10 +32,15 @@ from nltk.corpus import twitter_samples
 import numpy
 
 # my code
+from graeae import Timer
 from neurotic.nlp.word_embeddings.embeddings import EmbeddingsLoader
 from neurotic.nlp.twitter.processor import TwitterProcessor
 #+end_src
 ** Set Up
+*** The Timer
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
 *** The Environment
 #+begin_src python :results none
 load_dotenv("posts/nlp/.env")
@@ -55,7 +60,7 @@ process_tweet = TwitterProcessor()
 embeddings = EmbeddingsLoader()
 #+end_src
 * Middle
-** 3. Locality-Sensitive Hashing (LSH) and Document Search
+** Locality-Sensitive Hashing (LSH)
 
 In this part of the assignment, you will implement a more efficient version of k-nearest neighbors using locality sensitive hashing. You will then apply this to document search.
  
@@ -233,7 +238,7 @@ Let's say you have a set of data points,  You can divide the vector space into r
 
 #+begin_src python :results output :exprts both
 N_VECS = len(tweets)       # This many vectors.
-N_DIMS = len(ind2Tweet[1])     # Vector dimensionality.
+N_DIMS = document_vecs.shape[1]     # Vector dimensionality.
 print(f"There are {N_VECS:,} vectors and each has {N_DIMS} dimensions.")
 #+end_src
 
@@ -482,16 +487,18 @@ You can now hash your vectors and store them in a hash table that would allow yo
 #+begin_src python :results output :exprts both
 hash_tables = []
 id_tables = []
-for universe_id in range(N_UNIVERSES):  # there are 25 hashes
-    print('working on hash universe #:', universe_id)
-    planes = planes_l[universe_id]
-    hash_table, id_table = make_hash_table(document_vecs, planes)
-    hash_tables.append(hash_table)
-    id_tables.append(id_table)
+with TIMER:
+    for universe_id in range(N_UNIVERSES):  # there are 25 hashes
+        print('working on hash universe #:', universe_id)
+        planes = planes_l[universe_id]
+        hash_table, id_table = make_hash_table(document_vecs, planes)
+        hash_tables.append(hash_table)
+        id_tables.append(id_table)
 #+end_src
 
 #+RESULTS:
 #+begin_example
+2020-10-29 19:05:44,385 graeae.timers.timer start: Started: 2020-10-29 19:05:44.385491
 working on hash universe #: 0
 working on hash universe #: 1
 working on hash universe #: 2
@@ -517,6 +524,8 @@ working on hash universe #: 21
 working on hash universe #: 22
 working on hash universe #: 23
 working on hash universe #: 24
+2020-10-29 19:05:58,159 graeae.timers.timer end: Ended: 2020-10-29 19:05:58.159642
+2020-10-29 19:05:58,161 graeae.timers.timer end: Elapsed: 0:00:13.774151
 #+end_example
 ** Bundling It Up
 #+begin_src python :tangle ../../neurotic/nlp/word_embeddings/hashing.py
@@ -792,7 +801,7 @@ class HashTables:
     _hash_tables: list=None
     _id_tables: list=None
 #+end_src
-*** Hash Tables
+**** Hash Tables
 #+begin_src python :noweb-ref hash-tables-hash
 @property
 def hash_tables(self) -> list:
@@ -805,7 +814,7 @@ def hash_tables(self) -> list:
         ]
     return self._hash_tables
 #+end_src
-*** ID Tables
+**** ID Tables
 #+begin_src python :noweb-ref hash-tables-index
 @property
 def id_tables(self) -> list:
@@ -871,7 +880,6 @@ print(tweets[idx])
 #+begin_src python :results output :exports both
 from neurotic.nlp.word_embeddings.hashing import HashTable
 
-
 numpy.random.seed(0)
 idx = 0
 planes = universes.planes[idx]  # get one 'universe' of planes to test the function
@@ -881,7 +889,7 @@ expected = 768
 hasher = HashTable(planes=planes, vectors=None)
 actual = hasher.hash_value(vec)
 
-assert expected == actual, actual
+assert expected == actual, f"expected: {expected}, Actual: {actual}"
 print(f" The hash value for this vector,",
       f"and the set of planes at index {idx},",
       f"is {actual}")
@@ -911,6 +919,48 @@ print(f"The first 5 document indices stored at key {index} of are {tmp_id_table[
 : The id table at key 2 has 21
 : The first 5 document indices stored at key 2 of are [356, 529, 976, 1754, 1779]
 *** Hash Tables
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.hashing import HashTables
+tables = HashTables(universes=25, planes=universes.planes, vectors=table.documents_embeddings)
+with TIMER:    
+    hash_tables_2 = tables.hash_tables
+    id_tables_2 = tables.id_tables
+#+end_src
 
+#+RESULTS:
+: 2020-10-29 19:06:32,191 graeae.timers.timer start: Started: 2020-10-29 19:06:32.191271
+: 2020-10-29 19:06:56,635 graeae.timers.timer end: Ended: 2020-10-29 19:06:56.635738
+: 2020-10-29 19:06:56,637 graeae.timers.timer end: Elapsed: 0:00:24.444467
+
+#+begin_src python :results none
+assert len(hash_tables_2) == universes.universes
+assert len(id_tables_2) == universes.universes
+
+id_tables_ = zip(id_tables, id_tables_2)
+for table, table_2 in id_tables_:
+    assert len(table_2) == 2**universes.plane_count
+    for bucket, ids in table.items():
+        assert ids == table_2[bucket], "[{bucket}]: {ids}, {table_2[bucket]}"
+#+end_src
+
+*** Testing Objects
+| Variable      | Class               |
+|---------------+---------------------|
+| embeddings    | EmbeddingsLoader    |
+| process_tweet | TwitterProcessor    |
+| table         | DocumentsEmbeddings |
+| hasher        | HashTable           |
+| tables        | HashTables          |
+** The Data
+   This is a summary of the data that was loaded since this was such a long post and I can't remember what's what without looking around.
+
+| Variable      | Type            | Description                                                                                                         |
+|---------------+-----------------+---------------------------------------------------------------------------------------------------------------------|
+| tweets        | list of strings | All the tweets (10,000)                                                                                             |
+| document_vecs | numpy.ndarray   | Document embeddings for the tweets (10,000, 300)                                                                    |
+| ind2Tweet     | dict            | Map index of tweet (in tweets or document_vecs) to document embedding                                               |
+| planes_l      | List of arrays  | List of random planes for hashing (each is 300 x 10, 25 total)                                                      |
+| hash_tables   | List            | List of bucket-index to document embeddings maps (One for each plane, each with 1,024 buckets (2^number of planes)) |
+| id_tables     | List            | List of bucket index: document index maps (one for each plane, each with 1,024)                                     |
 * End
   The next step is to use this to implement {{% lancelot title="approximate k-Nearest Neighbors" %}}machine-translation-with-approximate-knn{{% /lancelot %}} to compelete our application.
