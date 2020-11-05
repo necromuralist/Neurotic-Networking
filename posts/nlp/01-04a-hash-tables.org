@@ -1,0 +1,339 @@
+#+BEGIN_COMMENT
+.. title: Hash Tables
+.. slug: hash-tables
+.. date: 2020-10-07 19:37:18 UTC-07:00
+.. tags: nlp,hash tables
+.. category: NLP
+.. link: 
+.. description: Using hash tables to map word vectors.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-d4b1c4c0-d887-41ae-89ef-9310fe7a44cd-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+from functools import partial
+
+import math
+import pprint
+
+# pypi
+from numpy.random import default_rng
+
+import hvplot.pandas
+import numpy
+import pandas
+
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src python :results none
+SLUG = "hash-tables"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{SLUG}")
+Plot = Namespace(
+    width=990,
+    height=780,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+)
+#+end_src
+*** Random Number Generator
+#+begin_src python :results none
+numpy_random = default_rng()
+#+end_src
+*** Pretty Printer
+#+begin_src python :results none
+pretty = pprint.PrettyPrinter()
+#+end_src
+* Middle
+** A Basic Hash Table
+#+begin_src python :results none
+def basic_hash_table(things_to_hash: list, buckets: int) -> dict:
+    """Create a basic hash table
+
+    Args :
+     things_to_hash: list of integers to hash
+     buckets: number of buckets in the table
+
+    Returns:
+     hash_table: the things to hash sorted into their buckets
+    """
+    
+    def hash_function(value: int, buckets: int) -> int:
+        """Maps the value to an integer
+
+        Args:
+         value: what to hash
+         n_buckets: number of buckets in the hash table
+
+        Returns:
+         remainder of value//n_buckets
+        """        
+        return int(value) % buckets
+
+     # Initialize all the buckets in the hash table as empty lists
+    hash_table = {bucket:[] for bucket in range(buckets)}
+
+    for value in things_to_hash:
+         # Get the hash key for the given value
+        hash_value = hash_function(value, buckets)
+
+         # Add the element to the corresponding bucket
+        hash_table[hash_value].append(value)
+    return hash_table
+#+end_src
+
+The =basic_hash_table= maps values that can be cast to integers to a dictionary of lists. Let's see what it does.
+
+#+begin_src python :results output :exports both
+examples = [100, 10, 14, 17, 97]
+hash_table_example = basic_hash_table(examples, buckets=10)
+pretty.pprint(hash_table_example)
+#+end_src
+
+#+RESULTS:
+: {0: [100, 10],
+:  1: [],
+:  2: [],
+:  3: [],
+:  4: [14],
+:  5: [],
+:  6: [],
+:  7: [17, 97],
+:  8: [],
+:  9: []}
+
+This Basic Hash Table maps the values based on their remainder after dividing the value by the number of buckets. In this case there are ten buckets so the value gets mapped to the value in its ones column.
+
+** Multiplane Hash Functions
+   To visualize it we'll start with a single plane and color some points based on which side of the plane they fall.
+
+I'll start by defining the vector that we'll use to decide which side of the plane a vector is on (by taking the dot product and checking the sign of the result).
+#+begin_src python :results none
+decider  = pandas.DataFrame([[1, 2]])
+#+end_src
+
+This isn't the separating plane but rather a vector perpendicular to the separating plane. You don't need the separating plane to make the categorizations of the vectors, but for the sake of visualization it might be useful to see it. We can create it by creating a rotation matrix that rotates our originar vector 90 degrees.
+
+#+begin_src python :results none
+theta_1 = math.radians(90)
+
+rotation = numpy.array([[math.cos(theta_1), -math.sin(theta_1)],
+                        [math.sin(theta_1), math.cos(theta_1)]])
+
+plane = pandas.Series(numpy.dot(rotation, decider.T).T[0])
+#+end_src
+
+Now we can plot them along with some categorized points.
+
+First plot the vector we use to decide what side of the plane the points are.
+
+#+begin_src python :results none
+# so to plot it I'll add a starting point
+COLUMNS = "X Y".split()
+start = pandas.DataFrame([[0, 0]])
+decider_plotter = pandas.concat([start, plane])
+decider_plotter.columns = COLUMNS
+plot = decider_plotter.hvplot(x="X", y="Y")
+#+end_src
+
+Now plot the plane that separates the categories. I'll scale it a little to move the plot back a little. Also the rotation gives us only the line segment rotated by 90 degrees so I'm going to negate it to get the -90 segment as well to complete the rendering of the plane.
+
+#+begin_src python :results none
+SCALE = 2
+plane_plotter = start.append(plane, ignore_index=True) * SCALE
+plane_plotter.columns = COLUMNS
+plot *= plane_plotter.hvplot(x="X", y="Y", color=Plot.tan, line_dash="dashed")
+
+plane_plotter *= -1
+plot *= plane_plotter.hvplot(x="X", y="Y", color=Plot.tan, line_dash="dashed")
+#+end_src
+
+Now we get to the points. The main lines to pay attention to are the calculation of the =side_of_plane= value and the conditional. The =side_of_plane= is an array but you can do boolean equality checks with integers as shown.
+
+#+begin_src python :results none
+## Get a pair of random numbers between -4 and 4 
+POINTS = 20
+LIMIT = 4
+
+for _ in range(0, POINTS):
+    vector = pandas.DataFrame([numpy_random.uniform(-LIMIT, LIMIT, 2)], 
+                              columns=["x", "y"])
+    side_of_plane = numpy.sign(numpy.dot(plane, vector.T)) 
+        
+    if side_of_plane == 1:
+        plot *= vector.hvplot.scatter(x="x", y="y", color=Plot.blue)
+    else:
+        plot *= vector.hvplot.scatter(x="x", y="y", color=Plot.red)
+
+plot = plot.opts(
+    title="Plane Hash Table",
+    width=Plot.width,
+    height=Plot.height,
+    fontscale=Plot.fontscale,
+    xlim=(-LIMIT, LIMIT),
+    ylim=(-LIMIT, LIMIT)
+)
+outcome = Embed(plot=plot, file_name="multiplane_hash")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="multiplane_hash.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So the dashed tan line is our separation plane and the blue line segment is the vector we use to decide which side of the plane the dots are on. The blue dots have a positive dot product with the blue vector and the red dots have a negative dot product with the blue vector.
+
+** Multiple PLanes
+#+begin_src python :results none
+plane_1 = numpy.array([[1, 1]])
+plane_2 = numpy.array([[-1, 1]])
+plane_3 = numpy.array([[-1, -1]])
+multi_plane = [plane_1, plane_2, plane_3]
+
+search_vector = numpy.array([[2, 2]])
+#+end_src
+
+#+begin_src python :results none
+def side_of_plane(plane: numpy.ndarray, vector: numpy.ndarray) -> int:
+    """Finds the side of the plane that the vector is
+
+    Args:
+     plane: separating plane
+     vector: location to check 
+
+    Returns:
+     sign of the dot product between the plane and the vector
+    """
+    return numpy.sign(numpy.dot(plane, vector.T)).item()
+#+end_src
+
+#+begin_src python :results none
+def hash_multi_plane(planes: list, vector: numpy.ndarray) -> int:
+    """Creates hash value for set of planes
+    
+    Args:
+     planes: list of arrays to hash
+     vector: array to determine which side of the planes are positive
+
+    Returns:
+     hash_value: the hash for plane matching the vector
+    """
+    hash_value = 0
+    for index, plane in enumerate(planes):
+        sign = side_of_plane(plane, vector)
+
+        # increment the hash if the sign is non-negative
+        hash_i = 0 if sign < 0 else 1
+        hash_value += 2**index * hash_i
+    return hash_value
+#+end_src
+
+#+begin_src python :results output :exports both
+print(hash_multi_plane(multi_plane, search_vector))
+#+end_src
+
+#+RESULTS:
+: 3
+** Random Planes
+
+#+begin_src python :results output :exports both
+numpy_random = default_rng(0)
+num_dimensions = 2
+num_planes = 3
+random_planes_matrix = numpy_random.normal(
+                       size=(num_planes,
+                             num_dimensions))
+print(random_planes_matrix)
+#+end_src
+
+#+RESULTS:
+: [[ 0.12573022 -0.13210486]
+:  [ 0.64042265  0.10490012]
+:  [-0.53566937  0.36159505]]
+
+#+begin_src python :results none
+search_vector = numpy.array([[2, 2]])
+#+end_src
+
+#+begin_src python :results none
+def side_of_plane_matrix(planes: numpy.ndarray, vector: numpy.ndarray) -> numpy.ndarray:
+    """Decides which side of planes vector is on
+
+    Returns:
+     side-of-plane value for vector with respect to each plane
+    """
+    return numpy.sign(numpy.dot(planes, vector.T))
+#+end_src
+
+#+begin_src python :results output :exports both
+print(side_of_plane_matrix(random_planes_matrix, search_vector))
+#+end_src
+
+#+RESULTS:
+: [[-1.]
+:  [ 1.]
+:  [-1.]]
+
+#+begin_src python :results none
+def hash_multi_plane_matrix(planes: numpy.ndarray,
+                            vector: numpy.ndarray,
+                            num_planes: int):
+    """calculates hash for vector with respect to planes"""
+    sides_matrix = side_of_plane_matrix(planes, vector)
+    hash_value = 0
+    for i in range(num_planes):
+        sign = sides_matrix[i].item() # Get the value inside the matrix cell
+        hash_i = 1 if sign >=0 else 0
+        hash_value += 2**i * hash_i # sum 2^i * hash_i
+    return hash_value
+#+end_src
+
+#+begin_src python :results none
+sm = side_of_plane_matrix(random_planes_matrix, search_vector)
+#+end_src
+#+begin_src python :results output :exports both
+print(hash_multi_plane_matrix(random_planes_matrix, search_vector, num_planes))
+#+end_src
+
+#+RESULTS:
+: 2
+** Document Vectors
+   This is how you would convert a document to an embedding using word vectors (just add up all the vectors for the words in the document).
+   
+#+begin_src python :results output :exports both
+word_embedding = {"I": numpy.array([1,0,1]),
+                  "love": numpy.array([-1,0,1]),
+                  "learning": numpy.array([1,0,1])
+                  }
+document = ['I', 'love', 'learning', 'not_a_word']
+document_embedding = numpy.array([0,0,0])
+for word in document:
+    document_embedding += word_embedding.get(word,0)
+    
+print(document_embedding)
+
+#+end_src
+
+#+RESULTS:
+: [1 0 3]

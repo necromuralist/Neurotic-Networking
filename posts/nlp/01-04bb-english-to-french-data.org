@@ -1,0 +1,623 @@
+#+BEGIN_COMMENT
+.. title: Loading the English and French Word Embeddings
+.. slug: english-to-french-data
+.. date: 2020-10-13 17:04:25 UTC-07:00
+.. tags: nlp,embeddings,data
+.. category: NLP
+.. link: 
+.. description: Building the embeddings subset.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ae9a3fd3-75ec-4802-bd31-5fdfee92d2aa.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/embeddings.py :exports none
+<<embeddings-notes>>
+
+<<embeddings-imports>>
+
+
+<<embeddings-loader>>
+
+    <<embeddings-embeddings>>
+
+
+<<embeddings-subset>>
+
+    <<embeddings-subset-1>>
+
+    <<embeddings-subset-2>>
+
+    <<embeddings-subset-save>>
+
+    <<embeddings-subset-call>>
+
+    <<embeddings-subset-clean>>
+
+
+<<embeddings-dictloader>>
+
+    <<embeddings-dataframe>>
+
+    <<embeddings-dictionary>>
+
+
+<<embeddings-keys>>
+
+<<source-keys>>
+
+
+<<target-keys>>
+
+
+<<keys>>
+
+
+<<source-paths>>
+
+
+<<target-paths>>
+
+
+<<paths>>
+
+
+<<load-and-build>>
+
+
+<<embeddings-work-loader>>
+
+    <<embeddings-work-paths>>
+
+    <<embeddings-work-english>>
+
+    <<embeddings-work-french>>
+
+    <<embeddings-work-training>>
+
+    <<embeddings-work-testing>>
+#+end_src
+
+* Beginning
+  This is the first post in a series - the document with links to all the posts in the series is {{% lancelot title="this post" %}}machine-translation{{% /lancelot %}}.
+  
+The Machine Translation exercise uses word embeddings that are subsets of [[https://code.google.com/archive/p/word2vec/ ][prebuilt Word2Vec]] (English) embeddings (=GoogleNews-vectors-negative300.bin.gz=) and [[https://github.com/vjstark/crosslingual_text_classification][prebuilt French Embeddings]] (=wiki.multi.fr.vec=). Coursera provides them but I thought it would be a good exercise to look at how they're built.
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+import os
+
+# pypi
+from dotenv import load_dotenv
+#+end_src
+** Set Up
+*** The Dotenv
+    To make loading files more or less portable I'm using a =.env= file with the paths to the data sets. This loads it into the environment so the values are accessible using =os.environ=.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+* Middle
+** The Embeddings
+   As I noted the English and French embeddings are available from the web. I was thinking of making a download if the files don't exist but the Google News embeddings file is pretty big so the download takes a while on my internet connection so I thought it'd be better to download it from a browser anyway. I'm going to assume the files are downloaded and the Google News embeddings are un-zipped (probably using [[https://linux.die.net/man/1/gunzip][gunzip]] or [[https://www.zlib.net/pigz/][pigz]], both of which are installed by default on Ubuntu 20.04).
+*** Notes
+#+begin_src python :noweb-ref embeddings-notes
+"""This is a module for word embeddings loaders.
+"""
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref embeddings-imports
+# python
+from argparse import Namespace
+from pathlib import Path
+
+import os
+import pickle
+
+# from pypi
+from gensim.models.keyedvectors import BaseKeyedVectors, KeyedVectors
+
+import attr
+import pandas
+#+end_src
+*** The Raw Loader
+#+begin_src python :noweb-ref embeddings-loader
+@attr.s(auto_attribs=True)
+class Embeddings:
+    """Embeddings Loader"""
+    path: str
+    binary: bool
+    _embeddings: BaseKeyedVectors=None
+#+end_src
+**** The Embeddings
+
+#+begin_src python :noweb-ref embeddings-embeddings
+@property
+def embeddings(self) -> BaseKeyedVectors:
+    """The loaded embeddings"""
+    if self._embeddings is None:
+        self._embeddings = KeyedVectors.load_word2vec_format(self.path,
+                                                             binary=self.binary)
+    return self._embeddings
+#+end_src
+*** The Subset Builder
+#+begin_src python :noweb-ref embeddings-subset
+@attr.s(auto_attribs=True)
+class SubsetBuilder:
+    """Create subset of embeddings that matches sets
+    
+    Args:
+     embeddings_1: word embeddings
+     embeddings_2: word embeddings
+     subset_dict: dict whose keys and values to pull out of the embeddings
+     output_1: path to save the first subset to
+     output_2: path to save the second subset to
+    """
+    embeddings_1: KeyedVectors
+    embeddings_2: KeyedVectors
+    subset_dict: dict
+    output_1: Path
+    output_2: Path
+    
+    _vocabulary_1: set=None
+    _vocabulary_2: set=None
+    _subset_1: dict=None
+    _subset_2: dict=None
+#+end_src
+**** Subset 1
+#+begin_src python :noweb-ref embeddings-subset-1
+@property
+def subset_1(self) -> dict:
+    """Subset of embeddings 1"""
+    if self._subset_1 is None and self.output_1.is_file():        
+        with self.output_1.open("rb") as reader:
+            self._subset_1 = pickle.load(reader)
+    return self._subset_1
+#+end_src
+**** Subset 2
+#+begin_src python :noweb-ref embeddings-subset-2
+@property
+def subset_2(self) -> dict:
+    """subset of embeddings 2"""
+    if self._subset_2 is None and self.output_2.is_file():
+        with self.output_2.open("rb") as reader:
+            self._subset_2 = pickle.load(reader)
+    return self._subset_2
+#+end_src
+**** Save
+#+begin_src python :noweb-ref embeddings-subset-save
+def pickle_it(self):
+    """Save the subsets"""
+    if self.subset_1 is not None:
+        with self.output_1.open("wb") as writer:
+            pickle.dump(self.subset_1, writer)
+    if self.subset_2 is not None:
+        with self.output_2.open("wb") as writer:
+            pickle.dump(self.subset_2, writer)
+    return
+#+end_src
+**** Clean it
+#+begin_src python :noweb-ref embeddings-subset-clean
+def clean(self) -> None:
+    """Remove any pickled subsets
+
+    Also removes any subset dictionaries
+    """
+    for path in (self.output_1, self.output_2):
+        if path.is_file():
+            path.unlink()
+    self._subset_1 = self._subset_2 = None
+    return
+#+end_src
+**** Call the Subset Builder
+#+begin_src python :noweb-ref embeddings-subset-call
+def  __call__(self, pickle_it: bool=True) -> None:
+    """Builds or loads the subsets and saves them as pickles
+
+    Args:
+     pickle_it: whether to save the subsets
+    """
+    if self.subset_1 is None or self.subset_2 is None:
+        self.clean()
+        self._subset_1, self._subset_2 = {}, {}
+        for key, value in self.subset_dict.items():
+            if key in self.embeddings_1 and value in self.embeddings_2:
+                self._subset_1[key] = self.embeddings_1[key]
+                self._subset_2[value] = self.embeddings_2[value]
+        if pickle_it:
+            self.pickle_it()
+    return
+#+end_src
+** Dict Loader
+#+begin_src python :noweb-ref embeddings-dictloader
+@attr.s(auto_attribs=True)
+class DictLoader:
+    """Loader for the english and french dictionaries
+
+    This is specifically for the training and testing files
+     - CSV-ish (separated by spaces instead of commas)
+     - No header: column 1 = English, column 2 = English
+
+    Args:
+     path: path to the file
+     columns: list of strings
+     delimiter: separator for the columns in the source file
+    """
+    path: str
+    columns: list=["English", "French"]
+    delimiter: str=" "
+    
+    _dataframe: pandas.DataFrame=None
+    _dictionary: dict=None
+#+end_src
+
+**** Data Frame
+#+begin_src python :noweb-ref embeddings-dataframe
+@property
+def dataframe(self) -> pandas.DataFrame:
+    """Loads the space-separated file as a dataframe"""
+    if self._dataframe is None:
+        self._dataframe = pandas.read_csv(self.path,
+                                          names=self.columns,
+                                          delimiter=self.delimiter)
+    return self._dataframe
+#+end_src
+**** Dictionary
+#+begin_src python :noweb-ref embeddings-dictionary
+@property
+def dictionary(self) -> dict:
+    """english to french dictionary"""
+    if self._dictionary is None:
+        self._dictionary = dict(zip(self.dataframe[self.columns[0]],
+                                    self.dataframe[self.columns[1]]))
+    return self._dictionary
+#+end_src
+*** Loading It
+#+begin_src python :results output
+from neurotic.nlp.word_embeddings.embeddings import Embeddings
+
+english_embeddings = Embeddings(os.environ["GOOGLE_EMBEDDINGS"], binary=True)
+french_embeddings = Embeddings(os.environ["FRENCH_EMBEDDINGS"], binary=False)
+print(english_embeddings.embeddings)
+#+end_src
+
+#+RESULTS:
+: <gensim.models.keyedvectors.Word2VecKeyedVectors object at 0x7f9091e90cd0>
+
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.embeddings import DictLoader
+
+training = DictLoader(os.environ["ENGLISH_FRENCH_TRAINING"])
+testing = DictLoader(os.environ["ENGLISH_FRENCH_TESTING"])
+
+train_keys = set(training.dictionary)
+test_keys = set(testing.dictionary)
+print(train_keys.intersection(test_keys))
+#+end_src
+
+#+RESULTS:
+: set()
+
+After I made the subset builder it occured to me that if there was overlap between the testing and training sets but they mapped to different definitions then the way I was going to build them would require two separated dictionaries, but as you can see, the training and testing sets don't have English terms in common.
+
+#+begin_src python :results output :exports both
+merged = training.dictionary.copy()
+merged.update(testing.dictionary)
+print(len(training.dictionary))
+print(len(testing.dictionary))
+print(len(merged))
+#+end_src
+
+#+RESULTS:
+: 5000
+: 1500
+: 6500
+
+#+begin_src python :results none
+from neurotic.nlp.word_embeddings.embeddings import SubsetBuilder
+
+english_path = Path(os.environ["ENGLISH_EMBEDDINGS_SUBSET"])
+french_path = Path(os.environ["FRENCH_EMBEDDINGS_SUBSET"])
+
+builder = SubsetBuilder(embeddings_1=english_embeddings.embeddings,
+                        embeddings_2=french_embeddings.embeddings,
+                        subset_dict=merged,
+                        output_1=english_path, output_2=french_path)
+builder()
+#+end_src
+
+#+begin_src python :results none
+builder = SubsetBuilder(embeddings_1=None,
+                        embeddings_2=None,
+                        subset_dict=None,
+                        output_1=english_path, output_2=french_path)
+#+end_src
+** More Builders
+   After I tried using the =EmbeddingsLoader= on a different computer I realized that I didn't really simplify the creation of the embeddings all that much so I'm going to make an overall builder that maybe hides it from the end-user (although not entirely since I use environment variables that have to be set).
+*** Source Keys
+#+begin_src python :noweb-ref source-keys
+SourceKeys = Namespace(
+    english="GOOGLE_EMBEDDINGS",
+    french="FRENCH_EMBEDDINGS",
+    training="ENGLISH_FRENCH_TRAINING",
+    testing="ENGLISH_FRENCH_TESTING",
+    )
+#+end_src
+*** Target Keys
+#+begin_src python :noweb-ref target-keys
+TargetKeys = Namespace(
+    english="ENGLISH_EMBEDDINGS_SUBSET",
+    french="FRENCH_EMBEDDINGS_SUBSET",
+    )
+#+end_src
+*** Keys
+#+begin_src python :noweb-ref keys
+Keys = Namespace(
+    source=SourceKeys,
+    target=TargetKeys,
+    )
+#+end_src
+*** Source Paths
+#+begin_src python :noweb-ref source-paths
+@attr.s(auto_attribs=True)
+class SourcePaths:
+    """Paths to the source files
+
+    These are files provided from other sources
+    """
+    keys: Namespace=Keys
+    _english: Path=None
+    _french: Path=None
+    _training: Path=None
+    _testing: Path=None
+
+    @property
+    def english(self) -> Path:
+        """Path to the english word-embeddings"""
+        if self._english is None:
+            self._english = Path(os.environ[self.keys.source.english])
+        return self._english
+
+    @property
+    def french(self) -> Path:
+        """Path to the french word-embeddings"""
+        if self._french is None:
+            self._french = Path(os.environ[self.keys.source.french])
+        return self._french
+
+    @property
+    def training(self) -> Path:
+        """Path to the training dictionary"""
+        if self._training is None:
+            self._training = Path(os.environ[self.keys.source.training])
+        return self._training
+
+    @property
+    def testing(self) -> Path:
+        """Path to the testing dictionary"""
+        if self._testing is None:
+            self._testing = Path(os.environ[self.keys.source.testing])
+        return self._testing
+#+end_src
+*** Target Paths
+#+begin_src python :noweb-ref target-paths
+@attr.s(auto_attribs=True)
+class TargetPaths:
+    """Paths to save derived files"""
+    keys: Namespace=Keys
+    _english: Path=None
+    _french: Path=None
+
+    @property
+    def english(self) -> Path:
+        """Path to derived subset of english embeddings"""
+        if self._english is None:
+            self._english = Path(os.environ[self.keys.target.english])
+        return self._english
+
+    @property
+    def french(self) -> Path:
+        """Path to derived subset of french embeddings"""
+        if self._french is None:
+            self._french = Path(os.environ[self.keys.target.french])
+        return self._french
+#+end_src
+*** Paths
+#+begin_src python :noweb-ref paths
+@attr.s(auto_attribs=True)
+class Paths:
+    """Class to build and hold the source and target file paths"""
+    _target: Path=None
+    _source: Path=None
+
+    @property
+    def target(self) -> TargetPaths:
+        """Holds object with paths to created embeddings subsets"""
+        if self._target is None:
+            self._target = TargetPaths()
+        return self._target
+
+    @property
+    def source(self) -> SourcePaths:
+        """Holds objetw with paths to original source files"""
+        if self._source is None:
+            self._source = SourcePaths()
+        return self._source
+#+end_src
+** Load And Build
+#+begin_src python :noweb-ref load-and-build
+@attr.s(auto_attribs=True)
+class LoadAndBuild:
+    """Loads embeddings and dictionaries and builds subsets"""
+    _paths: Paths=None
+    _english_embeddings: BaseKeyedVectors=None
+    _french_embeddings: BaseKeyedVectors=None
+    _training: dict=None
+    _testing: dict=None
+    _merged_dicts: dict=None
+    _subset_builder: SubsetBuilder=None
+
+    @property
+    def paths(self) -> Paths:
+        """Object with paths to files"""
+        if self._paths is None:
+            self._paths = Paths()
+        return self._paths
+
+    @property
+    def english_embeddings(self) -> BaseKeyedVectors:
+        """Word embeddings for English"""
+        if self._english_embeddings is None:
+            self._english_embeddings = Embeddings(self.paths.source.english,
+                                                  binary=True).embeddings
+        return self._english_embeddings
+
+    @property
+    def french_embeddings(self) -> BaseKeyedVectors:
+        """Word embeddings for French"""
+        if self._french_embeddings is None:
+            self._french_embeddings = Embeddings(self.paths.source.french,
+                                                 binary=False).embeddings
+        return self._french_embeddings
+
+    @property
+    def training(self) -> dict:
+        """training dictionary"""
+        if self._training is None:
+            self._training = DictLoader(self.paths.source.training).dictionary
+        return self._training
+
+    @property
+    def testing(self) -> dict:
+        """Testing dictionary"""
+        if self._testing is None:
+            self._testing = DictLoader(self.paths.source.testing).dictionary
+        return self._testing
+
+    @property
+    def merged_dicts(self) -> dict:
+        """Testing and training merged"""
+        if self._merged_dicts is None:
+            self._merged_dicts = self.training.copy()
+            self._merged_dicts.update(self.testing)
+            assert len(self._merged_dicts) == (len(self.training) + len(self.testing))
+        return self._merged_dicts
+
+    @property
+    def subset_builder(self) -> SubsetBuilder:
+        """Builder of the subset dictionaries"""
+        if self._subset_builder is None:
+            self._subset_builder = SubsetBuilder(
+                self.english_embeddings,
+                self.french_embeddings,
+                self.merged_dicts,
+                self.paths.target.english,
+                self.paths.target.french)
+        return self._subset_builder
+
+    def __call__(self) -> None:
+        """Calls the subset builder"""
+        self.subset_builder()
+        return
+#+end_src
+
+** A Loader
+   As a convenience I'm going to make a loader for all the parts.
+
+#+begin_src python :noweb-ref embeddings-keys
+EmbeddingsKeys = Namespace(
+    english_subset="ENGLISH_EMBEDDINGS_SUBSET",
+    french_subset="FRENCH_EMBEDDINGS_SUBSET",
+    training="ENGLISH_FRENCH_TRAINING",
+    testing="ENGLISH_FRENCH_TESTING",
+)
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-loader
+@attr.s(auto_attribs=True)
+class EmbeddingsLoader:
+    """Loads the embeddings and dictionaries
+
+    Warning:
+     this assumes that you've loaded the proper environment variables to
+    find the files - it doesn't call ``load_dotenv``
+
+    """
+    _loader_builder: LoadAndBuild=None
+    _english_subset: dict=None
+    _french_subset: dict=None
+    _training: dict=None
+    _testing: dict=None
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-paths
+@property
+def loader_builder(self) -> LoadAndBuild:
+    """Object to load sources and build subsets"""
+    if self._loader_builder is None:
+        self._loader_builder = LoadAndBuild()
+    return self._loader_builder
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-english
+@property
+def english_subset(self) -> dict:
+    """The english embeddings subset
+
+    This is a subset of the Google News embeddings that matches the keys in 
+    the english to french dictionaries
+    """
+    if self._english_subset is None:
+        if not self.loader_builder.paths.target.english.is_file():
+            self.loader_builder()
+            self._english_subset = self.loader_builder.subset_builder.subset_1
+        else:
+            with self.loader_builder.paths.target.english.open("rb") as reader:
+                self._english_subset = pickle.load(reader)
+    return self._english_subset
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-french
+@property
+def french_subset(self) -> dict:
+    """Subset of the MUSE French embeddings"""
+    if self._french_subset is None:
+        if self.loader_builder.paths.target.french.is_file():
+            with self.loader_builder.paths.target.french.open("rb") as reader:
+                self._french_subset = pickle.load(reader)
+        else:
+            self.loader_builder()
+            self._french_subset = self.loader_builder.subset_builder.subset_2
+    return self._french_subset
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-training
+@property
+def training(self) -> dict:
+    """The english to french dictionary training set"""
+    if self._training is None:
+        self._training = DictLoader(self.loader_builder.paths.source.training).dictionary
+    return self._training
+#+end_src
+
+#+begin_src python :noweb-ref embeddings-work-testing
+@property
+def testing(self) -> dict:
+    """testing english to french dictionary"""
+    if self._testing is None:
+        self._testing = DictLoader(self.loader_builder.paths.source.testing).dictionary
+    return self._testing
+#+end_src
+
+* End
+  - The next step is to {{% lancelot title="convert the embeddings to a data set" %}}building-the-machine-translation-data-set{{% /lancelot %}}.
+  - The page that collects all the pages for this project is the {{% doc %}}machine-translation{{% /doc %}} page.

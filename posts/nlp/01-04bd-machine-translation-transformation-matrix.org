@@ -1,0 +1,532 @@
+#+BEGIN_COMMENT
+.. title: Training the Machine Translation Transformation Matrix
+.. slug: machine-translation-transformation-matrix
+.. date: 2020-10-22 17:34:49 UTC-07:00
+.. tags: nlp,machine translation,
+.. category: NLP
+.. link: 
+.. description: Building the Transformation Matrix for English to French translation.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-39b9e88c-9697-4196-a15a-0db2fd06e46d-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  In a prior post we {{% lancelot title="built the translation training set" %}}building-the-machine-translation-data-set{{% /lancelot %}}. In this post we'll find the [[https://en.wikipedia.org/wiki/Transformation_matrix][Transformation Matrix]] that maps our English Embeddings to the French ones.
+** Imports
+#+begin_src python :results none
+# python
+from functools import partial
+# pypi
+from dotenv import load_dotenv
+
+import hvplot.pandas
+import numpy
+import pandas
+
+# My Stuff
+from graeae import EmbedHoloviews
+from neurotic.nlp.word_embeddings.english_french import TrainingData
+#+end_src
+** Set Up
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+slug = "machine-translation-transformation-matrix"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{slug}")
+#+end_src
+* Middle
+** Translation As Linear Transformation of Embeddings
+   The problem we're working on is creating a translator that converts an English word to a French one. To do this we're using Word Embeddings which allows us to re-state the problem form being about translation to one of finding the transformation matrix that will give us a new embedding that close enough to the French translation that we can use some kind of algorithm to find the French embedding that is closest to it.
+
+ - Given dictionaries of English and French word embeddings we'll create a transformation matrix /R/.
+ - Given an English word embedding, \(\mathbf{e}\), we can multiply \(\mathbf{eR}\) to get a new word embedding \(\mathbf{f}\).
+ - Both \(\mathbf{e}\) and \(\mathbf{f}\) are [[https://en.wikipedia.org/wiki/Row_and_column_vectors][row vectors]].
+ - We can then compute the nearest neighbors to \(\mathbf{f}\) in the French embeddings and recommend the word that is most similar to the transformed word embedding.
+
+**Note:** /e/ was called =X_train= in the original assigment and corresponds to the =TrainData.x_train= property that we built in {{% lancelot title="the previous post" %}}building-the-machine-translation-data-set{{% /lancelot %}}.
+
+*** Rethinking Translation as the Minimization Problem
+ Find a matrix /R/ that minimizes the following equation. 
+
+\[
+\arg \min _{\mathbf{R}}\| \mathbf{X R} - \mathbf{Y}\|_{F}
+\]
+
+So we're trying to find the transformation matrix that minimizes the distance between an English embedding and its corresponding French embedding. The subscript for the norm (/F/) means that we're using the  [[https://en.wikipedia.org/wiki/Matrix_norm#Frobenius_norm][Frobenius norm]].
+*** Frobenius norm
+
+The Frobenius Norm of a matrix /A/ (assuming it is of dimension /m, n/) is defined as the square root of the sum of the absolute squares of its elements:
+
+\[
+\|\mathbf{A}\|_{F} \equiv \sqrt{\sum_{i=1}^{m} \sum_{j=1}^{n}\left|a_{i j}\right|^{2}}
+\]
+
+*** Actual loss function
+In the real world applications, the Frobenius norm loss:
+
+\[
+\| \mathbf{XR} - \mathbf{Y}\|_{F}
+\]
+
+ is often replaced by it's squared value divided by /m/:
+
+\[
+\frac{1}{m} \|  \mathbf{X R} - \mathbf{Y} \|_{F}^{2}
+\]
+
+where /m/ is the number of examples (rows in \(\mathbf{X}\)).
+ 
+ - The same /R/ is found when using this loss function versus the original Frobenius norm.
+ - The reason for taking the square is that it's easier to compute the gradient of the squared Frobenius.
+ - The reason for dividing by /m/ is that we're more interested in the average loss per embedding than the  loss for the entire training set.
+ - The loss for all training sets increases with more words (training examples), so taking the average helps us to track the average loss regardless of the size of the training set.
+
+*** Implementing the Translation Mechanism Described
+
+**** Step 1: Computing the loss
+     - The loss function will be the squared Frobenoius norm of the difference between the matrix and its approximation, divided by the number of training examples /m/.
+
+     - Its formula is:
+
+\[
+L(X, Y, R)=\frac{1}{m}\sum_{i=1}^{m} \sum_{j=1}^{n}\left( a_{i j} \right)^{2}
+\]
+ 
+where \(a_{i j}\) is value in the \(i^{th}\) row and /j/th column of the matrix \(\mathbf{XR}-\mathbf{Y}\).
+
+**Instructions**: complete the =compute_loss()= function.
+ 
+ - Compute the approximation of /Y/ by matrix multiplying /X/ and /R/
+ - Compute the difference /XR - Y/
+ - Compute the squared Frobenius norm of the difference and divide it by /m/.
+
+Use matrix operations instead of the =numpy.norm= function.
+
+#+begin_src python :results none
+def compute_loss(X, Y, R):
+    '''
+    Inputs: 
+        X: a matrix of dimension (m,n) where the columns are the English embeddings.
+        Y: a matrix of dimension (m,n) where the columns correspong to the French embeddings.
+        R: a matrix of dimension (n,n) - transformation matrix from English to French vector space embeddings.
+    Outputs:
+        L: a matrix of dimension (m,n) - the value of the loss function for given X, Y and R.
+    '''
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    # m is the number of rows in X
+    m = len(X)
+    
+    # diff is XR - Y
+    diff = numpy.dot(X, R) - Y
+
+    # diff_squared is the element-wise square of the difference
+    diff_squared = diff**2
+
+    # sum_diff_squared is the sum of the squared elements
+    sum_diff_squared = diff_squared.sum()
+
+    # loss is the sum_diff_squared divided by the number of examples (m)
+    loss = sum_diff_squared/m
+    ### END CODE HERE ###
+    return loss
+#+end_src
+
+*** Step 2: Computing the gradient of loss in respect to transform matrix R
+
+
+ - Calculate the gradient of the loss with respect to transform matrix /R/.
+ - The gradient is a matrix that encodes how much a small change in /R/ affects the change in the loss function.
+ - The gradient gives us the direction in which we should decrease /R/ to minimize the loss.
+ - \(m\) is the number of training examples (number of rows in /X/).
+ - The formula for the gradient of the loss function /𝐿(𝑋,𝑌,𝑅)/ is:
+
+ \[
+ \frac{d}{dR}𝐿(𝑋,𝑌,𝑅)=\frac{d}{dR}\Big(\frac{1}{m}\| X R -Y\|_{F}^{2}\Big) = \frac{2}{m}X^{T} (X R - Y)
+ \]
+
+**** **Instructions**: Complete the `compute_gradient` function below.
+
+***** Hints
+ - [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.matrix.T.html][Transposing in numpy]]
+ - [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.shape.html][Finding out the dimensions of matrices in numpy]]
+ - Remember to use numpy.dot for matrix multiplication
+
+#+begin_src python :results none
+def compute_gradient(X, Y, R):
+    '''
+    Inputs: 
+        X: a matrix of dimension (m,n) where the columns are the English embeddings.
+        Y: a matrix of dimension (m,n) where the columns correspond to the French embeddings.
+        R: a matrix of dimension (n,n) - transformation matrix from English to French vector space embeddings.
+    Outputs:
+        g: a matrix of dimension (n,n) - gradient of the loss function L for given X, Y and R.
+    '''
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    # m is the number of rows in X
+    rows, columns = X.shape
+
+    # gradient is X^T(XR - Y) * 2/m
+    gradient = (numpy.dot(X.T, numpy.dot(X, R) - Y) * 2)/rows
+    assert gradient.shape == (columns, columns)
+    ### END CODE HERE ###
+    return gradient
+#+end_src
+*** Step 3: Finding the optimal R with gradient descent algorithm
+**** Gradient descent
+
+ [[https://ml-cheatsheet.readthedocs.io/en/latest/gradient_descent.html][Gradient descent]] is an iterative algorithm which is used in searching for the optimum of the function.
+  - Earlier, we mentioned that the gradient of the loss with respect to the matrix encodes how much a tiny change in some coordinate of that matrix affect the change of loss function.
+  - Gradient descent uses that information to iteratively change matrix /R/ until we reach a point where the loss is minimized. 
+
+***** Training with a fixed number of iterations
+
+      Most of the time we iterate for a fixed number of training steps rather than iterating until the loss falls below a threshold.
+
+
+ Pseudocode:
+
+  1. Calculate gradient /g/ of the loss with respect to the matrix /R/.
+  2. Update /R/ with the formula:
+ \[    
+  R_{\text{new}}= R_{\text{old}}-\alpha g
+ \]
+
+ Where \(\alpha\) is the learning rate, which is a scalar.
+
+***** Learning rate
+
+      - The learning rate or "step size" \(\alpha\) is a coefficient which decides how much we want to change /R/ in each step.
+      - If we change /R/ too much, we could skip the optimum by taking too large of a step.
+      - If we make only small changes to /R/, we will need many steps to reach the optimum.
+      - Learning rate \(\alpha\) is used to control those changes.
+      - Values of \(\alpha\) are chosen depending on the problem, and we'll use =learning_rate= /=0.0003/ as the default value for our algorithm.
+
+***** Exercise 04
+ 
+ Instructions: Implement =align_embeddings()=
+
+ #+begin_src python :results none
+def align_embeddings(X: numpy.ndarray, Y: numpy.ndarray,
+                     train_steps: int=100,
+                     learning_rate: float=0.0003,
+                     seed: int=129) -> numpy.ndarray:
+    '''
+    Inputs:
+        X: a matrix of dimension (m,n) where the columns are the English embeddings.
+        Y: a matrix of dimension (m,n) where the columns correspong to the French embeddings.
+        train_steps: positive int - describes how many steps will gradient descent algorithm do.
+        learning_rate: positive float - describes how big steps will  gradient descent algorithm do.
+    Outputs:
+        R: a matrix of dimension (n,n) - the projection matrix that minimizes the F norm ||X R -Y||^2
+    '''
+    # the number of columns in X is the number of dimensions for a word vector (e.g. 300)
+    # R is a square matrix with length equal to the number of dimensions in th  word embedding
+    R = numpy.random.rand(X.shape[1], X.shape[1])
+
+    for i in range(train_steps):
+        if i % 25 == 0:
+            print(f"loss at iteration {i} is: {compute_loss(X, Y, R):.4f}")
+        ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+        # use the function that you defined to compute the gradient
+        gradient = compute_gradient(X, Y, R)
+
+        # update R by subtracting the learning rate times gradient
+        R -= learning_rate * gradient
+        ### END CODE HERE ###
+    return R
+ #+end_src
+
+**** Testing Your Implementation.
+
+ #+begin_src python :results ouput :exports both
+numpy.random.seed(129)
+m = 10
+n = 5
+X = numpy.random.rand(m, n)
+Y = numpy.random.rand(m, n) * .1
+R = align_embeddings(X, Y)
+ #+end_src
+
+ #+RESULTS:
+ : loss at iteration 0 is: 3.4697
+ : loss at iteration 25 is: 3.3795
+ : loss at iteration 50 is: 3.2918
+ : loss at iteration 75 is: 3.2064
+
+
+ **Expected Output:**
+ #+RESULTS:
+  loss at iteration 0 is: 3.7242
+  loss at iteration 25 is: 3.6283
+  loss at iteration 50 is: 3.5350
+  loss at iteration 75 is: 3.4442
+
+**** Calculate transformation matrix
+
+ Using those the training set, find the transformation matrix \(\mathbf{R}\) by calling the function =align_embeddings()=.
+
+ **NOTE:** The code cell below will take a few minutes to fully execute (~3 mins)
+
+
+ #+begin_src python :results output :exports both
+data = TrainingData()
+R_train = align_embeddings(data.x_train, data.y_train, train_steps=400, learning_rate=0.8)
+ #+end_src
+
+ #+RESULTS:
+ #+begin_example
+ loss at iteration 0 is: 968.1416
+ loss at iteration 25 is: 97.6094
+ loss at iteration 50 is: 26.7949
+ loss at iteration 75 is: 9.7902
+ loss at iteration 100 is: 4.3831
+ loss at iteration 125 is: 2.3324
+ loss at iteration 150 is: 1.4509
+ loss at iteration 175 is: 1.0356
+ loss at iteration 200 is: 0.8263
+ loss at iteration 225 is: 0.7152
+ loss at iteration 250 is: 0.6539
+ loss at iteration 275 is: 0.6188
+ loss at iteration 300 is: 0.5983
+ loss at iteration 325 is: 0.5859
+ loss at iteration 350 is: 0.5783
+ loss at iteration 375 is: 0.5736
+ #+end_example
+
+
+ Expected Output
+
+ #+RESULTS
+  loss at iteration 0 is: 963.0146
+  loss at iteration 25 is: 97.8292
+  loss at iteration 50 is: 26.8329
+  loss at iteration 75 is: 9.7893
+  loss at iteration 100 is: 4.3776
+  loss at iteration 125 is: 2.3281
+  loss at iteration 150 is: 1.4480
+  loss at iteration 175 is: 1.0338
+  loss at iteration 200 is: 0.8251
+  loss at iteration 225 is: 0.7145
+  loss at iteration 250 is: 0.6534
+  loss at iteration 275 is: 0.6185
+  loss at iteration 300 is: 0.5981
+  loss at iteration 325 is: 0.5858
+  loss at iteration 350 is: 0.5782
+  loss at iteration 375 is: 0.5735
+
+** Saving It For Later
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/training.py
+<<trainer-imports>>
+
+
+<<the-trainer>>
+
+    <<trainer-timer>>
+
+    <<trainer-loss>>
+
+    <<trainer-gradient>>
+
+    <<trainer-align-embeddings>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref trainer-imports
+# pypi
+import attr
+import numpy
+
+# my stuff
+from graeae import Timer
+#+end_src
+*** The Trainer Class
+    We could keep it as just functions like it is here, but, nah.
+#+begin_src python :noweb-ref the-trainer
+@attr.s(auto_attribs=True)
+class TheTrainer:
+    """Trains the word-embeddings data
+
+    Args:
+     x_train: the training input
+     y_train: the training labels
+     training_steps: number of times to run the training loop
+     learning_rate: multiplier for the gradient (alpha)
+     seed: random-seed for numpy
+     loss_every: if verbose, how often to show loss during fitting
+     verbose: whether to emit messages
+    """
+    x_train: numpy.ndarray
+    y_train: numpy.ndarray
+    _timer: Timer=None
+    training_steps: int=400
+    learning_rate: float=0.8
+    seed: int=129
+    loss_every: int=25
+    verbose: bool=True
+#+end_src
+*** A Timer
+    Just something to keep track of how long things take.
+#+begin_src python :noweb-ref trainer-timer
+@property
+def timer(self) -> Timer:
+    """A timer"""
+    if self._timer is None:
+        self._timer = Timer(emit=self.verbose)
+    return self._timer
+#+end_src
+*** The Loss Method
+#+begin_src python :noweb-ref trainer-loss
+def loss(self, transformation: numpy.ndarray) -> numpy.float:
+    """
+    Calculates the loss between XR and Y as the average sum of difference squared
+
+    Args: 
+        transformation: a matrix of dimension (n,n) - transformation matrix.
+
+    Returns:
+        loss: value of loss function for X, Y and R
+    """
+    rows, columns = self.x_train.shape
+    
+    difference = numpy.dot(self.x_train, transformation) - self.y_train
+    difference_squared = difference**2
+    sum_of_difference_squared = difference_squared.sum()
+    return sum_of_difference_squared/rows
+#+end_src
+*** The Gradient
+#+begin_src python :noweb-ref trainer-gradient
+def gradient(self, transformation: numpy.ndarray) -> numpy.ndarray:
+    """computes the gradient (slope) of the loss
+    
+    Args: 
+        transformation: transformation matrix of dimension (n,n)
+
+    Returns:
+        gradient: a matrix of dimension (n,n)
+    """
+    rows, columns = self.x_train.shape
+
+    gradient = (
+        numpy.dot(self.x_train.T,
+                  numpy.dot(self.x_train, transformation) - self.y_train) * 2
+    )/rows
+    assert gradient.shape == (columns, columns)
+    return gradient
+#+end_src
+*** The Embeddings Aligner
+#+begin_src python :noweb-ref trainer-align-embeddings
+def fit(self) -> numpy.ndarray:
+    """Fits the transformation matrix to the data
+
+    Side Effect:
+     sets self.transformation  and self.losses
+
+    Returns:
+     the projection matrix that minimizes the F norm ||X R -Y||^2
+    """
+    numpy.random.seed(self.seed)
+    assert self.x_train.shape == self.y_train.shape
+    rows, columns = self.x_train.shape
+    self.transformation = numpy.random.rand(columns, columns)
+    self.losses = []
+    if self.verbose:
+        print("Step\tLoss")
+    with self.timer:
+        for step in range(self.training_steps):
+            loss = self.loss(self.transformation)
+            if self.verbose and step % 25 == 0:
+                print(f"{step}\t{loss:0.4f}")
+            self.transformation -= self.learning_rate * self.gradient(
+                self.transformation)
+            self.losses.append(loss)
+    assert self.transformation.shape == (columns, columns)
+    return self.transformation
+#+end_src
+
+** Check the Tester
+*** Sanity Check
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.training import TheTrainer
+numpy.random.seed(129)
+m = 10
+n = 5
+X = numpy.random.rand(m, n)
+Y = numpy.random.rand(m, n) * .1
+trainer = TheTrainer(X, Y, training_steps=100, learning_rate=0.003)
+R = trainer.fit()
+#+end_src
+
+#+RESULTS:
+: 2020-10-23 18:27:50,195 graeae.timers.timer start: Started: 2020-10-23 18:27:50.195052
+: 2020-10-23 18:27:50,201 graeae.timers.timer end: Ended: 2020-10-23 18:27:50.201767
+: 2020-10-23 18:27:50,203 graeae.timers.timer end: Elapsed: 0:00:00.006715
+: The loss at step 0 is: 3.7242
+: The loss at step 25 is: 2.8709
+: The loss at step 50 is: 2.2201
+: The loss at step 75 is: 1.7235
+*** The Real Data
+#+begin_src python :results output :exports both
+trainer = TheTrainer(data.x_train, data.y_train)
+r = trainer.fit()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2020-10-23 18:30:45,558 graeae.timers.timer start: Started: 2020-10-23 18:30:45.558693
+Step	Loss
+0	963.0146
+25	97.8292
+50	26.8329
+75	9.7893
+100	4.3776
+125	2.3281
+150	1.4480
+175	1.0338
+200	0.8251
+225	0.7145
+250	0.6534
+275	0.6185
+300	0.5981
+325	0.5858
+350	0.5782
+375	0.5735
+2020-10-23 18:31:16,471 graeae.timers.timer end: Ended: 2020-10-23 18:31:16.471708
+2020-10-23 18:31:16,473 graeae.timers.timer end: Elapsed: 0:00:30.913015
+#+end_example
+*** Plotting the Losses
+#+begin_src python :results none
+losses = pandas.DataFrame(dict(Step=list(range(len(trainer.losses))),
+                               Loss=trainer.losses))
+plot = losses.hvplot(x="Step", y="Loss").opts(
+    title="Training Losses",
+    width=990,
+    height=780,
+    fontscale=2,
+    color="#4687b7",
+)
+
+outcome = Embed(plot=plot, file_name="train_loss")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="train_loss.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Although the losses continue to go down, it looks like most of the gains come in the first 100 rounds of training.
+* End
+  - The master post with links to all the posts in this series is {{% doc %}}machine-translation{{% /doc %}}.
+  - The next post in this series is {{% doc %}}machine-translation-k-nearest-neighbors{{% /doc %}}.
+  - This is part of an Assignment for Coursera's Natural Language Processing Specialization, Course 1, Week 4.
