@@ -1,0 +1,309 @@
+#+BEGIN_COMMENT
+.. title: Autocorrect System: Data Preprocessing
+.. slug: autocorrect-system-data-preprocessing
+.. date: 2020-11-05 18:42:59 UTC-08:00
+.. tags: nlp,autocorrect,data preprocessing
+.. category: NLP
+.. link: 
+.. description: Preprocessing data for the autocorrect system.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6db97024-c8c7-4320-bce4-02bca75093d4-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from collections import Counter
+from pathlib import Path
+
+import math
+import os
+import re
+
+# pypi
+from dotenv import load_dotenv
+#+end_src
+** Set Up
+*** The Environment
+    This loads our environment variables.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+* Middle
+   Our corpus is going to come from a text file with some plays of Shakespeare in it.
+** The Process Data Function
+#+begin_src python :results none
+def process_data(file_name: str) -> list:
+    """
+    pre-processes the text file
+
+    Note:
+     The original assignment assumes the file will be in the same directory as 
+    the code - so it's called file_name for now but it's really the path to 
+    the file
+
+    Args: 
+       a path to the text file
+
+    Returns: 
+        words: list of all words in the corpus (text file you read) lower-cased
+    """
+    words = [] # return this variable correctly
+
+    ### START CODE HERE ### 
+    with open(file_name) as lines:
+        for line in lines:
+            tokens = re.findall("\w+", line)
+            words += [token.strip().lower() for token in tokens]
+    ### END CODE HERE ###
+    
+    return words
+#+end_src
+
+#+begin_src python :results output :exports both
+words = process_data(os.environ["SHAKESPEARE"])
+vocabulary = set(words)  # this will be your new vocabulary
+first_ten = words[:10]
+print(f"The first ten words in the text are: \n{first_ten}")
+print(f"There are {len(vocabulary)} unique words in the vocabulary.")
+
+expected = "o for a muse of fire that would ascend the"
+actual = " ".join(first_ten)
+assert expected == actual, actual
+assert len(vocabulary) == 6116
+#+end_src
+
+#+RESULTS:
+: The first ten words in the text are: 
+: ['o', 'for', 'a', 'muse', 'of', 'fire', 'that', 'would', 'ascend', 'the']
+: There are 6116 unique words in the vocabulary.
+** Get Count
+   This creates a dictionary of word: count pairs.
+
+#+begin_src python :results none
+def get_count(word_l: list) -> Counter:
+    """Creates a counter for the words
+
+    Args:
+        word_l: a list of words representing the corpus. 
+
+    Returns:
+        word_counter: word-frequency dictionary
+    """
+    
+    word_count_dict = {}  # fill this with word counts
+    ### START CODE HERE 
+    word_count_dict = Counter(word_l)
+    ### END CODE HERE ### 
+    return word_count_dict
+#+end_src
+
+#+begin_src python :results output :exports both
+word_counter = get_count(words)
+print(f"There are {len(word_counter)} key values pairs")
+print(f"The count for the word 'thee' is {word_counter['thee']}")
+assert len(word_counter) == 6116
+assert word_counter['thee'] == 240
+#+end_src
+
+#+RESULTS:
+: There are 6116 key values pairs
+: The count for the word 'thee' is 240
+** Get Probability
+Given the dictionary of word counts, compute the probability that each word will appear if randomly selected from the corpus of words.
+
+\[
+P(w_i) = \frac{C(w_i)}{M} \tag{Equation-2}
+\]
+
+where 
+
+\(C(w_i)\) is the total number of times \(w_i\) appears in the corpus.
+
+/M/ is the total number of words in the corpus.
+
+ For example, the probability of the word 'am' in the sentence **'I am happy because I am learning'** is:
+
+\[
+P(am) = \frac{C(w_i)}{M} = \frac {2}{7} \tag{Equation-3}
+\]
+
+#+begin_src python :results none
+def get_probs(word_count_dict: Counter) -> dict:
+    """Calculates the probability of each word
+
+    Args:
+      word_count_dict: word:frequency dictionary
+
+    Returns:
+      probs: word:probability of word dictionary
+    """
+    probs = {}  # return this variable correctly
+    
+    ### START CODE HERE ###
+    total = sum(word_count_dict.values())
+    probs = {word: word_count_dict[word]/total for word in word_count_dict}
+    ### END CODE HERE ###
+    return probs
+#+end_src
+
+#+begin_src python :results output :exports both
+probabilities = get_probs(word_counter)
+print(f"Length of probabilities is {len(probabilities)}")
+thee_probability = probabilities["thee"]
+print(f"P('thee') is {thee_probability:.4f}")
+assert len(probabilities) == 6116
+assert math.isclose(thee_probability, 0.0045, abs_tol=1e-04), thee_probability
+#+end_src
+
+#+RESULTS:
+: Length of probabilities is 6116
+: P('thee') is 0.0045
+
+* End
+  Now that we have the skeleton I'll put it all into a class to make it easier to use it in another notebook.
+#+begin_src python :tangle ../../neurotic/nlp/autocorrect/preprocessing.py
+<<imports>>
+
+
+<<corpus-builder>>
+
+    <<corpus-words>>
+
+    <<corpus-counts>>
+
+    <<corpus-probabilities>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import Counter
+from pathlib import Path
+
+import math
+import os
+import re
+
+# pypi
+import attr
+#+end_src
+** Corpus Builder
+#+begin_src python :noweb-ref corpus-builder
+@attr.s(auto_attribs=True)
+class CorpusBuilder:
+    """Builds the autocorrect corpus counts
+
+    Args:
+     path: Path to the corpus source file
+    """
+    path: Path
+    _words: list=None
+    _counts: Counter=None
+    _probabilities: dict=None
+#+end_src
+*** Corpus Words
+#+begin_src python :noweb-ref corpus-words
+@property
+def words(self) -> list:
+    """
+    The processed words from the source file
+
+    Returns: 
+      words: list of all words in the corpus lower-cased
+    """
+    if self._words is None:
+        with self.path.open() as lines:
+            tokenized = (re.findall("\w+", line) for line in lines)
+            self._words = [word.strip().lower() for sublist in tokenized for word in sublist]
+    return self._words
+#+end_src    
+*** Corpus Word Counts
+#+begin_src python :noweb-ref corpus-counts
+@property
+def counts(self) -> Counter:
+    """The counter for the words in the corpus
+
+    Returns:
+     word: word-frequency counter
+    """
+    if self._counts is None:
+        self._counts = Counter(self.words)
+    return self._counts
+#+end_src
+*** Corpus Word Probabilities
+#+begin_src python :noweb-ref corpus-probabilities
+@property
+def probabilities(self) -> dict:
+    """The probability for each word in the corpus
+
+    Returns:
+     word:probability dictionary
+    """
+    if self._probabilities is None:
+        total = sum(self.counts.values())
+        self._probabilities = {word: self.counts[word]/total
+                               for word in self.counts}
+    return self._probabilities
+#+end_src
+** Testing the Corpus
+#+begin_src python :results output :exports both
+from neurotic.nlp.autocorrect.preprocessing import CorpusBuilder
+
+path = Path(os.environ["SHAKESPEARE"])
+assert path.is_file()
+
+corpus = CorpusBuilder(path)
+
+words = corpus.words
+vocabulary = set(words)  # this will be your new vocabulary
+first_ten = words[:10]
+print(f"The first ten words in the text are: \n{first_ten}")
+print(f"There are {len(vocabulary)} unique words in the vocabulary.")
+
+expected = "o for a muse of fire that would ascend the"
+actual = " ".join(first_ten)
+assert expected == actual, actual
+assert len(vocabulary) == 6116
+#+end_src
+
+#+RESULTS:
+: The first ten words in the text are: 
+: ['o', 'for', 'a', 'muse', 'of', 'fire', 'that', 'would', 'ascend', 'the']
+: There are 6116 unique words in the vocabulary.
+
+#+begin_src python :results output :exports both
+word_counter = corpus.counts
+print(f"There are {len(word_counter)} key values pairs")
+print(f"The count for the word 'thee' is {word_counter['thee']}")
+assert len(word_counter) == 6116
+assert word_counter['thee'] == 240
+#+end_src
+
+#+RESULTS:
+: There are 6116 key values pairs
+: The count for the word 'thee' is 240
+
+#+begin_src python :results output :exports both
+probabilities = corpus.probabilities
+print(f"Length of probabilities is {len(probabilities)}")
+thee_probability = probabilities["thee"]
+print(f"P('thee') is {thee_probability:.4f}")
+assert len(probabilities) == 6116
+assert math.isclose(thee_probability, 0.0045, abs_tol=1e-04), thee_probability
+#+end_src
+
+#+RESULTS:
+: Length of probabilities is 6116
+: P('thee') is 0.0045
+
+So, now we have a corpus builder.
