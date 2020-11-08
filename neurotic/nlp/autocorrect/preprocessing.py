@@ -21,6 +21,7 @@ class CorpusBuilder:
     _words: list=None
     _counts: Counter=None
     _probabilities: dict=None
+    _vocabulary: set=None
 
     @property
     def words(self) -> list:
@@ -59,3 +60,10 @@ class CorpusBuilder:
             self._probabilities = {word: self.counts[word]/total
                                    for word in self.counts}
         return self._probabilities
+
+    @property
+    def vocabulary(self) -> set:
+        """The set of vocabulary words"""
+        if self._vocabulary is None:
+            self._vocabulary = set(self.words)
+        return self._vocabulary
