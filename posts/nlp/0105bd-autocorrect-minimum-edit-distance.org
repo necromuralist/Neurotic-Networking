@@ -10,9 +10,9 @@
 .. has_math: True
 #+END_COMMENT
 #+OPTIONS: ^:{}
-#+TOC: headlines 2
+#+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f9b45a5e-bfc0-440e-afa2-3e6fed4c76d8-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e668b76a-2107-4eb7-8eb7-180f33dc56b9-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -177,21 +177,10 @@ def min_edit_distance(source, target, ins_cost = 1, del_cost = 1, rep_cost = 2):
         
         # Loop through column 1 to column n, both inclusive
         for col in range(1, n + 1):
-            # print(f"row: {row}, col: {col}", end=", ")
-            # print(f"({source[row - 1]}, {target[col - 1]})", end=",\t")
-            # Intialize r_cost to the 'replace' cost that is passed into this function
             r_cost = rep_cost
             
-            # Check to see if source character at the previous row
-            # matches the target character at the previous column, 
             if source[row - 1] == target[col - 1]:
-                # Update the replacement cost to 0 if source and target are the same
-
                 r_cost = 0
-            # Update the cost at row, col based on previous entries in the cost matrix
-            # Refer to the equation calculate for D[i,j] (the minimum of three calculated costs)
-            #print(f"({D[row-1, col] + del_cost}, {D[row, col-1] + ins_cost}, "
-            #      f"{r_cost +D[row - 1,col-1]})")
             D[row,col] = min((D[row-1, col] + del_cost),
                              D[row, col - 1] + ins_cost,
                              D[row-1, col-1] + r_cost)
@@ -202,8 +191,8 @@ def min_edit_distance(source, target, ins_cost = 1, del_cost = 1, rep_cost = 2):
     ### END CODE HERE ###
     return D, med
 #+end_src
-
-# testing your implementation
+** Testing the Function
+*** play to stay
 #+begin_src python :results output :exports both
 source =  'play'
 target = 'stay'
@@ -235,8 +224,7 @@ assert all(expected == actual)
 : a  3  4  5  4  5
 : y  4  5  6  5  4
 
-
-# testing your implementation
+*** eer to near
 #+begin_src python :results output :exports both
 source =  'eer'
 target = 'near'
@@ -266,7 +254,7 @@ assert min_edits == 3
 : e  1  2  1  2  3
 : e  2  3  2  3  4
 : r  3  4  3  4  3
-
+*** intention to execution
 #+begin_src python :results output :exports both
 source = "intention"
 target = "execution"
@@ -309,14 +297,15 @@ i  7  6  7   8   9  10   9   8   9  10
 o  8  7  8   9  10  11  10   9   8   9
 n  9  8  9  10  11  12  11  10   9   8
 #+end_example
+** Finding the Closest of Multiple Strings
+*** One Letter Edits
 
-We can now test several of our routines at once:
-
-,#+begin_src python :results output :exports both
+#+begin_src python :results output :exports both
 source = "eer"
-targets = suggestor.one_letter_edits(source)  #disable switches since min_edit_distance does not include them
+targets = suggestor.one_letter_edits(source)
+rep_cost = 1
 for t in targets:
-    _, min_edits = min_edit_distance(source, t,1,1,1)  # set ins, del, sub costs all to one
+    _, min_edits = min_edit_distance(source, t, rep_cost=rep_cost)  # set ins, del, sub costs all to one
     if min_edits != 1: print(source, t, min_edits)
 #+end_src
 
@@ -326,14 +315,14 @@ for t in targets:
 # ```CPP
 # (empty)
 # ```
-
+*** Two Letter Edits
 The 'replace()' routine utilizes all letters a-z one of which returns the original word.
 
 #+begin_src python :results output :exports both
 source = "eer"
-targets = suggestor.two_letter_edits(source) #disable switches since min_edit_distance does not include them
+targets = suggestor.two_letter_edits(source)
 for t in targets:
-    _, min_edits = min_edit_distance(source, t,1,1,1)  # set ins, del, sub costs all to one
+    _, min_edits = min_edit_distance(source, t,rep_cost=rep_cost)
     if min_edits != 2 and min_edits != 1: print(source, t, min_edits)
 #+end_src
 
@@ -348,3 +337,201 @@ for t in targets:
 We have to allow single edits here because some two_edits will restore a single edit.
 
 * End
+  The next post will be about {{% lancelot title="implementing backtrace" %}}autocorrect-minimum-edit-distance-backtrace{{% /lancelot %}} to find the shortest path to the minimum edit distance.
+  
+** A Class-Based Minimum Edit Distance
+#+begin_src python :tangle ../../neurotic/nlp/autocorrect/distance.py
+<<distance-imports>>
+
+<<distance-class>>
+
+    <<distance-rows>>
+
+    <<distance-columns>>
+
+    <<distance-table>>
+
+    <<distance-frame>>
+
+    <<distance-minimum>>
+
+    <<distance-string>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref distance-imports
+# pypi
+from tabulate import tabulate
+
+import attr
+import numpy
+import pandas
+#+end_src
+*** The Minimum Edit Distance
+#+begin_src python :noweb-ref distance-class
+@attr.s(auto_attribs=True)
+class MinimumEdits:
+    """Calculates the minimum edit distance between two strings
+
+    Uses the Levenshtein distance
+
+    Args:
+     source: the starting string
+     target: what to transform the source to
+     insertion_cost: how much inserting a character costs
+     deletion_cost: how much deleting a character costs
+     replacement_cost: how much swapping out a character costs
+     table_format: tabluate table format for printing table
+    """
+    source: str
+    target: str
+    insertion_cost: int=1
+    deletion_cost: int=1
+    replacement_cost: int=2
+    table_format: str="orgtbl"
+    _rows: int=None
+    _columns: int=None
+    _distance_table: numpy.ndarray=None
+    _distance_frame: pandas.DataFrame=None
+    _minimum_distance: int=None
+    _backtrace: list=None
+#+end_src
+*** Rows
+#+begin_src python :noweb-ref distance-rows
+@property
+def rows(self) -> int:
+    """Rows in the table"""
+    if self._rows is None:
+        self._rows = len(self.source)
+    return self._rows
+#+end_src
+*** Columns
+#+begin_src python :noweb-ref distance-columns
+@property
+def columns(self) -> int:
+    """Number of columns for the table"""
+    if self._columns is None:
+        self._columns = len(self.target)
+    return self._columns
+#+end_src
+*** The Table
+#+begin_src python :noweb-ref distance-table
+@property
+def distance_table(self) -> numpy.ndarray:
+    """Table of edit distances"""
+    if self._distance_table is None:
+        self._distance_table = numpy.zeros((self.rows + 1, self.columns + 1),
+                                           dtype=int)
+        # initialize the first row
+        for row in range(1, self.rows + 1):
+            self._distance_table[row, 0] = (self._distance_table[row - 1, 0]
+                                            + self.deletion_cost)
+        # initialize the first column
+        for column in range(1, self.columns + 1):
+            self._distance_table[0, column] = (self._distance_table[0, column-1]
+                                               + self.insertion_cost)
+        
+        for row in range(1, self.rows + 1):
+            one_row_back = row - 1
+            for column in range(1, self.columns + 1):
+                one_column_back = column - 1
+                replacement_cost = (
+                    0 if self.source[one_row_back] == self.target[one_column_back]
+                    else self.replacement_cost)
+                self._distance_table[row, column] = min(
+                    (self._distance_table[one_row_back, column]
+                     + self.deletion_cost),
+                     (self._distance_table[row, one_column_back]
+                      + self.insertion_cost),
+                    (self._distance_table[one_row_back, one_column_back]
+                     + replacement_cost))
+    return self._distance_table
+#+end_src
+*** Distance Frame
+#+begin_src python :noweb-ref distance-frame
+@property
+def distance_frame(self) -> pandas.DataFrame:
+    """pandas dataframe of the distance table"""
+    if self._distance_frame is None:
+        self._distance_frame = pandas.DataFrame(
+            self.distance_table,
+            index= list("#" + self.source),
+            columns = list("#" + self.target),
+        )
+    return self._distance_frame
+#+end_src    
+*** Minimum Distance
+#+begin_src python :noweb-ref distance-minimum
+@property
+def minimum_distance(self) -> int:
+    """The minimum edit distance from source to target"""
+    if self._minimum_distance is None:
+        self._minimum_distance = self.distance_table[
+            self.rows, self.columns]
+    return self._minimum_distance
+#+end_src
+*** Distance String
+#+begin_src python :noweb-ref distance-string
+def __str__(self) -> str:
+    """tabluate version of distance frame
+
+    Returns:
+     table formatted string of distance table
+    """
+    return tabulate(self.distance_frame, headers="keys", tablefmt=self.table_format)
+#+end_src        
+** Test Out the Minimum Distance
+#+begin_src python :results none
+from neurotic.nlp.autocorrect.distance import MinimumEdits
+
+SOURCE, TARGET = "cow", "dog"
+editor = MinimumEdits(source=SOURCE, target=TARGET)
+assert editor.rows == len(SOURCE)
+assert editor.columns == len(TARGET)
+
+assert editor.distance_table.shape == (len(SOURCE) + 1, len(TARGET) + 1)
+assert (editor.distance_table[:, 0] == numpy.arange(editor.rows + 1, dtype=int)).all()
+assert (editor.distance_table[0, :] == numpy.arange(editor.columns + 1, dtype=int)).all()
+assert (editor.distance_table == numpy.array([[0, 1, 2, 3],
+                                              [1, 2, 3, 4],
+                                              [2, 3, 2, 3],
+                                              [3, 4, 3, 4]])).all()
+assert editor.minimum_distance == 4
+#+end_src
+
+#+begin_src python :results none
+editor = MinimumEdits(source="play", target="stay")
+assert editor.minimum_distance == 4
+#+end_src
+
+#+begin_src python :results none
+editor = MinimumEdits(source="eer", target="near")
+assert editor.minimum_distance == 3
+#+end_src
+
+#+begin_src python :results none
+editor = MinimumEdits(source="intention", target="execution")
+assert editor.minimum_distance == 8
+#+end_src
+
+#+begin_src python :results output :exports both
+print(editor.distance_frame)
+#+end_src
+
+#+RESULTS:
+:    #  d  o  g
+: #  0  1  2  3
+: c  1  2  3  4
+: o  2  3  2  3
+: w  3  4  3  4
+
+#+begin_src python :results output :exports both
+print(str(editor))
+#+end_src
+
+#+RESULTS:
+|    |   # |   d |   o |   g |
+|----+-----+-----+-----+-----|
+| #  |   0 |   1 |   2 |   3 |
+| c  |   1 |   2 |   3 |   4 |
+| o  |   2 |   3 |   2 |   3 |
+| w  |   3 |   4 |   3 |   4 |

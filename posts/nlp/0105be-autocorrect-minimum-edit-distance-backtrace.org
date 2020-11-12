@@ -1,0 +1,248 @@
+#+BEGIN_COMMENT
+.. title: Autocorrect: Minimum Edit Distance Backtrace
+.. slug: autocorrect-minimum-edit-distance-backtrace
+.. date: 2020-11-11 14:47:04 UTC-08:00
+.. tags: nlp,autocorrect,edit distance
+.. category: NLP
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-fde3077e-998c-4fb2-8be0-006b92221f1f-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is the last post in a series about Autocorrect that's started in {{% lancelot title="this post" %}}autocorrect-the-system{{% /lancelot %}}. In the {{% lancelot title="previous post" %}}autocorrect-minimum-edit-distance{{% /lancelot %}} we implemented some code to find the minimum edit distance between two strings using Dynamic Programming. Now we'll implement the Backtrace Algorithim to find the shortest path through to transform one string to another.
+** Imports
+#+begin_src python :results none
+# pypi
+from functools import partial
+from tabulate import tabulate
+
+import hvplot.pandas
+import numpy
+import pandas
+
+# this repository
+from neurotic.nlp.autocorrect.distance import MinimumEdits
+
+# my other stuff
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+#+begin_src python :results none
+SLUG = "autocorrect-minimum-edit-distance-backtrace"
+Embed = partial(EmbedHoloviews, folder_path="files/posts/nlp/" + SLUG )
+#+end_src
+* Middle
+** Backtrace
+   The /backtrace algorithm/ traces a path through a minimum-edit-distance table to help us to optimally align substrings. How? Let's break that question up. First, how do you do it? We'll just use a greedy search that minimizes the cost. Starting at the last cell in the table (the minimum edit distance cell) we look at the cells directly above, directly to the left, and directly diagonal to the cell and move to the one of those three that has the lowest cost. We keep doing this until we reach the origin (0,0) cell and then we reverse the order of the cells we visited.
+*** Simplest Example
+
+#+begin_src python :results output :exports both
+editor = MinimumEdits("a", "a")
+print(str(editor))
+#+end_src
+
+#+RESULTS:
+|    |   # |   a |
+|----+-----+-----|
+| #  |   0 |   1 |
+| a  |   1 |   0 |
+
+#+begin_src python :results none
+def brute(distances: numpy.ndarray) -> list:
+    """finds the backtrace
+
+    Args:
+     distances: array of mimimum edit distances
+    """
+    # start at the bottom right cell
+    row, column = len(distances) - 1, len(distances[0]) - 1
+    path = [(row, column)]
+    while (row, column) != (0, 0):
+        one_row_back = row - 1
+        one_column_up = column - 1
+        edits = (
+            # insert
+            (distances[one_row_back, column], (one_row_back, column)),
+            # delete
+            (distances[row, one_column_up], (row, one_column_up)),
+            # substitute
+            (distances[one_row_back, one_column_up], (one_row_back, one_column_up))
+        )
+        best = min(edits)
+        cell = best[1]
+        path.append(cell)
+        row, column = cell
+    return list(reversed(path))
+#+end_src
+
+#+begin_src python :results output :exports both
+print(brute(editor.distance_table))
+#+end_src
+
+#+RESULTS:
+: [(0, 0), (1, 1)]
+
+So, we start at the top-left and move to the bottom-right. Not Exciting.
+
+#+begin_src python :results output :exports both
+editor = MinimumEdits("a", "at")
+print(str(editor))
+#+end_src
+
+#+RESULTS:
+|    |   # |   a |   t |
+|----+-----+-----+-----|
+| #  |   0 |   1 |   2 |
+| a  |   1 |   0 |   1 |
+
+#+begin_src python :results output :exports both
+print(brute(editor.distance_table))
+#+end_src
+
+#+RESULTS:
+: [(0, 0), (1, 1), (1, 2)]
+
+So we move from the top left then diagonally down and then laterally to the right. This gives us the first example of how the path is telling us to align the strings. Whenever the path moves horizontally (the row doesn't change) then that means you want to skip the character in the source. So our alignment here would be this.
+
+| a | * |
+| a | t |
+
+Where the =*= means skip that character. Okay, that might be obvious, but what if we have to skip the first letter?
+
+#+begin_src python :results output :exports both
+editor = MinimumEdits("t", "at")
+print(editor)
+#+end_src
+
+#+RESULTS:
+ |    |   # |   a |   t |
+ |----+-----+-----+-----|
+ | #  |   0 |   1 |   2 |
+ | t  |   1 |   2 |   1 |
+
+#+begin_src python :results output :exports both
+print(tabulate(brute(editor.distance_table), tablefmt="orgtbl", headers=["row", "column"]))
+#+end_src
+
+#+RESULTS:
+|   row |   column |
+|-------+----------|
+|     0 |        0 |
+|     0 |        1 |
+|     1 |        2 |
+
+So in the first two rows the path doesn't change meaning that we skip the first letter in the source.
+
+| a | t |
+| * | t |
+
+*** A More Interesting Example
+
+#+begin_src python :results output :exports both
+editor = MinimumEdits("drats","maths")
+print(editor)
+#+end_src
+
+#+RESULTS:
+|    |   # |   m |   a |   t |   h |   s |
+|----+-----+-----+-----+-----+-----+-----|
+| #  |   0 |   1 |   2 |   3 |   4 |   5 |
+| d  |   1 |   2 |   3 |   4 |   5 |   6 |
+| r  |   2 |   3 |   4 |   5 |   6 |   7 |
+| a  |   3 |   4 |   3 |   4 |   5 |   6 |
+| t  |   4 |   5 |   4 |   3 |   4 |   5 |
+| s  |   5 |   6 |   5 |   4 |   5 |   4 |
+
+#+begin_src python :results output :exports both
+path = brute(editor.distance_table)
+print(tabulate(path, tablefmt="orgtbl", headers=["row", "column"]))
+#+end_src
+
+#+RESULTS:
+|   row |   column |
+|-------+----------|
+|     0 |        0 |
+|     1 |        0 |
+|     2 |        1 |
+|     3 |        2 |
+|     4 |        3 |
+|     4 |        4 |
+|     5 |        5 |
+
+#+begin_src python :results none
+table = numpy.zeros(editor.distance_table.shape)
+for row, column in path:
+    table[row, column] = 10
+table = pandas.DataFrame(table, index=list("#drats"), columns=list("#maths"))
+table = table.iloc[::-1]
+path_plot = table.hvplot.heatmap(colorbar=False, cmap="blues").opts(
+    title="Path For Alignment", width=1000, height=300)
+ 
+
+reversed_table = editor.distance_frame.iloc[::-1]
+distance_plot = reversed_table.hvplot.heatmap(cmap="Plasma").opts(
+    title="Minimum Edit Distances", width=1000, height=300
+)
+plot = (path_plot + distance_plot).cols(1).opts(
+    width=800,
+    height=600,
+    fontscale=2,
+)
+
+outcome = Embed(plot=plot, file_name="drats_maths_alignment")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="drats_maths_alignment.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+In the top plot the dark-blue rectangles are the ones chosen by the backtrace and the lower plot is a heatmap of the distances for each cell in the distance-table. You can sort of see that the path matches the cooler (smaller distance) cells in the distance heat map as you work from the top-left cell to the bottom-right cell (the minimum edit distance).
+
+To interpret the path: where the column repeats you skip a character in the target and where the row repeats you skip a character in the source so our alignment looks like this.
+
+#+begin_src python :results output :exports both
+source = "*drats"
+target = "*maths"
+previous_row = previous_column = None
+source_tokens = []
+target_tokens = []
+
+for row, column in path[1:]:
+    if row != previous_row:
+        source_tokens.append(source[row])
+        previous_row = row
+    else:
+        source_tokens.append("*")
+    if column != previous_column:
+        target_tokens.append(target[column])
+    else:
+        target_tokens.append("*")
+
+for tokens in (source_tokens, target_tokens):
+    print(f"|{'|'.join(tokens)}|")
+
+#+end_src
+
+#+RESULTS:
+|d|r|a|t|*|s|
+|*|m|a|t|h|s|
+
+
+* End
