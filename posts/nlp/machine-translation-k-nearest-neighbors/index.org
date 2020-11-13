@@ -1,0 +1,362 @@
+#+BEGIN_COMMENT
+.. title: Implementing k-Nearest Neighbors for Machine Translation
+.. slug: machine-translation-k-nearest-neighbors
+.. date: 2020-10-22 17:38:25 UTC-07:00
+.. tags: nlp,machine translation,assignment
+.. category: NLP
+.. link: 
+.. description: Implementing machine translation using k-Nearest Neighbors.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f0bf00d9-c349-4372-9a8d-f273071b3d65-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This continues from the post where we found the {{% lancelot title="transformation matrix" %}}machine-translation-transformation-matrix{{% /lancelot %}}. It's part of a series of posts whose links are gathered in the {{% doc %}}machine-translation{{% /doc %}} post.
+** Imports
+#+begin_src python :results none
+# pypi
+import numpy
+
+# my stuff
+from graeae import Timer
+from neurotic.nlp.word_embeddings.english_french import TrainingData
+from neurotic.nlp.word_embeddings.training import TheTrainer
+#+end_src
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+* Middle
+** Testing the translation
+*** k-Nearest neighbors algorithm
+
+- The [[https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm][k-Nearest neighbors algorithm]] is a method which takes a vector as input and finds the other vectors in the dataset that are closest to it. 
+- The 'k' is the number of "nearest neighbors" to find (e.g. k=2 finds the closest two neighbors).
+ 
+*** Searching for the translation embedding
+ Since we're approximating the translation function from English to French embeddings with a linear transformation matrix \(\mathbf{R}\), most of the time we won't get the exact embedding of a French word when we transform embedding \(\mathbf{e}\) of some particular English word into the French embedding space. 
+
+ This is where /k/-NN becomes really useful! By using /1/-NN with \(\mathbf{eR}\) as input, we can search for an embedding \(\mathbf{f}\) (as a row) in the matrix \(\mathbf{Y}\) which is the closest to the transformed vector \(\mathbf{eR}\).
+
+*** Cosine similarity
+ Cosine similarity between vectors /u/ and /v/ calculated as the cosine of the angle between them.
+
+ The formula is:
+
+ \[
+\cos(u,v)=\frac{u\cdot v}{\left\|u\right\|\left\|v\right\|}
+\]
+
+ - \(\cos(u,v) = 1\) when /u/ and /v/ lie on the same line and have the same direction.
+ - \(\cos(u,v) = -1\) when they have exactly opposite directions.
+ - \(\cos(u,v) = 0\) when the vectors are orthogonal (perpendicular) to each other.
+
+ **Note:** Distance and similarity are pretty much opposite things.
+
+ - We can obtain distance metric from cosine similarity, but the cosine similarity can't be used directly as the distance metric. 
+ - When the cosine similarity increases (towards /1/), the "distance" between the two vectors decreases (towards /0/).
+ - We can define the cosine distance between /u/ and /v/ as
+
+\[
+d_{\text{cos}}(u,v)=1-\cos(u,v)
+\]
+*** The Cosine Similarity
+    
+#+begin_src python :results none
+def cosine_similarity(vector_1: numpy.ndarray, vector_2: numpy.ndarray) -> float:
+    """Calculates the similarity between two vectors
+
+    Args:
+     vector_1: array to compare
+     vector_2: array to compare to vector_1
+
+    Returns:
+     cosine similarity between the two vectors
+    """
+    return numpy.dot(vector_1, vector_2)/(numpy.linalg.norm(vector_1) *
+                                          numpy.linalg.norm(vector_2))
+#+end_src
+
+*** the =nearest_neighbor()= function
+
+Inputs:
+ - Vector /v/
+ - A set of possible nearest neighbors /candidates/
+ - /k/ nearest neighbors to find.
+ - The distance metric should be based on cosine similarity.
+ - /cosine_similarity/ function is already implemented and imported for you. It's arguments are two vectors and it returns the cosine of the angle between them.
+ - Iterate over rows in /candidates/, and save the result of similarities between current row and vector /v/ in a python list. Take care that similarities are in the same order as row vectors of /candidates/.
+ - Now you can use [[https://docs.scipy.org/doc/numpy/reference/generated/numpy.argsort.html#numpy.argsort][numpy argsort]] to sort the indices for the rows of /candidates/.
+
+***** Hints
+      - =numpy.argsort= sorts values from most negative to most positive (smallest to largest)
+      - The candidates that are nearest to /v/ should have the highest cosine similarity
+      - To get the last element of a list /tmp/, the notation is =tmp[-1:]=
+
+#+begin_src python :results none
+# UNQ_C8 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+def nearest_neighbor(v, candidates, k=1):
+    """
+    Input:
+      - v, the vector you are going find the nearest neighbor for
+      - candidates: a set of vectors where we will find the neighbors
+      - k: top k nearest neighbors to find
+    Output:
+      - k_idx: the indices of the top k closest vectors in sorted form
+    """
+    # cosine_similarities = [cosine_similarity(v, row) for row in candidates]
+
+    # for each candidate vector...
+    #for row in candidates:
+    #    # get the cosine similarity
+    #    cos_similarity = cosine_similarity(v, row)
+    #
+    #    # append the similarity to the list
+    #    similarity_l.append(cos_similarity)
+        
+    # sort the similarity list and get the indices of the sorted list
+    # sorted_ids = numpy.argsort(similarity_l)
+
+    # get the indices of the k most similar candidate vectors
+    # k_idx = sorted_ids[-k:]
+    ### END CODE HERE ###
+    return numpy.argsort([cosine_similarity(v, row) for row in candidates])[-k:]
+#+end_src
+** Test your implementation:
+#+begin_src python :results output :exports both
+v = numpy.array([1, 0, 1], dtype="float64")
+candidates = numpy.array([[1, 0, 5], [-2, 5, 3], [2, 0, 1], [6, -9, 5], [9, 9, 9]])
+expected = numpy.array([
+    [9, 9, 9],
+    [1, 0, 5],
+    [2, 0, 1]])
+actual = candidates[nearest_neighbor(v, candidates, 3)]
+print(actual)
+assert (actual == expected).all()
+#+end_src
+
+#+RESULTS:
+: [[9 9 9]
+:  [1 0 5]
+:  [2 0 1]]
+
+** Test your translation and compute its accuracy
+Complete the function =test_vocabulary= which takes in English embedding matrix /X/, French embedding matrix /Y/ and the /R/ matrix and returns the accuracy of translations from /X/ to /Y/ by /R/.
+
+ - Iterate over transformed English word embeddings and check if the closest French word vector belongs to French word that is the actual translation.
+ - Obtain an index of the closest French embedding by using =nearest_neighbor= (with argument /k=1/), and compare it to the index of the English embedding you have just transformed.
+ - Keep track of the number of times you get the correct translation.
+ - Calculate accuracy as
+
+   \[
+    \text{accuracy}=\frac{\#(\text{correct predictions})}{\#(\text{total predictions})}
+    \]
+
+
+#+begin_src python :results none
+# UNQ_C10 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+def test_vocabulary(X, Y, R):
+    '''
+    Input:
+        X: a matrix where the columns are the English embeddings.
+        Y: a matrix where the columns correspond to the French embeddings.
+        R: the transform matrix which translates word embeddings from
+        English to French word vector space.
+    Output:
+        accuracy: for the English to French capitals
+    '''
+
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    # The prediction is X times R
+    pred = numpy.dot(X, R)
+
+    # initialize the number correct to zero
+    #num_correct = 0
+    #predictions = (nearest_neighbor(row, Y) == index for index, row in enumerate(pred))
+    # accuracy = sum(predictions)/len(red)
+    # loop through each row in pred (each transformed embedding)
+    #for index, row_vector in enumerate(pred):
+    #    # get the index of the nearest neighbor of pred at row 'i'; also pass in the candidates in Y
+    #    pred_idx = nearest_neighbor(row_vector, Y)
+    #
+    #    # if the index of the nearest neighbor equals the row of i... \
+    #    if pred_idx == index:
+    #        # increment the number correct by 1.
+    #        num_correct += 1
+    #
+    ## accuracy is the number correct divided by the number of rows in 'pred' (also number of rows in X)
+    #accuracy = num_correct/len(pred)
+    #
+    #### END CODE HERE ###
+
+    return sum([nearest_neighbor(row, Y) == index for index, row in enumerate(pred)])/len(pred)
+#+end_src
+
+Let's see how is your translation mechanism working on the unseen data:
+
+#+begin_src python :results none
+# X_val, Y_val = get_matrices(en_fr_test, fr_embeddings_subset, en_embeddings_subset)
+data = TrainingData()
+trainer = TheTrainer(data.x_train, data.y_train)
+r = trainer.fit()
+#+end_src
+
+You do not have to input any code in this cell, but it is relevant to grading, so please do not change anything.
+
+#+begin_src python :results output :exports both
+with TIMER:
+    acc = test_vocabulary(data.x_train, data.y_train, trainer.transformation)  # this might take a minute or two
+#+end_src
+
+#+RESULTS:
+: 2020-10-24 19:57:36,633 graeae.timers.timer start: Started: 2020-10-24 19:57:36.632998
+: 2020-10-24 20:05:48,225 graeae.timers.timer end: Ended: 2020-10-24 20:05:48.225526
+: 2020-10-24 20:05:48,226 graeae.timers.timer end: Elapsed: 0:08:11.592528
+
+#+begin_src python :results output :exports both
+print(f"accuracy on test set is {acc[0]:.3f}")
+#+end_src
+
+#+RESULTS:
+: accuracy on test set is 0.552
+
+
+ **Expected Output**:
+
+#+RESULTS
+ 0.557
+
+
+ You managed to translate words from one language to another language without ever seing them with almost 56% accuracy by using some basic linear algebra and learning a mapping of words from one language to another!
+
+** Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/nearest_neighbors.py
+<<imports>>
+
+<<nearest-neighbor>>
+
+    <<nearest-cosine-similarity>>
+
+    <<nearest-nearest-neighbor>>
+
+    <<nearest-call>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# pypi
+import attr
+import numpy
+#+end_src
+*** Nearest Neighbor
+
+#+begin_src python :noweb-ref nearest-neighbor
+@attr.s(auto_attribs=True)
+class NearestNeighbors:
+    """Finds the nearest neighbor(s) to a vector
+
+    Args:
+     candidates: set of vectors that are potential neighbors
+     k: number of neighbors to find
+    """
+    candidates: numpy.ndarray    
+    k: int=1
+#+end_src
+*** Cosine Similarity Method
+#+begin_src python :noweb-ref nearest-cosine-similarity
+def cosine_similarity(self, vector_1: numpy.ndarray, vector_2: numpy.ndarray) -> float:
+    """Calculates the similarity between two vectors
+
+    Args:
+     vector_1: array to compare
+     vector_2: array to compare to vector_1
+
+    Returns:
+     cosine similarity between the two vectors
+    """
+    return numpy.dot(vector_1, vector_2)/(numpy.linalg.norm(vector_1) *
+                                          numpy.linalg.norm(vector_2))
+#+end_src
+*** Nearest Neighbor Method
+#+begin_src python :noweb-ref nearest-nearest-neighbor
+def nearest_neighbors(self, vector: numpy.ndarray) -> numpy.ndarray:
+    """Find the nearest neghbor(s) to a vector
+
+    Args:
+      - vector, the vector you are going find the nearest neighbor for
+
+    Returns:
+      - k_idx: the indices of the top k closest vectors in sorted form
+    """
+    return numpy.argsort([self.cosine_similarity(vector, row)
+                          for row in self.candidates])[-self.k:]
+#+end_src
+*** Nearest Neighbor Call
+#+begin_src python :noweb-ref nearest-call
+def __call__(self, vector: numpy.ndarray) -> numpy.ndarray:
+    """Alias for the `nearest_neighbors` method
+
+    Args:
+      - vector, the vector you are going find the nearest neighbor for
+
+    Returns:
+      - k_idx: the indices of the top k closest vectors in sorted form
+    """
+    return self.nearest_neighbors(vector)
+#+end_src
+*** Testing It
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.nearest_neighbors import NearestNeighbors
+
+
+v = numpy.array([1, 0, 1], dtype="float64")
+candidates = numpy.array([[1, 0, 5], [-2, 5, 3], [2, 0, 1], [6, -9, 5], [9, 9, 9]])
+
+testing = NearestNeighbors(candidates=candidates, k=3)
+
+expected = numpy.array([
+    [9, 9, 9],
+    [1, 0, 5],
+    [2, 0, 1]])
+actual = candidates[testing.nearest_neighbors(v)]
+print(actual)
+assert (actual == expected).all()
+#+end_src
+
+#+RESULTS:
+: [[9 9 9]
+:  [1 0 5]
+:  [2 0 1]]
+
+#+begin_src python :results output :exports both
+with TIMER:
+    data = TrainingData()
+    trainer = TheTrainer(data.x_train, data.y_train)
+    r = trainer.fit()
+    predictions = numpy.dot(data.x_train, trainer.transformation)
+#+end_src
+#+begin_src python :results output :exports both
+with TIMER:
+    tester = NearestNeighbors(k=1, candidates=data.y_train)
+    accuracy = sum([tester(row) == index
+                    for index, row in enumerate(predictions)])/len(predictions)
+#+end_src
+
+#+RESULTS:
+: 2020-10-31 19:35:14,133 graeae.timers.timer start: Started: 2020-10-31 19:35:14.133884
+: 2020-10-31 19:43:29,695 graeae.timers.timer end: Ended: 2020-10-31 19:43:29.695745
+: 2020-10-31 19:43:29,697 graeae.timers.timer end: Elapsed: 0:08:15.561861
+
+#+begin_src python :results output :exports both
+print(f"Accuracy: {100 * accuracy[0]: 0.2f} %")
+#+end_src
+
+#+RESULTS:
+: Accuracy:  55.23 %
+
+* End
+  - The next post in this series is {{% doc %}}machine-translation-with-locality-sensitive-hashing{{% /doc %}}

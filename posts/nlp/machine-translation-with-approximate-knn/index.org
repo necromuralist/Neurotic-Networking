@@ -1,0 +1,265 @@
+#+BEGIN_COMMENT
+.. title: Approximate kNN for Machine Translation
+.. slug: machine-translation-with-approximate-knn
+.. date: 2020-10-12 13:39:45 UTC-07:00
+.. tags: nlp,machine translation,assignment
+.. category: NLP
+.. link: 
+.. description: Machine Translation using Approximate k-Nearest Neighbors.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e818dfd3-b87c-4563-a055-592cf27985d7-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  In the {{% lancelot title="previous post" %}}machine-translation-with-locality-sensitive-hashing{{% /lancelot %}} we implemented Locality Sensitive Hashing. It's part of a series of posts building an English to French translator whose links are gathered in {{% lancelot title="this post" %}}machine-translation{{% /lancelot %}}.
+** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+
+# pypi
+from dotenv import load_dotenv
+from nltk.corpus import twitter_samples
+
+import numpy
+
+# this repo
+from neurotic.nlp.word_embeddings.embeddings import EmbeddingsLoader
+from neurotic.nlp.word_embeddings.english_french import TrainingData
+from neurotic.nlp.word_embeddings.hashing import (DocumentsEmbeddings,
+                                                  PlanesUniverse,
+                                                  HashTable,
+                                                  HashTables)
+from neurotic.nlp.word_embeddings.nearest_neighbors import NearestNeighbors
+from neurotic.nlp.twitter.processor import TwitterProcessor
+from neurotic.nlp.word_embeddings.training import TheTrainer
+
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Tweets
+#+begin_src python :results none
+positive_tweets = twitter_samples.strings("positive_tweets.json")
+negative_tweets = twitter_samples.strings("negative_tweets.json")
+tweets = positive_tweets + negative_tweets
+#+end_src
+*** The Twitter Processor
+#+begin_src python :results none
+process_tweet = TwitterProcessor()
+#+end_src
+*** The Embeddings
+#+begin_src python :results none
+embeddings = EmbeddingsLoader()
+#+end_src
+
+#+begin_src python :results none
+documents = DocumentsEmbeddings(embeddings=embeddings.english_subset,
+                                process=process_tweet, documents=tweets)
+#+end_src
+*** Some Constants
+#+begin_src python :results none
+TWEET = Namespace(
+    vectors=len(tweets),
+    dimensions=len(next(iter(embeddings.english_subset.values()))),
+    universes=25,
+    vectors_per_bucket=16
+)
+#+end_src
+*** The Planes
+#+begin_src python :results none
+universes = PlanesUniverse(vector_count=TWEET.vectors,
+                           dimensions=TWEET.dimensions,
+                           universes=TWEET.universes,
+                           vectors_per_bucket=TWEET.vectors_per_bucket)
+assert universes.plane_count == 10
+#+end_src
+*** The Hash Tables
+#+begin_src python :results none
+hasher = HashTables(planes=universes.planes,
+                    universes=TWEET.universes,
+                    vectors=documents.documents_embeddings)
+hash_tables = hasher.hash_tables
+#+end_src
+*** The ID Tables
+#+begin_src python :results none
+id_tables = hasher.id_tables
+#+end_src
+*** The Training Data
+#+begin_src python :results none
+data = TrainingData()
+#+end_src
+
+* Middle
+** Approximate K-NN
+
+Implement approximate K nearest neighbors using locality sensitive hashing, to search for documents that are similar to a given document at the index =doc_id=.
+
+*** Arguments
+     | Variable               | Description                                                     |
+     |------------------------+-----------------------------------------------------------------|
+     | =doc_id=               | index into the document list =all_tweets=                       |
+     | =v=                    | document vector for the tweet in =all_tweets= at index =doc_id= |
+     | =planes_l=             | list of planes (the global variable created earlier)            |
+     | =k=                    | number of nearest neighbors to search for                       |
+     | =num_universes_to_use= | Number of available universes to use (25 by default)            |
+
+
+The =approximate_knn= function finds a subset of candidate vectors that are in the same "hash bucket" as the input vector 'v'.  Then it performs the usual k-nearest neighbors search on this subset (instead of searching through all 10,000 tweets).
+
+*** Hints
+     - There are many dictionaries used in this function.  Try to print out =planes_l=, =hash_tables=, =id_tables= to understand how they are structured, what the keys represent, and what the values contain.
+     - To remove an item from a list, use =.remove()=
+     - To append to a list, use =.append()=
+     - To add to a set, use =.add()=
+
+#+begin_src python :results none
+# UNQ_C21 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# This is the code used to do the fast nearest neighbor search. Feel free to go over it
+def approximate_knn(document_id: int,
+                    document_embedding: numpy.ndarray,
+                    multiverse_planes: list,
+                    k: int=1,
+                    universes: int=TWEET.universes):
+    """Search for k-NN using hashes
+
+    Args:
+     document_id: index for the document in the lists
+     document_embedding: vector representing a documents word embeddings
+     multiverse_planes: dictionary of planes for the hash-tables
+     k: number of neighbors to find
+     universes: number of times to repeat the search
+
+    Returns:
+     list of indexes for neighbor documents
+    """
+    assert universes <= TWEET.universes
+
+    # Vectors that will be checked as possible nearest neighbor
+    possible_neighbors = list()
+
+    # list of document IDs
+    ids_of_possible_neighbors = list()
+
+    # create a set for ids to consider, for faster checking if a document ID already exists in the set
+    set_of_ids_of_possible_neighbors = set()
+    hasher = HashTable(planes=multiverse_planes, vectors=None)
+    
+    # loop through the universes of planes
+    for universe in range(universes):
+
+        # get the set of planes from the planes_l list, for this particular universe_id
+        planes = multiverse_planes[universe]
+
+        # get the hash value of the vector for this set of planes
+        # hash_value = hash_value_of_vector(v, planes)
+        hash_value = HashTable(planes=planes, vectors=None).hash_value(document_embedding)
+
+        # get the hash table for this particular universe_id
+        hash_table = hash_tables[universe]
+
+        # get the list of document vectors for this hash table, where the key is the hash_value
+        document_vectors = hash_table[hash_value]
+
+        # get the id_table for this particular universe_id
+        id_table = id_tables[universe]
+
+        # get the subset of documents to consider as nearest neighbors from this id_table dictionary
+        new_ids_to_consider = id_table[hash_value]
+
+        ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+
+        # remove the id of the document that we're searching
+        if document_id in new_ids_to_consider:
+            new_ids_to_consider.remove(document_id)
+            print(f"removed document_id {document_id} of input vector from new_ids_to_search")
+
+        # loop through the subset of document vectors to consider
+        for index, new_id in enumerate(new_ids_to_consider):
+
+            # if the document ID is not yet in the set ids_to_consider...
+            if new_id not in set_of_ids_of_possible_neighbors:
+                # access document_vectors_l list at index i to get the embedding
+                # then append it to the list of vectors to consider as possible nearest neighbors
+                document_vector = document_vectors[index]
+                possible_neighbors.append(document_vector)
+
+                # append the new_id (the index for the document) to the list of ids to consider
+                ids_of_possible_neighbors.append(new_id)
+
+                # also add the new_id to the set of ids to consider
+                # (use this to check if new_id is not already in the IDs to consider)
+                set_of_ids_of_possible_neighbors.add(new_id)
+
+        ### END CODE HERE ###
+
+    # Now run k-NN on the smaller set of vecs-to-consider.
+    print("Fast considering %d vecs" % len(possible_neighbors))
+
+    # convert the vecs to consider set to a list, then to a numpy array
+    vecs_to_consider_arr = numpy.array(possible_neighbors)
+
+    # call nearest neighbors on the reduced list of candidate vectors
+    nearest_neighbors = NearestNeighbors(candidates=possible_neighbors, k=k)
+    nearest_neighbor_ids = nearest_neighbors(document_embedding)
+
+    # Use the nearest neighbor index list as indices into the ids to consider
+    # create a list of nearest neighbors by the document ids
+    nearest_neighbor_ids = [ids_of_possible_neighbors[index]
+                            for index in nearest_neighbor_ids]
+
+    return nearest_neighbor_ids
+#+end_src
+
+#+begin_src python :results output :exports both
+doc_id = 0
+doc_to_search = tweets[doc_id]
+vec_to_search = documents.documents_embeddings[doc_id]
+
+print(doc_to_search)
+#+end_src
+
+#+RESULTS:
+: #FollowFriday @France_Inte @PKuchly57 @Milipol_Paris for being top engaged members in my community this week :)
+
+#+begin_src python :results output :exports both
+nearest_neighbor_ids = approximate_knn(
+    document_id=doc_id,
+    document_embedding=vec_to_search,
+    multiverse_planes=universes.planes,
+    k=3, universes=5)
+
+print(f"Nearest neighbors for document {doc_id}")
+print(f"Document contents: {doc_to_search}")
+print("")
+
+for neighbor_id in nearest_neighbor_ids:
+    print(f"Nearest neighbor at document id {neighbor_id}")
+    print(f"document contents: {tweets[neighbor_id]}")
+#+end_src
+
+#+RESULTS:
+: Fast considering 79 vecs
+: Nearest neighbors for document 0
+: Document contents: #FollowFriday @France_Inte @PKuchly57 @Milipol_Paris for being top engaged members in my community this week :)
+: 
+: Nearest neighbor at document id 254
+: document contents: Something to get your #Friday off to a great start :) Have a great day all! #Mclaren #FridayFeeling #TGIF http://t.co/LshgwcXsSv
+: Nearest neighbor at document id 2714
+: document contents: Current playlist :D http://t.co/PYKQLD4KHr
+: Nearest neighbor at document id 51
+: document contents: #FollowFriday @France_Espana @reglisse_menthe @CCI_inter for being top engaged members in my community this week :)
+
+The first and third neighbors seem reasonable, although the third looks like it's just a re-working of our source tweet.
+
+* End
+  - The post that collects all the posts in this project is {{% doc %}}machine-translation{{% /doc %}}.

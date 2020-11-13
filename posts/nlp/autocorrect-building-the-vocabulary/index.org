@@ -1,0 +1,144 @@
+#+BEGIN_COMMENT
+.. title: Autocorrect: Building the Vocabulary
+.. slug: autocorrect-building-the-vocabulary
+.. date: 2020-11-04 19:13:20 UTC-08:00
+.. tags: nlp,autocorrect
+.. category: NLP
+.. link: 
+.. description: Building the vocabulary for an autocorrect machine.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1369e7f2-322e-45f9-8712-904cb5dfda99-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+#+begin_src python :results none
+# python
+from collections import Counter
+from functools import partial
+
+import re
+
+# pypi
+import holoviews
+import hvplot.pandas
+import pandas
+
+# my stuff
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src python :results none
+SLUG = "autocorrect-building-the-vocabulary"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{SLUG}/")
+#+end_src
+* Middle
+** Set Up the Corpus
+#+begin_src python :results output :exports both
+text = 'red pink pink blue blue yellow ORANGE BLUE BLUE PINK'
+print(text)
+print(f"String Length: {len(text)}")
+#+end_src
+
+#+RESULTS:
+: red pink pink blue blue yellow ORANGE BLUE BLUE PINK
+: String Length: 52
+** Preprocessing
+*** Lowercasing
+#+begin_src python :results output :exports both
+text_lowercased = text.lower()
+print(text_lowercased)
+#+end_src
+
+#+RESULTS:
+: red pink pink blue blue yellow orange blue blue pink
+*** Tokenizing
+#+begin_src python :results output :exports both
+ALPHANUMERIC_UNDERSCORE = r"\w"
+ONE_OR_MORE = r"+"
+
+TOKEN = ALPHANUMERIC_UNDERSCORE + ONE_OR_MORE
+tokens = re.findall(TOKEN, text_lowercased)
+print(f"Tokens: {len(tokens)}")
+#+end_src
+
+#+RESULTS:
+: Tokens: 10
+** Create the Vocabulary
+*** First Way: Distinct Words
+
+#+begin_src python :results output :exports both
+vocabulary = set(tokens)
+print(vocabulary)
+print(f"Count: {len(vocabulary)}")
+#+end_src
+
+#+RESULTS:
+: {'pink', 'red', 'orange', 'blue', 'yellow'}
+: Count: 5
+*** Second Way: Add Word Counts
+**** With a Dictionary
+#+begin_src python :results output :exports both
+counts_from_dict = {token: tokens.count(token) for token in tokens}
+print(counts_from_dict)
+print(f"Unique: {len(counts_from_dict)}")
+#+end_src    
+
+#+RESULTS:
+: {'red': 1, 'pink': 3, 'blue': 4, 'yellow': 1, 'orange': 1}
+: Unique: 5
+**** With a Counter
+#+begin_src python :results output :exports both
+counts_from_counter = Counter(tokens)
+print(counts_from_counter)
+print(f"Unique: {len(counts_from_counter)}")
+for key, count in counts_from_counter.items():
+    assert count == counts_from_dict[key]
+#+end_src
+
+#+RESULTS:
+: Counter({'blue': 4, 'pink': 3, 'red': 1, 'yellow': 1, 'orange': 1})
+: Unique: 5
+*** Plot the Vocabulary
+
+#+begin_src python :results none
+keys = list(counts_from_counter.keys())
+colors = holoviews.Cycle(values=keys)
+data = pandas.DataFrame(dict(
+    Count=list(counts_from_counter.values()),
+    Token=keys)
+                        )
+plot = data.hvplot.bar(x="Token", y="Count").opts(
+    title="Token Counts",
+    width=990,
+    height=780,
+    fontscale=2,
+    color=colors,
+    color_index="Token"
+)
+
+outcome = Embed(plot=plot, file_name="token_counts")()
+#+end_src
+
+#+begin_src python :results output html :exports both
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="token_counts.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+* End
+  This is the basic way that we'll be creating a vocabulary for the autocorrect feature.

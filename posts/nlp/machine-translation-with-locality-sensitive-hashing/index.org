@@ -1,0 +1,966 @@
+#+BEGIN_COMMENT
+.. title: Locality-Sensitive Hashing (LSH) for Machine Translation
+.. slug: machine-translation-with-locality-sensitive-hashing
+.. date: 2020-10-22 17:43:58 UTC-07:00
+.. tags: nlp,machine translation,assignment
+.. category: NLP
+.. link: 
+.. description: Implementing Locality Sensitive Hashing for the English to French Translation
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 2
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1678b52d-9177-44e0-a2b7-dd5256303c72-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is a continuation of the post in which we implemented {{% lancelot title="k-Nearest Neighbors" %}}machine-translation-k-nearest-neighbors{{% /lancelot %}}. It's part of a series of posts on building an English to French translator whose links are gathered in the {{% lancelot title="this post" %}}machine-translation{{% /lancelot %}}.
+
+** Imports
+#+begin_src python :results none
+# python
+import math
+
+# pypi
+from dotenv import load_dotenv
+from nltk.corpus import twitter_samples
+
+import numpy
+
+# my code
+from graeae import Timer
+from neurotic.nlp.word_embeddings.embeddings import EmbeddingsLoader
+from neurotic.nlp.twitter.processor import TwitterProcessor
+#+end_src
+** Set Up
+*** The Timer
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Tweets
+#+begin_src python :results none
+positive_tweets = twitter_samples.strings("positive_tweets.json")
+negative_tweets = twitter_samples.strings("negative_tweets.json")
+tweets = positive_tweets + negative_tweets
+#+end_src
+*** The Twitter Processor
+#+begin_src python :results none
+process_tweet = TwitterProcessor()
+#+end_src
+*** The Embeddings Loader
+#+begin_src python :results none
+embeddings = EmbeddingsLoader()
+#+end_src
+* Middle
+** Locality-Sensitive Hashing (LSH)
+
+In this part of the assignment, you will implement a more efficient version of k-nearest neighbors using locality sensitive hashing. You will then apply this to document search.
+ 
+ - Process the tweets and represent each tweet as a vector (represent a document with a vector embedding).
+ - Use locality sensitive hashing and k nearest neighbors to find tweets that are similar to a given tweet.
+
+
+*** 3.1 Getting the document embeddings
+
+**** Bag-of-words (BOW) document models
+ Text documents are sequences of words.
+  - The ordering of words makes a difference. For example, sentences "Apple pie is better than pepperoni pizza." and "Pepperoni pizza is better than apple pie" have opposite meanings due to the word ordering.
+  - However, for some applications, ignoring the order of words can allow us to train an efficient and still effective model.
+  - This approach is called Bag-of-words document model.
+
+*** Document embeddings
+    - /Document embedding/ is created by summing up the embeddings of all words in the document.
+    - If we don't know the embedding of some word, we can ignore that word.
+
+ **Exercise 07**:
+ Complete the =get_document_embedding()= function.
+  - The function =get_document_embedding()= encodes entire document as a "document" embedding.
+  - It takes in a document (as a string) and a dictionary, =en_embeddings=
+  - It processes the document, and looks up the corresponding embedding of each word.
+   - It then sums them up and returns the sum of all word vectors of that processed tweet.
+
+**** Hints
+ - You can handle missing words easier by using the =get()= method of the python dictionary instead of the bracket notation (i.e. "[ ]"). See more about it [[https://stackoverflow.com/a/11041421/12816433"][here]]
+ - The default value for missing word should be the zero vector. Numpy will [[https://docs.scipy.org/doc/numpy/user/basics.broadcasting.html][broadcast]] simple 0 scalar into a vector of zeros during the summation.
+ - Alternatively, skip the addition if a word is not in the dictonary.
+ - You can use your =process_tweet()= function which allows you to process the tweet. The function just takes in a tweet and returns a list of words.
+
+#+begin_src python :results none
+# UNQ_C12 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+def get_document_embedding(tweet, en_embeddings): 
+    '''
+    Input:
+        - tweet: a string
+        - en_embeddings: a dictionary of word embeddings
+    Output:
+        - doc_embedding: sum of all word embeddings in the tweet
+    '''
+    doc_embedding = numpy.zeros(300)
+
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    # process the document into a list of words (process the tweet)
+    processed_doc = process_tweet(tweet)
+    for word in processed_doc:
+        # add the word embedding to the running total for the document embedding
+        doc_embedding = doc_embedding + en_embeddings.get(word, 0)
+    ### END CODE HERE ###
+    return doc_embedding
+#+end_src
+
+You do not have to input any code in this cell, but it is relevant to grading, so please do not change anything
+
+#+begin_src python :results output :exports both
+# testing your function
+custom_tweet = "RT @Twitter @chapagain Hello There! Have a great day. :) #good #morning http://chapagain.com.np"
+#tweet_embedding = get_document_embedding(custom_tweet, en_embeddings_subset)
+tweet_embedding = get_document_embedding(custom_tweet, embeddings.english_subset)
+
+actual = tweet_embedding[-5:]
+expected = [-0.00268555, -0.15378189, -0.55761719, -0.07216644, -0.32263184]
+assert numpy.allclose(actual, expected)
+print(actual)
+#+end_src
+
+#+RESULTS:
+: [-0.00268555 -0.15378189 -0.55761719 -0.07216644 -0.32263184]
+
+*** Exercise 08
+
+**** Store all document vectors into a dictionary
+ Now, let's store all the tweet embeddings into a dictionary. Implement =get_document_vecs()=.
+
+
+#+begin_src python :results none
+def get_document_vecs(all_docs, en_embeddings):
+    '''
+    Input:
+        - all_docs: list of strings - all tweets in our dataset.
+        - en_embeddings: dictionary with words as the keys and their embeddings as the values.
+    Output:
+        - document_vec_matrix: matrix of tweet embeddings.
+        - ind2Doc_dict: dictionary with indices of tweets in vecs as keys and their embeddings as the values.
+    '''
+
+    # the dictionary's key is an index (integer) that identifies a specific tweet
+    # the value is the document embedding for that document
+    ind2Doc_dict = {}
+
+    # this is list that will store the document vectors
+    document_vec_l = []
+
+    for i, doc in enumerate(all_docs):
+
+        ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+        # get the document embedding of the tweet
+        doc_embedding = get_document_embedding(doc, en_embeddings)
+
+        # save the document embedding into the ind2Tweet dictionary at index i
+        ind2Doc_dict[i] = doc_embedding
+
+        # append the document embedding to the list of document vectors
+        document_vec_l.append(doc_embedding)
+
+        ### END CODE HERE ###
+
+    # convert the list of document vectors into a 2D array (each row is a document vector)
+    document_vec_matrix = numpy.vstack(document_vec_l)
+
+    return document_vec_matrix, ind2Doc_dict
+#+end_src
+
+#+begin_src python :results none
+document_vecs, ind2Tweet = get_document_vecs(tweets, embeddings.english_subset)
+#+end_src
+
+#+begin_src python :results output :exprts both
+dict_length = len(ind2Tweet)
+expected = len(tweets)
+assert dict_length == expected
+print(f"length of dictionary {dict_length:,}")
+rows, columns = document_vecs.shape
+print(f"shape of document_vecs ({rows:,}, {columns})")
+assert rows == expected
+assert columns == 300
+#+end_src
+
+#+RESULTS:
+: length of dictionary 10,000
+: shape of document_vecs (10,000, 300)
+
+*** 3.2 Looking up the tweets
+
+ Now you have a vector of dimension (m,d) where =m= is the number of tweets (10,000) and =d= is the dimension of the embeddings (300).  Now you will input a tweet, and use cosine similarity to see which tweet in our corpus is similar to your tweet.
+
+#+begin_src python :results none
+my_tweet = 'i am sad'
+process_tweet(my_tweet)
+tweet_embedding = get_document_embedding(my_tweet, embeddings.english_subset)
+#+end_src
+
+This gives you a tweet similar to your input.
+
+#+begin_src python :results none
+def cosine_similarity(vector_1: numpy.ndarray, vector_2: numpy.ndarray) -> float:
+    """Calculates the similarity between two vectors
+
+    Args:
+     vector_1: array to compare
+     vector_2: array to compare to vector_1
+
+    Returns:
+     cosine similarity between the two vectors
+    """
+    return numpy.dot(vector_1, vector_2)/(numpy.linalg.norm(vector_1) *
+                                          numpy.linalg.norm(vector_2))
+#+end_src
+
+#+begin_src python :results output :exprts both
+idx = numpy.argmax(cosine_similarity(document_vecs, tweet_embedding))
+print(tweets[idx])
+#+end_src
+
+#+RESULTS:
+: @zoeeylim sad sad sad kid :( it's ok I help you watch the match HAHAHAHAHA
+
+*** 3.3 Finding the most similar tweets with LSH
+
+ You will now implement locality sensitive hashing (LSH) to identify the most similar tweet. Instead of looking at all 10,000 vectors, you can just search a subset to find its nearest neighbors.
+
+Let's say you have a set of data points,  You can divide the vector space into regions and search within one region for nearest neighbors of a given vector.
+
+#+begin_src python :results output :exprts both
+N_VECS = len(tweets)       # This many vectors.
+N_DIMS = document_vecs.shape[1]     # Vector dimensionality.
+print(f"There are {N_VECS:,} vectors and each has {N_DIMS} dimensions.")
+#+end_src
+
+#+RESULTS:
+: There are 10,000 vectors and each has 300 dimensions.
+
+*** Choosing the number of planes
+ 
+   -  Each plane divides the space to /2/ parts.
+   -  So /n/ planes divide the space into \(2^{n}\) hash buckets.
+   -  We want to organize 10,000 document vectors into buckets so that every bucket has about /~16/ vectors.
+   -  For that we need \(\frac{10000}{16}=625\) buckets.
+   -  We're interested in /n/, number of planes, so that \(2^{n}= 625\). Now, we can calculate \(n=\log_{2}625 = 9.29 \approx 10\).
+
+We use \(\log_2(625)\) as the number of planes to have ~16 vectors/bucket.
+
+#+begin_src python :results output :exports both
+buckets = 10000/16
+print(buckets)
+planes = math.ceil(numpy.log2(buckets))
+print(planes)
+#+end_src
+
+#+RESULTS:
+: 625.0
+: 10
+
+#+begin_src python :results none
+N_PLANES = planes
+#+end_src
+
+ Number of times to repeat the hashing to improve the search.
+
+#+begin_src python :results none
+N_UNIVERSES = 25
+#+end_src
+*** 3.4 Getting the hash number for a vector
+
+For each vector, we need to get a unique number associated to that vector in order to assign it to a "hash bucket".
+
+*** Hyperlanes in vector spaces
+   - In /3/-dimensional vector space, the hyperplane is a regular plane. In /2/ dimensional vector space, the hyperplane is a line.
+   - Generally, the hyperplane is a subspace which has dimension /1/ lower than the original vector space has.
+   - A hyperplane is uniquely defined by its normal vector.
+   - Normal vector /n/ of the plane \(\pi\) is the vector to which all vectors in the plane \(\pi\) are orthogonal (perpendicular in /3/ dimensional case).
+
+*** Using Hyperplanes to split the vector space
+ We can use a hyperplane to split the vector space into /2/ parts.
+ - All vectors whose dot product with a plane's normal vector is positive are on one side of the plane.
+ - All vectors whose dot product with the plane's normal vector is negative are on the other side of the plane.
+
+*** Encoding hash buckets
+   - For a vector, we can take its dot product with all the planes, then encode this information to assign the vector to a single hash bucket.
+   - When the vector is pointing to the opposite side of the hyperplane than normal, encode it by 0.
+   - Otherwise, if the vector is on the same side as the normal vector, encode it by 1.
+   - If you calculate the dot product with each plane in the same order for every vector, you've encoded each vector's unique hash ID as a binary number, like [0, 1, 1, ... 0].
+
+*** Exercise 09: Implementing hash buckets
+
+ We've initialized hash table =hashes= for you. It is list of =N_UNIVERSES= matrices, each describes its own hash table. Each matrix has =N_DIMS= rows and =N_PLANES= columns. Every column of that matrix is a =N_DIMS=-dimensional normal vector for each of =N_PLANES= hyperplanes which are used for creating buckets of the particular hash table.
+
+ *Exercise*: Your task is to complete the function =hash_value_of_vector= which places vector =v= in the correct hash bucket.
+
+ - First multiply your vector /v/, with a corresponding plane. This will give you a vector of dimension \((1,\text{N_planes})\).
+ - You will then convert every element in that vector to 0 or 1.
+ - You create a hash vector by doing the following: if the element is negative, it becomes a 0, otherwise you change it to a 1.
+ - You then compute the unique number for the vector by iterating over =N_PLANES=
+ - Then you multiply \(2^i\) times the corresponding bit (0 or 1).
+ - You will then store that sum in the variable =hash_value=.
+
+ **Intructions:** Create a hash for the vector in the function below.
+ Use this formula:
+
+\[
+ hash = \sum_{i=0}^{N-1} \left( 2^{i} \times h_{i} \right)
+\]
+
+**** Create the sets of planes
+     - Create multiple (25) sets of planes (the planes that divide up the region).
+     - You can think of these as 25 separate ways of dividing up the vector space with a different set of planes.
+     - Each element of this list contains a matrix with 300 rows (the word vectors have 300 dimensions), and 10 columns (there are 10 planes in each "universe").
+
+#+begin_src python :results none
+numpy.random.seed(0)
+planes_l = [numpy.random.normal(size=(N_DIMS, N_PLANES))
+            for _ in range(N_UNIVERSES)]
+#+end_src
+
+***** Hints
+
+      - =numpy.squeeze()= removes unused dimensions from an array; for instance, it converts a (10,1) 2D array into a (10,) 1D array
+
+#+begin_src python :results none
+def hash_value_of_vector(v, planes):
+    """Create a hash for a vector; hash_id says which random hash to use.
+
+    Input:
+        - v:  vector of tweet. It's dimension is (1, N_DIMS)
+        - planes: matrix of dimension (N_DIMS, N_PLANES) - the set of planes that divide up the region
+    Output:
+        - res: a number which is used as a hash for your vector
+
+    """
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+    # for the set of planes,
+    # calculate the dot product between the vector and the matrix containing the planes
+    # remember that planes has shape (300, 10)
+    # The dot product will have the shape (1,10)
+    assert planes.shape == (300, 10)
+    assert v.shape == (1, 300)
+    dot_product = numpy.dot(v, planes)
+    assert dot_product.shape == (1, 10), dot_product.shape
+
+    # get the sign of the dot product (1,10) shaped vector
+    sign_of_dot_product = numpy.sign(dot_product)
+
+    # set h to be false (equivalent to 0 when used in operations) if the sign is negative,
+    # and true (equivalent to 1) if the sign is positive (1,10) shaped vector
+    h = sign_of_dot_product >= 0
+    assert h.shape == (1, 10)
+
+    # remove extra un-used dimensions (convert this from a 2D to a 1D array)
+    h = numpy.squeeze(h)
+
+    # initialize the hash value to 0
+    hash_value = 0
+
+    n_planes = planes.shape[1]
+    for i in range(n_planes):
+        # increment the hash value by 2^i * h_i
+        hash_value += 2**i * h[i]
+    ### END CODE HERE ###
+
+    # cast hash_value as an integer
+    hash_value = int(hash_value)
+
+    return hash_value
+#+end_src
+
+#+begin_src python :results output :exprts both
+numpy.random.seed(0)
+idx = 0
+planes = planes_l[idx]  # get one 'universe' of planes to test the function
+vec = numpy.random.rand(1, 300)
+expected = 768
+actual = hash_value_of_vector(vec, planes)
+assert expected == actual
+print(f" The hash value for this vector,",
+      f"and the set of planes at index {idx},",
+      f"is {actual}")
+#+end_src
+
+#+RESULTS:
+:  The hash value for this vector, and the set of planes at index 0, is 768
+
+*** 3.5 Creating a hash table
+*** Exercise 10
+
+ Given that you have a unique number for each vector (or tweet), You now want to create a hash table. You need a hash table, so that given a hash_id, you can quickly look up the corresponding vectors. This allows you to reduce your search by a significant amount of time.
+
+ We have given you the =make_hash_table= function, which maps the tweet vectors to a bucket and stores the vector there. It returns the =hash_table= and the =id_table=. The =id_table= tells you which vector in a certain bucket corresponds to what tweet.
+
+**** Hints
+     - a dictionary comprehension, similar to a list comprehension, looks like this: `{i:0 for i in range(10)}`, where the key is 'i' and the value is zero for all key-value pairs. 
+
+#+begin_src python :results none
+def make_hash_table(vecs, planes):
+    """
+    Input:
+        - vecs: list of vectors to be hashed.
+        - planes: the matrix of planes in a single "universe", with shape (embedding dimensions, number of planes).
+    Output:
+        - hash_table: dictionary - keys are hashes, values are lists of vectors (hash buckets)
+        - id_table: dictionary - keys are hashes, values are list of vectors id's
+                            (it's used to know which tweet corresponds to the hashed vector)
+    """
+    ### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###
+
+    # number of planes is the number of columns in the planes matrix
+    num_of_planes = planes.shape[1]
+
+    # number of buckets is 2^(number of planes)
+    num_buckets = 2**num_of_planes
+
+    # create the hash table as a dictionary.
+    # Keys are integers (0,1,2.. number of buckets)
+    # Values are empty lists
+    hash_table = {index: [] for index in range(num_buckets)}
+
+    # create the id table as a dictionary.
+    # Keys are integers (0,1,2... number of buckets)
+    # Values are empty lists
+    id_table = {index: [] for index in range(num_buckets)}
+
+    # for each vector in 'vecs'
+    for i, v in enumerate(vecs):
+        # calculate the hash value for the vector
+        h = hash_value_of_vector(v.reshape(1, 300), planes)
+
+        # store the vector into hash_table at key h,
+        # by appending the vector v to the list at key h
+        hash_table[h].append(v)
+
+        # store the vector's index 'i' (each document is given a unique integer 0,1,2...)
+        # the key is the h, and the 'i' is appended to the list at key h
+        id_table[h].append(i)
+
+    ### END CODE HERE ###
+
+    return hash_table, id_table
+#+end_src
+
+
+#+begin_src python :results output :exprts both
+numpy.random.seed(0)
+planes = planes_l[0]  # get one 'universe' of planes to test the function
+vec = numpy.random.rand(1, 300)
+tmp_hash_table, tmp_id_table = make_hash_table(document_vecs, planes)
+# tmp_hash_table, tmp_id_table = make_hash_table(vec.reshape(1, 300), planes)
+
+index = 2
+print(f"The hash table at key {index} has {len(tmp_hash_table[index])} document vectors")
+print(f"The id table at key {index} has {len(tmp_id_table[index])}")
+print(f"The first 5 document indices stored at key {index} of are {tmp_id_table[index][0:5]}")
+#+end_src
+
+#+RESULTS:
+: The hash table at key 2 has 21 document vectors
+: The id table at key 2 has 21
+: The first 5 document indices stored at key 2 of are [356, 529, 976, 1754, 1779]
+
+Expected output
+
+#+RESULTS
+ The hash table at key 0 has 3 document vectors
+ The id table at key 0 has 3
+ The first 5 document indices stored at key 0 of are [3276, 3281, 3282]
+
+I get a hash of 2 for document 3276, not 1...
+
+*** 3.6 Creating all hash tables
+
+You can now hash your vectors and store them in a hash table that would allow you to quickly look up and search for similar vectors. Run the cell below to create the hashes. By doing so, you end up having several tables which have all the vectors. Given a vector, you then identify the buckets in all the tables.  You can then iterate over the buckets and consider much fewer vectors. The more buckets you use, the more accurate your lookup will be, but also the longer it will take.
+
+**** Creating the hashtables
+#+begin_src python :results output :exprts both
+hash_tables = []
+id_tables = []
+with TIMER:
+    for universe_id in range(N_UNIVERSES):  # there are 25 hashes
+        print('working on hash universe #:', universe_id)
+        planes = planes_l[universe_id]
+        hash_table, id_table = make_hash_table(document_vecs, planes)
+        hash_tables.append(hash_table)
+        id_tables.append(id_table)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2020-10-29 19:05:44,385 graeae.timers.timer start: Started: 2020-10-29 19:05:44.385491
+working on hash universe #: 0
+working on hash universe #: 1
+working on hash universe #: 2
+working on hash universe #: 3
+working on hash universe #: 4
+working on hash universe #: 5
+working on hash universe #: 6
+working on hash universe #: 7
+working on hash universe #: 8
+working on hash universe #: 9
+working on hash universe #: 10
+working on hash universe #: 11
+working on hash universe #: 12
+working on hash universe #: 13
+working on hash universe #: 14
+working on hash universe #: 15
+working on hash universe #: 16
+working on hash universe #: 17
+working on hash universe #: 18
+working on hash universe #: 19
+working on hash universe #: 20
+working on hash universe #: 21
+working on hash universe #: 22
+working on hash universe #: 23
+working on hash universe #: 24
+2020-10-29 19:05:58,159 graeae.timers.timer end: Ended: 2020-10-29 19:05:58.159642
+2020-10-29 19:05:58,161 graeae.timers.timer end: Elapsed: 0:00:13.774151
+#+end_example
+** Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/hashing.py
+<<imports>>
+
+
+<<planes-universe>>
+
+    <<planes-plane-count>>
+
+    <<planes-planes>>
+
+
+<<documents-embeddings-builder>>
+
+    <<document-embedding>>
+
+    <<documents-embeddings>>
+
+    <<document-index-to-embedding>>
+
+
+<<hash-table>>
+
+    <<hash-value-of-vector>>
+
+    <<hash-hashes>>
+
+    <<hash-table-table>>
+
+    <<hash-index-table>>
+
+
+
+<<hash-tables>>
+
+    <<hash-tables-hash>>
+
+    <<hash-tables-index>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+import math
+
+# pypi
+import attr
+import numpy
+#+end_src
+*** Planes Universe
+#+begin_src python :noweb-ref planes-universe
+@attr.s(auto_attribs=True)
+class PlanesUniverse:
+    """Creates set of planes with a random mormal distribution of points
+
+
+    Args:
+     vector_count: number of vectors that will be hashed
+     dimensions: number of columns per vector
+     universes: number of universes to create
+     vectors_per_bucket: how many vectors we want in each
+     random_seed: value to seed the random number generator
+    """
+    vector_count: int
+    dimensions: int
+    universes: int
+    vectors_per_bucket: int
+    random_seed: int=0
+    _plane_count: int=None
+    _planes: list=None
+#+end_src
+**** Plane Count
+#+begin_src python :noweb-ref planes-plane-count
+@property
+def plane_count(self) -> int:
+    """The number of planes to create
+
+    Uses the number of vectors and desired vectors per bucket
+    """
+    if self._plane_count is None:
+        buckets = self.vector_count/self.vectors_per_bucket
+        self._plane_count = math.ceil(numpy.log2(buckets))
+    return self._plane_count
+#+end_src
+**** Planes
+     The list of planes.
+#+begin_src python :noweb-ref planes-planes
+@property
+def planes(self) -> list:
+    """The list of planes"""
+    if self._planes is None:
+        numpy.random.seed(self.random_seed)
+        self._planes = [numpy.random.normal(size=(self.dimensions,
+                                                  self.plane_count))
+                        for _ in range(self.universes)]
+    return self._planes
+#+end_src
+*** Documents Embeddings Builder
+#+begin_src python :noweb-ref documents-embeddings-builder
+@attr.s(auto_attribs=True)
+class DocumentsEmbeddings:
+    """Builds embeddings for documents from their words
+
+    Args:
+     embeddings: word-embeddings for the documents
+     process: callable to pre-process documents
+     documents: documents (strings) to hash
+    """
+    embeddings: dict
+    process: object
+    documents: list
+    _documents_embeddings: numpy.ndarray=None
+    _document_index_to_embedding: dict=None
+#+end_src
+
+**** Getting the Document Embeddings
+#+begin_src python :noweb-ref document-embedding
+def document_embedding(self, document: str) -> numpy.ndarray: 
+    """sums the embeddings for words in the document
+    
+    Args:
+      - document: string to tokenize and build embedding for
+    
+    Returns:
+      - embedding: sum of all word embeddings in the document
+    """
+    rows = len(next(iter(self.embeddings.values())))
+    embedding = numpy.zeros(rows)
+    words = self.process(document)
+    # adding the zeros means you always return an array, not just the number 0
+    # if none of the words in the document are in the embeddings
+    return embedding + sum((self.embeddings.get(word, 0) for word in words))
+#+end_src
+**** Documents Embeddings
+#+begin_src python :noweb-ref documents-embeddings
+@property
+def documents_embeddings(self) -> numpy.ndarray:
+    """array of embeddings for each document in documents"""
+    if self._documents_embeddings is None:
+        self._documents_embeddings = numpy.vstack(
+            [self.document_embedding(document) for document in self.documents])
+    return self._documents_embeddings
+#+end_src
+**** Document Index to Embeddings
+#+begin_src python :noweb-ref document-index-to-embedding
+@property
+def document_index_to_embedding(self) -> dict:
+    """maps document index (from self.documents) to embedding"""
+    if self._document_index_to_embedding is None:
+        self._document_index_to_embedding = {
+            index: embedding for index, embedding in enumerate(
+                self.documents_embeddings)}
+    return self._document_index_to_embedding
+#+end_src
+*** Hash Table Builder
+#+begin_src python :noweb-ref hash-table
+@attr.s(auto_attribs=True)
+class HashTable:
+    """Builds the hash-table for embeddings
+
+    Args:
+     planes: matrix of planes to divide into hash table
+     vectors: vectors to be hashed
+    """
+    planes: numpy.ndarray
+    vectors: numpy.ndarray
+    _hashes: list=None
+    _hash_table: dict=None
+    _index_table: dict=None
+#+end_src
+**** Vector Hash Value
+#+begin_src python :noweb-ref hash-value-of-vector
+def hash_value(self, vector: numpy.ndarray) -> int:
+    """
+    Create a hash for a vector
+
+    Args:
+     - vector:  vector of tweet. It's dimension is (1, N_DIMS)
+
+    Returns:
+      - res: a number which is used as a hash for your vector
+    """
+    rows, columns = self.planes.shape
+    # assert vector.shape == (1, rows), vector.shape
+    dot_product = numpy.dot(vector, self.planes)
+    #assert dot_product.shape == (1, columns), dot_product.shape
+
+    sign_of_dot_product = numpy.sign(dot_product)
+    hashes = sign_of_dot_product >= 0
+    assert hashes.shape == dot_product.shape
+
+    # remove extra un-used dimensions (convert this from a 2D to a 1D array)
+    hashes = numpy.squeeze(hashes)
+    hash_value = 0
+
+    for column in range(columns):
+        hash_value += 2**column * hashes[column]
+    return int(hash_value)
+#+end_src
+**** Hashes
+#+begin_src python :noweb-ref hash-hashes
+@property
+def hashes(self) -> list:
+    """Vector hashes"""
+    if self._hashes is None:
+        self._hashes = [self.hash_value(vector) for vector in self.vectors]
+    return self._hashes
+#+end_src
+**** Hash Table Build
+#+begin_src python :noweb-ref hash-table-table
+@property
+def hash_table(self) -> dict:
+    """Hash table of vectors
+
+    Returns:
+      hash_table: dictionary - keys are hashes, values are lists of vectors (hash buckets)
+    """
+    if self._hash_table is None:
+        number_of_planes = self.planes.shape[1]
+        number_of_buckets = 2**number_of_planes
+
+        self._hash_table = {index: [] for index in range(number_of_buckets)}
+
+        for index, hash_ in enumerate(self.hashes):
+            self._hash_table[hash_].append(self.vectors[index])
+    return self._hash_table
+#+end_src
+**** Index Table
+#+begin_src python :noweb-ref hash-index-table
+@property
+def index_table(self) -> dict:
+    """Tabel of document hash to index"""
+    if self._index_table is None:
+        number_of_planes = self.planes.shape[1]
+        number_of_buckets = 2**number_of_planes
+
+        self._index_table = {index: [] for index in range(number_of_buckets)}
+
+        for index, hash_ in enumerate(self.hashes):            
+            self._index_table[hash_].append(index)
+    return self._index_table
+#+end_src
+**** Build The Tables
+     The code that uses the tables doesn't actually pull them at the same time, so I'm going to keep them separate.
+#+begin_src python :noweb-ref hash-build-tables
+def build_tables(self) -> None:
+    """Builds the hash and index table properties"""
+    number_of_planes = self.planes.shape[1]
+    number_of_buckets = 2**number_of_planes
+
+    self._hash_table = {index: [] for index in range(number_of_buckets)}
+    self._index_table = {index: [] for index in range(number_of_buckets)}
+
+    for index, hash_ in enumerate(self.hashes):
+        self._hash_table[hash_].append(self.vectors[index])
+        self._index_table[hash_].append(index)
+    return
+#+end_src
+*** Hash Tables
+#+begin_src python :noweb-ref hash-tables
+@attr.s(auto_attribs=True)
+class HashTables:
+    """Builds the universes of hash tables
+
+    Args:
+     universes: how many universes
+     planes: planes to hash vectors into
+     vectors: vectors to hash
+    """
+    universes: int
+    planes: list
+    vectors: numpy.ndarray
+    _hash_tables: list=None
+    _id_tables: list=None
+#+end_src
+**** Hash Tables
+#+begin_src python :noweb-ref hash-tables-hash
+@property
+def hash_tables(self) -> list:
+    """Builds the list of hash tables"""
+    if self._hash_tables is None: 
+        self._hash_tables = [
+            HashTable(vectors=self.vectors,
+                      planes=self.planes[universe]).hash_table
+            for universe in range(self.universes)
+        ]
+    return self._hash_tables
+#+end_src
+**** ID Tables
+#+begin_src python :noweb-ref hash-tables-index
+@property
+def id_tables(self) -> list:
+    """Builds the list of id tables"""
+    if self._id_tables is None: 
+        self._id_tables = [
+            HashTable(vectors=self.vectors,
+                      planes=self.planes[universe]).index_table
+            for universe in range(self.universes)
+        ]
+    return self._id_tables
+#+end_src
+** Testing the Classes
+*** PlanesUniverse
+#+begin_src python :results none
+from neurotic.nlp.word_embeddings.hashing import PlanesUniverse
+universes = PlanesUniverse(vector_count=len(tweets),
+                        dimensions=N_DIMS,
+                        universes=N_UNIVERSES,
+                        vectors_per_bucket=16)
+
+assert universes.plane_count==10
+#+end_src
+
+*** Documents Embeddings Builder
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.hashing import DocumentsEmbeddings
+
+table = DocumentsEmbeddings(embeddings=embeddings.english_subset,
+                            process=process_tweet, documents=tweets)
+
+custom_tweet = "RT @Twitter @chapagain Hello There! Have a great day. :) #good #morning http://chapagain.com.np"
+
+tweet_embedding = table.document_embedding(custom_tweet)
+
+actual = tweet_embedding[-5:]
+expected = [-0.00268555, -0.15378189, -0.55761719, -0.07216644, -0.32263184]
+assert numpy.allclose(actual, expected)
+print(actual)
+
+dict_length = len(table.document_index_to_embedding)
+expected = len(tweets)
+assert dict_length == expected
+print(f"length of dictionary {dict_length:,}")
+rows, columns = table.documents_embeddings.shape
+print(f"shape of document_vecs ({rows:,}, {columns})")
+assert rows == expected
+assert columns == 300
+
+my_tweet = 'i am sad'
+tweet_embedding = table.document_embedding(my_tweet)
+
+idx = numpy.argmax(cosine_similarity(table.documents_embeddings, tweet_embedding))
+print(tweets[idx])
+#+end_src
+
+#+RESULTS:
+: [-0.00268555 -0.15378189 -0.55761719 -0.07216644 -0.32263184]
+: length of dictionary 10,000
+: shape of document_vecs (10,000, 300)
+: @zoeeylim sad sad sad kid :( it's ok I help you watch the match HAHAHAHAHA
+*** Hash Table Builder
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.hashing import HashTable
+
+numpy.random.seed(0)
+idx = 0
+planes = universes.planes[idx]  # get one 'universe' of planes to test the function
+vec = numpy.random.rand(1, 300)
+expected = 768
+
+hasher = HashTable(planes=planes, vectors=None)
+actual = hasher.hash_value(vec)
+
+assert expected == actual, f"expected: {expected}, Actual: {actual}"
+print(f" The hash value for this vector,",
+      f"and the set of planes at index {idx},",
+      f"is {actual}")
+#+end_src
+
+#+RESULTS:
+:  The hash value for this vector, and the set of planes at index 0, is 768
+
+#+begin_src python :results output :exports both
+numpy.random.seed(0)
+planes = universes.planes[0]  # get one 'universe' of planes to test the function
+vec = numpy.random.rand(1, 300)
+
+hasher = HashTable(planes=planes, vectors=document_vecs)
+
+tmp_hash_table = hasher.hash_table
+tmp_id_table = hasher.index_table
+
+index = 2
+print(f"The hash table at key {index} has {len(tmp_hash_table[index])} document vectors")
+print(f"The id table at key {index} has {len(tmp_id_table[index])}")
+print(f"The first 5 document indices stored at key {index} of are {tmp_id_table[index][0:5]}")
+#+end_src
+
+#+RESULTS:
+: The hash table at key 2 has 21 document vectors
+: The id table at key 2 has 21
+: The first 5 document indices stored at key 2 of are [356, 529, 976, 1754, 1779]
+*** Hash Tables
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings.hashing import HashTables
+tables = HashTables(universes=25, planes=universes.planes, vectors=table.documents_embeddings)
+with TIMER:    
+    hash_tables_2 = tables.hash_tables
+    id_tables_2 = tables.id_tables
+#+end_src
+
+#+RESULTS:
+: 2020-10-29 19:06:32,191 graeae.timers.timer start: Started: 2020-10-29 19:06:32.191271
+: 2020-10-29 19:06:56,635 graeae.timers.timer end: Ended: 2020-10-29 19:06:56.635738
+: 2020-10-29 19:06:56,637 graeae.timers.timer end: Elapsed: 0:00:24.444467
+
+#+begin_src python :results none
+assert len(hash_tables_2) == universes.universes
+assert len(id_tables_2) == universes.universes
+
+id_tables_ = zip(id_tables, id_tables_2)
+for table, table_2 in id_tables_:
+    assert len(table_2) == 2**universes.plane_count
+    for bucket, ids in table.items():
+        assert ids == table_2[bucket], "[{bucket}]: {ids}, {table_2[bucket]}"
+#+end_src
+
+*** Testing Objects
+| Variable      | Class               |
+|---------------+---------------------|
+| embeddings    | EmbeddingsLoader    |
+| process_tweet | TwitterProcessor    |
+| table         | DocumentsEmbeddings |
+| hasher        | HashTable           |
+| tables        | HashTables          |
+** The Data
+   This is a summary of the data that was loaded since this was such a long post and I can't remember what's what without looking around.
+
+| Variable      | Type            | Description                                                                                                         |
+|---------------+-----------------+---------------------------------------------------------------------------------------------------------------------|
+| tweets        | list of strings | All the tweets (10,000)                                                                                             |
+| document_vecs | numpy.ndarray   | Document embeddings for the tweets (10,000, 300)                                                                    |
+| ind2Tweet     | dict            | Map index of tweet (in tweets or document_vecs) to document embedding                                               |
+| planes_l      | List of arrays  | List of random planes for hashing (each is 300 x 10, 25 total)                                                      |
+| hash_tables   | List            | List of bucket-index to document embeddings maps (One for each plane, each with 1,024 buckets (2^number of planes)) |
+| id_tables     | List            | List of bucket index: document index maps (one for each plane, each with 1,024)                                     |
+* End
+  The next step is to use this to implement {{% lancelot title="approximate k-Nearest Neighbors" %}}machine-translation-with-approximate-knn{{% /lancelot %}} to compelete our application.
