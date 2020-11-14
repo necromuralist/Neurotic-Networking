@@ -1,0 +1,342 @@
+#+BEGIN_COMMENT
+.. title: Parts-of-Speech Tagging: Creating a Vocabulary
+.. slug: parts-of-speech-tagging-creating-a-vocabulary
+.. date: 2020-11-12 18:41:07 UTC-08:00
+.. tags: nlp,pos tagging
+.. category: NLP
+.. link: 
+.. description: Creating a vocabulary for parts-of-speech tagging.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-388b8b1d-68b0-49bf-b760-d25fe0a3a28a-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+from collections import Counter
+from functools import partial
+
+import os
+import random
+import re
+import string
+
+# from pypi
+from dotenv import load_dotenv
+import pandas
+#+end_src
+** Set Up
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+* Middle
+** Reading Text Data
+We're going to start with a pre-tagged dataset taken from the Wall Street Journal.
+
+#+begin_src python :results none
+path = os.environ["WALL_STREET_JOURNAL_POS"]
+with open(path) as reader:
+    lines = reader.read().split("\n")
+#+end_src
+
+Here's what the head of the file looks like.
+
+#+begin_src python :results output :exports both
+for line in lines[:5]:
+    print(line)
+#+end_src
+
+#+RESULTS:
+: In	IN
+: an	DT
+: Oct.	NNP
+: 19	CD
+: review	NN
+
+It's a two-column (tab-separated) file with no header, but we're told that the first column is the word being tagged for its part-of-speech and the second column is the tag itself.
+
+** Word Counts
+   Here we'll count the number of times a word appears in our data set and filter out words that only appear once.
+
+#+begin_src python :results output :exports both
+words = [line.split("\t")[0] for line in lines]
+print(f"Pre-Filtered word count: {len(words):,}")
+counts = Counter(words)
+words = [key for key, value in counts.items() if value > 1]
+print(f"Filtered Word Count: {len(words):,}")
+#+end_src
+
+#+RESULTS:
+: Pre-Filtered word count: 989,861
+: Filtered Word Count: 23,768
+
+Just a quick check to make sure the counts are right.
+
+#+begin_src python :results none
+grab_count = lambda pair: pair[1]
+COUNT = 1
+
+remaining = len(words)
+kept = counts.most_common(remaining)
+assert min(kept, key=grab_count)[COUNT] > 1
+
+rejected = counts.most_common()[remaining:]
+assert max(rejected, key=grab_count)[COUNT] < 2
+#+end_src
+
+Now, a sorted version.
+
+#+begin_src python :results none
+words = sorted(words)
+assert type(words) is list
+#+end_src
+
+And a peek at some of the values.
+
+#+begin_src python :results output :exports both
+for word in random.sample(words, 5):
+    print(word)
+#+end_src
+
+#+RESULTS:
+: shifts
+: solvency
+: downbeat
+: reassurance
+: UFOs
+** Known Unknowns
+   We have a labeled vocabulary, but any new documents we encounter might have words that aren't in our vocabulary, in case we will label them as "unknown", but there are some unknowns that we can classify based on certain conditions (like their suffix).
+*** Known Stuff
+**** Suffixes
+#+begin_src python :results none
+Suffixes = Namespace(
+    noun = ["action", "age", "ance", "cy", "dom", "ee", "ence", "er", "hood",
+            "ion", "ism", "ist", "ity", "ling", "ment", "ness", "or", "ry",
+            "scape", "ship", "ty"],
+    verb = ["ate", "ify", "ise", "ize"],
+    adjective = ["able", "ese", "ful", "i", "ian", "ible", "ic", "ish", "ive",
+                 "less", "ly", "ous"],
+    adverb = ["ward", "wards", "wise"]
+)
+**** Labels for the Unknowns
+#+begin_src python :results none
+UNKNOWN = "--unknown-{}--"
+Label = Namespace(
+    digit=UNKNOWN.format("digit"),
+    punctuation=UNKNOWN.format("punctuation"),
+    uppercase=UNKNOWN.format("uppercase"),
+    noun=UNKNOWN.format("noun"),    
+    verb=UNKNOWN.format("verb"),
+    adjective=UNKNOWN.format("adjective"),
+    adverb=UNKNOWN.format("adverb"),
+    unknown="--unknown--"
+)
+#+end_src
+**** Bundle Them Up 
+#+begin_src python :results none
+Unknown = Namespace(
+    punctuation = set(string.punctuation),
+    suffix = Suffixes,
+    label=Label,
+    has_digit=re.compile(r"\d"),
+    has_uppercase=re.compile("[A-Z]")
+)
+#+end_src
+*** Label the Unknowns
+#+begin_src python :results none
+def label_unknown(word: str) -> str:
+    """
+    Assign tokens to unknown words
+
+    Args:
+     word: word not in our vocabulary
+
+    Returns:
+     label for the word
+    """
+    if Unknown.has_digit.search(word):
+        return Unknown.label.digit
+
+    if not Unknown.punctuation.isdisjoint(set(word)):
+        return Unknown.label.punctuation
+
+    if Unknown.has_uppercase.search(word):
+        return Unknown.label.uppercase
+
+    if any(word.endswith(suffix) for suffix in Unknown.suffix.noun):
+        return Unknown.label.noun
+
+    if any(word.endswith(suffix) for suffix in Unknown.suffix.verb):
+        return Unknown.label.verb
+
+    if any(word.endswith(suffix) for suffix in Unknown.suffix.adjective):
+        return Unknown.label.adjective
+
+    if any(word.endswith(suffix) for suffix in Unknown.suffix.adverb):
+        return Unknown.label.adverb
+    
+    return Unknown.label.unknown
+#+end_src
+
+#+begin_src python :results output :exports both
+print(f"{label_unknown('cow2pig')}")
+print(label_unknown("cow,pig"))
+print(label_unknown("cowPig"))
+print(label_unknown(f"cowpig{random.choice(Unknown.suffix.noun)}"))
+print(label_unknown(f"cowpig{random.choice(Unknown.suffix.verb)}"))
+print(label_unknown(f"cowpig{random.choice(Unknown.suffix.adjective)}"))
+print(label_unknown(f"cowpig{random.choice(Unknown.suffix.adverb)}"))
+print(label_unknown("cowdog"))
+#+end_src
+
+#+RESULTS:
+: --unknown-digit--
+: --unknown-punctuation--
+: --unknown-uppercase--
+: --unknown-noun--
+: --unknown-verb--
+: --unknown-adjective--
+: --unknown-adverb--
+: --unknown--
+** Getting Tags
+   I don't know what the Coursera example is for - they check to see if an already tagged word is in our vocabulary and then clobber the word with an unknown tag if it isn't and return the original tag. There must be a reason for this, but it isn't explained in the notebook so I'm going to do something different. I'm going to assume that the word isn't tagged and we want to tag it.
+*** POS Tag Interpreter
+    The notebook doesn't say whose tagging system is being used so I'm going to assume that it's the [[https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html][Penn Treebank P.O.S. system]]. I'll make an interpreter for the tags, since I have no idea what some of them mean.
+
+#+begin_src python :results none
+URL = "https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html"
+data = pandas.read_html(URL, header=0)[0]
+
+TRANSLATOR = {row.Tag:row.Description for row in data.itertuples()}    
+#+end_src
+    
+#+begin_src python :results none
+cleaned = (line for line in lines if line)
+pairs = (line.split("\t") for line in cleaned)
+VOCABULARY = {key:value for key, value in pairs} 
+EMPTY_LINE = "--n--"
+TAG_FOR_EMPTY_LINE = "--s--"
+DESCRIPTION_FOR_EMPTY_LINE = "--d--"
+#+end_src
+
+#+begin_src python :results none
+def tag_word(word: str, vocabulary: set, translator: dict) -> tuple:
+    """gets the part-of-speech tag for the word
+    
+    Args:
+     word: the word to tag
+     vocabulary: word to tag dictionary
+     translator: part of speech tag description
+
+    Returns:
+     word, part-of-speech tag, description
+    """
+    if not word:
+        return EMPTY_LINE, TAG_FOR_EMPTY_LINE, DESCRIPTION_FOR_EMPTY_LINE
+    if word not in vocabulary:
+        return word, label_unknown(word), Unknown.label.unknown
+    return word, vocabulary[word], translator.get(vocabulary[word], Unknown.label.unknown)
+
+tagger = partial(tag_word, vocabulary=VOCABULARY, translator=TRANSLATOR)
+#+end_src
+
+*** Special Character
+#+begin_src python :results output :exports both
+print(tagger("\n"))
+#+end_src
+
+#+RESULTS:
+: ('\n', '--unknown--', '--unknown--')
+*** Empty String
+#+begin_src python :results output :exports both
+print(tagger(""))
+#+end_src
+
+#+RESULTS:
+: ('--n--', '--s--', '--d--')
+*** Known Preposition
+#+begin_src python :results output :exports both
+print(tagger("In"))
+#+end_src
+
+#+RESULTS:
+: ('In', 'IN', 'Preposition or subordinating conjunction')
+
+*** Nouns
+*** Noun
+#+begin_src python :results output :exports both
+print(tagger("bicycle"))
+#+end_src
+
+#+RESULTS:
+: ('bicycle', 'NN', 'Noun, singular or mass')
+
+#+begin_src python :results output :exports both
+print(tagger("flatulence"))
+#+end_src
+
+#+RESULTS:
+: ('flatulence', '--unknown-noun--', '--unknown--')
+
+*** Unknown Unknown
+#+begin_src python :results output :exports both
+print(tagger("tardigrade"))
+#+end_src
+
+#+RESULTS:
+: ('tardigrade', '--unknown--', '--unknown--')
+*** Verbs
+#+begin_src python :results output :exports both
+print(tagger("scrutinize"))
+#+end_src
+
+#+RESULTS:
+: ('scrutinize', 'VB', 'Verb, base form')
+
+#+begin_src python :results output :exports both
+print(tagger("euthanize"))
+#+end_src
+
+#+RESULTS:
+: ('euthanize', '--unknown-verb--', '--unknown--')
+*** Adjectives
+#+begin_src python :results output :exports both
+print(tagger("venerable"))
+#+end_src
+
+#+RESULTS:
+: ('venerable', 'JJ', 'Adjective')
+
+#+begin_src python :results output :exports both
+print(tagger("malodorous"))
+#+end_src
+
+#+RESULTS:
+: ('malodorous', '--unknown-adjective--', '--unknown--')
+*** Adverbs
+#+begin_src python :results output :exports both
+print(tagger("backwards"))
+#+end_src
+
+#+RESULTS:
+: ('backwards', 'RB', 'Adverb')
+
+#+begin_src python :results output :exports both
+print(tagger("bitwise"))
+#+end_src
+
+#+RESULTS:
+: ('bitwise', '--unknown-verb--', '--unknown--')
+
+* End
+  So, there you have it, a rudimentary way to handle tagging parts of speech for words outside of our vocabulary.
