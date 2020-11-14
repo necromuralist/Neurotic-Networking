@@ -51,6 +51,433 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/machine-translation-k-nearest-neighbors/">Implementing k-Nearest Neighbors for Machine Translation</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nlp/machine-translation-k-nearest-neighbors/" rel="bookmark"><time class="published dt-published" datetime="2020-10-22T17:38:25-07:00" itemprop="datePublished" title="2020-10-22 17:38">2020-10-22 17:38</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org58e777c">Beginning</a>
+<ul>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org561b031">Imports</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#orgc70ec3f">Middle</a>
+<ul>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#orgfa4c476">Testing the translation</a></li>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org30bfb0e">Test your implementation:</a></li>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org6f3d326">Test your translation and compute its accuracy</a></li>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org7eb178a">Bundling It Up</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/machine-translation-k-nearest-neighbors/#org224dd6f">End</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org58e777c">
+<h2 id="org58e777c">Beginning</h2>
+<div class="outline-text-2" id="text-org58e777c">
+<p>This continues from the post where we found the <a href="posts/nlp/machine-translation-transformation-matrix/">transformation matrix</a>. It's part of a series of posts whose links are gathered in the <a href="posts/nlp/machine-translation/">Machine Translation</a> post.</p>
+</div>
+<div class="outline-3" id="outline-container-org561b031">
+<h3 id="org561b031">Imports</h3>
+<div class="outline-text-3" id="text-org561b031">
+<div class="highlight">
+<pre><span></span><span class="c1"># pypi</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="c1"># my stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">Timer</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.word_embeddings.english_french</span> <span class="kn">import</span> <span class="n">TrainingData</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.word_embeddings.training</span> <span class="kn">import</span> <span class="n">TheTrainer</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgc70ec3f">
+<h2 id="orgc70ec3f">Middle</h2>
+<div class="outline-text-2" id="text-orgc70ec3f"></div>
+<div class="outline-3" id="outline-container-orgfa4c476">
+<h3 id="orgfa4c476">Testing the translation</h3>
+<div class="outline-text-3" id="text-orgfa4c476"></div>
+<div class="outline-4" id="outline-container-orge5d3f31">
+<h4 id="orge5d3f31">k-Nearest neighbors algorithm</h4>
+<div class="outline-text-4" id="text-orge5d3f31">
+<ul class="org-ul">
+<li>The <a href="https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm">k-Nearest neighbors algorithm</a> is a method which takes a vector as input and finds the other vectors in the dataset that are closest to it.</li>
+<li>The 'k' is the number of "nearest neighbors" to find (e.g. k=2 finds the closest two neighbors).</li>
+</ul>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgce8aa57">
+<h4 id="orgce8aa57">Searching for the translation embedding</h4>
+<div class="outline-text-4" id="text-orgce8aa57">
+<p>Since we're approximating the translation function from English to French embeddings with a linear transformation matrix \(\mathbf{R}\), most of the time we won't get the exact embedding of a French word when we transform embedding \(\mathbf{e}\) of some particular English word into the French embedding space.</p>
+<p>This is where <i>k</i>-NN becomes really useful! By using <i>1</i>-NN with \(\mathbf{eR}\) as input, we can search for an embedding \(\mathbf{f}\) (as a row) in the matrix \(\mathbf{Y}\) which is the closest to the transformed vector \(\mathbf{eR}\).</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org87aa728">
+<h4 id="org87aa728">Cosine similarity</h4>
+<div class="outline-text-4" id="text-org87aa728">
+<p>Cosine similarity between vectors <i>u</i> and <i>v</i> calculated as the cosine of the angle between them.</p>
+<p>The formula is:</p>
+<p>\[ \cos(u,v)=\frac{u\cdot v}{\left\|u\right\|\left\|v\right\|} \]</p>
+<ul class="org-ul">
+<li>\(\cos(u,v) = 1\) when <i>u</i> and <i>v</i> lie on the same line and have the same direction.</li>
+<li>\(\cos(u,v) = -1\) when they have exactly opposite directions.</li>
+<li>\(\cos(u,v) = 0\) when the vectors are orthogonal (perpendicular) to each other.</li>
+</ul>
+<p><b>Note:</b> Distance and similarity are pretty much opposite things.</p>
+<ul class="org-ul">
+<li>We can obtain distance metric from cosine similarity, but the cosine similarity can't be used directly as the distance metric.</li>
+<li>When the cosine similarity increases (towards <i>1</i>), the "distance" between the two vectors decreases (towards <i>0</i>).</li>
+<li>We can define the cosine distance between <i>u</i> and <i>v</i> as</li>
+</ul>
+<p>\[ d_{\text{cos}}(u,v)=1-\cos(u,v) \]</p>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgf5ccca2">
+<h4 id="orgf5ccca2">The Cosine Similarity</h4>
+<div class="outline-text-4" id="text-orgf5ccca2">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">cosine_similarity</span><span class="p">(</span><span class="n">vector_1</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">vector_2</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="sd">"""Calculates the similarity between two vectors</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     vector_1: array to compare</span>
+<span class="sd">     vector_2: array to compare to vector_1</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     cosine similarity between the two vectors</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">vector_1</span><span class="p">,</span> <span class="n">vector_2</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vector_1</span><span class="p">)</span> <span class="o">*</span>
+                                          <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vector_2</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgb60bee9">
+<h4 id="orgb60bee9">the <code>nearest_neighbor()</code> function</h4>
+<div class="outline-text-4" id="text-orgb60bee9">
+<p>Inputs:</p>
+<ul class="org-ul">
+<li>Vector <i>v</i></li>
+<li>A set of possible nearest neighbors <i>candidates</i></li>
+<li><i>k</i> nearest neighbors to find.</li>
+<li>The distance metric should be based on cosine similarity.</li>
+<li><i>cosine_similarity</i> function is already implemented and imported for you. It's arguments are two vectors and it returns the cosine of the angle between them.</li>
+<li>Iterate over rows in <i>candidates</i>, and save the result of similarities between current row and vector <i>v</i> in a python list. Take care that similarities are in the same order as row vectors of <i>candidates</i>.</li>
+<li>Now you can use <a href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.argsort.html#numpy.argsort">numpy argsort</a> to sort the indices for the rows of <i>candidates</i>.</li>
+</ul>
+</div>
+<ul class="org-ul">
+<li><a id="org0be6c02"></a>Hints<br>
+<div class="outline-text-6" id="text-org0be6c02">
+<ul class="org-ul">
+<li><code>numpy.argsort</code> sorts values from most negative to most positive (smallest to largest)</li>
+<li>The candidates that are nearest to <i>v</i> should have the highest cosine similarity</li>
+<li>To get the last element of a list <i>tmp</i>, the notation is <code>tmp[-1:]</code></li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="c1"># UNQ_C8 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)</span>
+<span class="k">def</span> <span class="nf">nearest_neighbor</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">candidates</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="sd">"""</span>
+<span class="sd">    Input:</span>
+<span class="sd">      - v, the vector you are going find the nearest neighbor for</span>
+<span class="sd">      - candidates: a set of vectors where we will find the neighbors</span>
+<span class="sd">      - k: top k nearest neighbors to find</span>
+<span class="sd">    Output:</span>
+<span class="sd">      - k_idx: the indices of the top k closest vectors in sorted form</span>
+<span class="sd">    """</span>
+    <span class="c1"># cosine_similarities = [cosine_similarity(v, row) for row in candidates]</span>
+
+    <span class="c1"># for each candidate vector...</span>
+    <span class="c1">#for row in candidates:</span>
+    <span class="c1">#    # get the cosine similarity</span>
+    <span class="c1">#    cos_similarity = cosine_similarity(v, row)</span>
+    <span class="c1">#</span>
+    <span class="c1">#    # append the similarity to the list</span>
+    <span class="c1">#    similarity_l.append(cos_similarity)</span>
+
+    <span class="c1"># sort the similarity list and get the indices of the sorted list</span>
+    <span class="c1"># sorted_ids = numpy.argsort(similarity_l)</span>
+
+    <span class="c1"># get the indices of the k most similar candidate vectors</span>
+    <span class="c1"># k_idx = sorted_ids[-k:]</span>
+    <span class="c1">### END CODE HERE ###</span>
+    <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">argsort</span><span class="p">([</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">])[</span><span class="o">-</span><span class="n">k</span><span class="p">:]</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org30bfb0e">
+<h3 id="org30bfb0e">Test your implementation:</h3>
+<div class="outline-text-3" id="text-org30bfb0e">
+<div class="highlight">
+<pre><span></span><span class="n">v</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float64"</span><span class="p">)</span>
+<span class="n">candidates</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="o">-</span><span class="mi">9</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">]])</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">candidates</span><span class="p">[</span><span class="n">nearest_neighbor</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">candidates</span><span class="p">,</span> <span class="mi">3</span><span class="p">)]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">actual</span><span class="p">)</span>
+<span class="k">assert</span> <span class="p">(</span><span class="n">actual</span> <span class="o">==</span> <span class="n">expected</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</pre></div>
+<pre class="example">
+[[9 9 9]
+ [1 0 5]
+ [2 0 1]]
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org6f3d326">
+<h3 id="org6f3d326">Test your translation and compute its accuracy</h3>
+<div class="outline-text-3" id="text-org6f3d326">
+<p>Complete the function <code>test_vocabulary</code> which takes in English embedding matrix <i>X</i>, French embedding matrix <i>Y</i> and the <i>R</i> matrix and returns the accuracy of translations from <i>X</i> to <i>Y</i> by <i>R</i>.</p>
+<ul class="org-ul">
+<li>Iterate over transformed English word embeddings and check if the closest French word vector belongs to French word that is the actual translation.</li>
+<li>Obtain an index of the closest French embedding by using <code>nearest_neighbor</code> (with argument <i>k=1</i>), and compare it to the index of the English embedding you have just transformed.</li>
+<li>Keep track of the number of times you get the correct translation.</li>
+<li>
+<p>Calculate accuracy as</p>
+<p>\[ \text{accuracy}=\frac{\#(\text{correct predictions})}{\#(\text{total predictions})} \]</p>
+</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="c1"># UNQ_C10 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)</span>
+<span class="k">def</span> <span class="nf">test_vocabulary</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">R</span><span class="p">):</span>
+    <span class="sd">'''</span>
+<span class="sd">    Input:</span>
+<span class="sd">       X: a matrix where the columns are the English embeddings.</span>
+<span class="sd">       Y: a matrix where the columns correspond to the French embeddings.</span>
+<span class="sd">       R: the transform matrix which translates word embeddings from</span>
+<span class="sd">       English to French word vector space.</span>
+<span class="sd">    Output:</span>
+<span class="sd">       accuracy: for the English to French capitals</span>
+<span class="sd">    '''</span>
+
+    <span class="c1">### START CODE HERE (REPLACE INSTANCES OF 'None' with your code) ###</span>
+    <span class="c1"># The prediction is X times R</span>
+    <span class="n">pred</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">R</span><span class="p">)</span>
+
+    <span class="c1"># initialize the number correct to zero</span>
+    <span class="c1">#num_correct = 0</span>
+    <span class="c1">#predictions = (nearest_neighbor(row, Y) == index for index, row in enumerate(pred))</span>
+    <span class="c1"># accuracy = sum(predictions)/len(red)</span>
+    <span class="c1"># loop through each row in pred (each transformed embedding)</span>
+    <span class="c1">#for index, row_vector in enumerate(pred):</span>
+    <span class="c1">#    # get the index of the nearest neighbor of pred at row 'i'; also pass in the candidates in Y</span>
+    <span class="c1">#    pred_idx = nearest_neighbor(row_vector, Y)</span>
+    <span class="c1">#</span>
+    <span class="c1">#    # if the index of the nearest neighbor equals the row of i... \</span>
+    <span class="c1">#    if pred_idx == index:</span>
+    <span class="c1">#        # increment the number correct by 1.</span>
+    <span class="c1">#        num_correct += 1</span>
+    <span class="c1">#</span>
+    <span class="c1">## accuracy is the number correct divided by the number of rows in 'pred' (also number of rows in X)</span>
+    <span class="c1">#accuracy = num_correct/len(pred)</span>
+    <span class="c1">#</span>
+    <span class="c1">#### END CODE HERE ###</span>
+
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">([</span><span class="n">nearest_neighbor</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">Y</span><span class="p">)</span> <span class="o">==</span> <span class="n">index</span> <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">pred</span><span class="p">)])</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
+</pre></div>
+<p>Let's see how is your translation mechanism working on the unseen data:</p>
+<div class="highlight">
+<pre><span></span><span class="c1"># X_val, Y_val = get_matrices(en_fr_test, fr_embeddings_subset, en_embeddings_subset)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">TrainingData</span><span class="p">()</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">TheTrainer</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">x_train</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">y_train</span><span class="p">)</span>
+<span class="n">r</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+</pre></div>
+<p>You do not have to input any code in this cell, but it is relevant to grading, so please do not change anything.</p>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="n">test_vocabulary</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">x_train</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">y_train</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">transformation</span><span class="p">)</span>  <span class="c1"># this might take a minute or two</span>
+</pre></div>
+<pre class="example">
+2020-10-24 19:57:36,633 graeae.timers.timer start: Started: 2020-10-24 19:57:36.632998
+2020-10-24 20:05:48,225 graeae.timers.timer end: Ended: 2020-10-24 20:05:48.225526
+2020-10-24 20:05:48,226 graeae.timers.timer end: Elapsed: 0:08:11.592528
+</pre>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"accuracy on test set is </span><span class="si">{</span><span class="n">acc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+accuracy on test set is 0.552
+</pre>
+<p><b>Expected Output</b>:</p>
+<p>#+RESULTS 0.557</p>
+<p>You managed to translate words from one language to another language without ever seing them with almost 56% accuracy by using some basic linear algebra and learning a mapping of words from one language to another!</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org7eb178a">
+<h3 id="org7eb178a">Bundling It Up</h3>
+<div class="outline-text-3" id="text-org7eb178a">
+<div class="highlight">
+<pre><span></span><span class="o">&lt;&lt;</span><span class="n">imports</span><span class="o">&gt;&gt;</span>
+
+<span class="o">&lt;&lt;</span><span class="n">nearest</span><span class="o">-</span><span class="n">neighbor</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">nearest</span><span class="o">-</span><span class="n">cosine</span><span class="o">-</span><span class="n">similarity</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">nearest</span><span class="o">-</span><span class="n">nearest</span><span class="o">-</span><span class="n">neighbor</span><span class="o">&gt;&gt;</span>
+
+    <span class="o">&lt;&lt;</span><span class="n">nearest</span><span class="o">-</span><span class="n">call</span><span class="o">&gt;&gt;</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orgf8849f8">
+<h4 id="orgf8849f8">Imports</h4>
+<div class="outline-text-4" id="text-orgf8849f8">
+<div class="highlight">
+<pre><span></span><span class="c1"># pypi</span>
+<span class="kn">import</span> <span class="nn">attr</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org19b28e7">
+<h4 id="org19b28e7">Nearest Neighbor</h4>
+<div class="outline-text-4" id="text-org19b28e7">
+<div class="highlight">
+<pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">NearestNeighbors</span><span class="p">:</span>
+    <span class="sd">"""Finds the nearest neighbor(s) to a vector</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     candidates: set of vectors that are potential neighbors</span>
+<span class="sd">     k: number of neighbors to find</span>
+<span class="sd">    """</span>
+    <span class="n">candidates</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span>    
+    <span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc8583be">
+<h4 id="orgc8583be">Cosine Similarity Method</h4>
+<div class="outline-text-4" id="text-orgc8583be">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">cosine_similarity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vector_1</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">vector_2</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="sd">"""Calculates the similarity between two vectors</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     vector_1: array to compare</span>
+<span class="sd">     vector_2: array to compare to vector_1</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     cosine similarity between the two vectors</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">vector_1</span><span class="p">,</span> <span class="n">vector_2</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vector_1</span><span class="p">)</span> <span class="o">*</span>
+                                          <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vector_2</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org31526c0">
+<h4 id="org31526c0">Nearest Neighbor Method</h4>
+<div class="outline-text-4" id="text-org31526c0">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">nearest_neighbors</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vector</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Find the nearest neghbor(s) to a vector</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">      - vector, the vector you are going find the nearest neighbor for</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      - k_idx: the indices of the top k closest vectors in sorted form</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">argsort</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">vector</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+                          <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">candidates</span><span class="p">])[</span><span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">k</span><span class="p">:]</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org5882771">
+<h4 id="org5882771">Nearest Neighbor Call</h4>
+<div class="outline-text-4" id="text-org5882771">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vector</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Alias for the `nearest_neighbors` method</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">      - vector, the vector you are going find the nearest neighbor for</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      - k_idx: the indices of the top k closest vectors in sorted form</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">nearest_neighbors</span><span class="p">(</span><span class="n">vector</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org3d1bd8e">
+<h4 id="org3d1bd8e">Testing It</h4>
+<div class="outline-text-4" id="text-org3d1bd8e">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.word_embeddings.nearest_neighbors</span> <span class="kn">import</span> <span class="n">NearestNeighbors</span>
+
+
+<span class="n">v</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float64"</span><span class="p">)</span>
+<span class="n">candidates</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="o">-</span><span class="mi">9</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">]])</span>
+
+<span class="n">testing</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">candidates</span><span class="o">=</span><span class="n">candidates</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">candidates</span><span class="p">[</span><span class="n">testing</span><span class="o">.</span><span class="n">nearest_neighbors</span><span class="p">(</span><span class="n">v</span><span class="p">)]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">actual</span><span class="p">)</span>
+<span class="k">assert</span> <span class="p">(</span><span class="n">actual</span> <span class="o">==</span> <span class="n">expected</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</pre></div>
+<pre class="example">
+[[9 9 9]
+ [1 0 5]
+ [2 0 1]]
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">TrainingData</span><span class="p">()</span>
+    <span class="n">trainer</span> <span class="o">=</span> <span class="n">TheTrainer</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">x_train</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">y_train</span><span class="p">)</span>
+    <span class="n">r</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+    <span class="n">predictions</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">x_train</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">transformation</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">tester</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">candidates</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">y_train</span><span class="p">)</span>
+    <span class="n">accuracy</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">([</span><span class="n">tester</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">==</span> <span class="n">index</span>
+                    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">predictions</span><span class="p">)])</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">predictions</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+2020-10-31 19:35:14,133 graeae.timers.timer start: Started: 2020-10-31 19:35:14.133884
+2020-10-31 19:43:29,695 graeae.timers.timer end: Ended: 2020-10-31 19:43:29.695745
+2020-10-31 19:43:29,697 graeae.timers.timer end: Elapsed: 0:08:15.561861
+</pre>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Accuracy: </span><span class="si">{</span><span class="mi">100</span> <span class="o">*</span> <span class="n">accuracy</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2"> 0.2f</span><span class="si">}</span><span class="s2"> %"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Accuracy:  55.23 %
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org224dd6f">
+<h2 id="org224dd6f">End</h2>
+<div class="outline-text-2" id="text-org224dd6f">
+<ul class="org-ul">
+<li>The next post in this series is <a href="posts/nlp/machine-translation-with-locality-sensitive-hashing/">Locality-Sensitive Hashing (LSH) for Machine Translation</a></li>
+</ul>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/machine-translation-transformation-matrix/">Training the Machine Translation Transformation Matrix</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
