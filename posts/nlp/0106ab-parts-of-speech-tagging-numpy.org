@@ -1,0 +1,158 @@
+#+BEGIN_COMMENT
+.. title: Parts-of-Speech Tagging: Numpy
+.. slug: parts-of-speech-tagging-numpy
+.. date: 2020-11-13 20:39:03 UTC-08:00
+.. tags: nlp,pos tagging
+.. category: NLP 
+.. link: 
+.. description: Parts-of-speech tagging with numpy.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3d08bea9-ec57-4fc3-96a7-3308bf11fc8f-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from functools import partial
+from itertools import product
+
+import math
+# pypi
+from tabulate import tabulate
+
+import numpy
+import pandas
+#+end_src
+** Set Up
+*** The Parts-of-Speech Decoder
+#+begin_src python :results none
+URL = "https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html"
+data = pandas.read_html(URL, header=0)[0]
+
+TRANSLATOR = {row.Tag:row.Description for row in data.itertuples()}
+#+end_src
+*** Tabulate
+#+begin_src python :results none
+TABLE = partial(tabulate, tablefmt="orgtbl", headers="keys")
+#+end_src
+* Middle
+*** The Tags
+    We're only going to use three tags.
+    
+#+begin_src python :results output :exports both
+tags = ['RB', 'NN', 'TO']
+for tag in tags:
+    print(f" - {tag} ({TRANSLATOR[tag]})")
+#+end_src
+
+#+RESULTS:
+  - RB (Adverb)
+  - NN (Noun, singular or mass)
+  - TO (to)
+** Start with a Dictionary
+   - =transition_counts= is a dictionary with =(previous tag, this tag)= tuples as keys and the number of times these tags appeared together as the values.
+    
+#+begin_src python :results none
+transition_counts = {
+    ('NN', 'NN'): 16241,
+    ('RB', 'RB'): 2263,
+    ('TO', 'TO'): 2,
+    ('NN', 'TO'): 5256,
+    ('RB', 'TO'): 855,
+    ('TO', 'NN'): 734,
+    ('NN', 'RB'): 2431,
+    ('RB', 'NN'): 358,
+    ('TO', 'RB'): 200
+}
+#+end_src
+
+We're going to need the individual tags later on.
+
+#+begin_src python :results none
+tags = list(zip(*transition_counts))
+tags = sorted(set(tags[0] + tags[1]))
+#+end_src
+
+I don't know what the source is, presumably the Wall Street Journal file that we used in {{% lancelot title="the previous exercise" %}}parts-of-speech-tagging-creating-a-vocabulary{{% /lancelot %}}.
+** A Transition Matrix
+   We're going to make a transition matrix for the =transition_counts= keys.
+
+#+begin_src python :results output :exports both
+tag_count = len(tags)
+
+transition_matrix = numpy.zeros((tag_count, tag_count), dtype=int)
+
+for row, column in product(range(tag_count), range(tag_count)):
+        transition_matrix[row, column] = transition_counts[
+            (tags[row],
+             tags[column])
+        ]
+
+transitions = pandas.DataFrame(transition_matrix, index=tags, columns=tags)
+print(TABLE(transitions))
+#+end_src
+
+#+RESULTS:
+|    |    NN |   RB |   TO |
+|----+-------+------+------|
+| NN | 16241 | 2431 | 5256 |
+| RB |   358 | 2263 |  855 |
+| TO |   734 |  200 |    2 |
+** Normalization
+We're going to normalize each row so that each value is equal to \(\frac{value}{\textit{sum of row}}\).
+#+begin_src python :results output :exports both
+row_sums = transitions.sum(axis="rows")
+normalized = transitions/row_sums
+print(TABLE(normalized))
+#+end_src   
+
+#+RESULTS:
+|    |        NN |        RB |          TO |
+|----+-----------+-----------+-------------|
+| NN | 0.936999  | 0.496731  | 0.859807    |
+| RB | 0.0206542 | 0.462403  | 0.139866    |
+| TO | 0.042347  | 0.0408664 | 0.000327172 |
+
+:END:
+** Log Sum
+   Now we'll add the log of the sum of the current row to the current value along the diagonal.
+
+#+begin_src python :results output :exports both
+diagonal = numpy.diagonal(transitions)
+diagonal = diagonal + numpy.log(diagonal)
+values = transitions.values.astype("float64")
+row, column = numpy.diag_indices_from(values)
+values[row, column] = diagonal
+
+diagonalized = pandas.DataFrame(values, index=tags, columns=tags)
+print(TABLE(diagonalized))
+#+end_src    
+
+#+RESULTS:
+|    |      NN |      RB |         TO |
+|----+---------+---------+------------|
+| NN | 16277.7 | 2431    | 5256       |
+| RB |   358   | 2291.73 |  855       |
+| TO |   734   |  200    |    2.69315 |
+
+*** Brute Force Check
+#+begin_src python :results none
+rows, columns = numpy.diag_indices_from(transitions.values)
+indices = set(zip(rows, columns))
+for row, column in product(range(len(tags)),
+                           range(len(tags))):
+    expected = transitions.iloc[row, column]
+    if (row, column) in indices:
+        expected += numpy.log(transitions.iloc[row, column])
+    actual = diagonalized.iloc[row, column]
+    assert math.isclose(expected, actual), f"({row, column}) expected: {expected}, actual: {actual} {expected - actual}"
+#+end_src    
