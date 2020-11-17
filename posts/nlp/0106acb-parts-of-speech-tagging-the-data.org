@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e3ec1458-3a18-4540-b136-c4ca4ff942f1-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6fa93b57-6166-4019-9c30-50c4eecde2f1-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -287,6 +287,19 @@ Weird that the letters "e" and "r" are known words...
 
 <<the-unknown>>
 
+<<the-empty>>
+
+
+<<corpus-processor>>
+
+    <<corpus-split>>
+
+    <<corpus-handle-empty>>
+
+    <<corpus-unknowns>>
+
+    <<corpus-call>>
+
 
 <<data-preprocessor-class>>
 
@@ -297,6 +310,7 @@ Weird that the letters "e" and "r" are known words...
     <<data-preprocessor-call>>
 
 
+
 <<data-loader>>
 
     <<data-preprocessor>>
@@ -304,6 +318,8 @@ Weird that the letters "e" and "r" are known words...
     <<data-vocabulary-words>>
 
     <<data-training-corpus>>
+
+    <<data-processed-training>>
 
     <<data-vocabulary>>
 
@@ -348,7 +364,7 @@ Suffixes = Namespace(
     adverb = ["ward", "wards", "wise"]
 )
 #+end_src
-** The Label
+*** The Label
 #+begin_src python :noweb-ref the-label
 UNKNOWN = "--unknown-{}--"
 Label = Namespace(
@@ -359,8 +375,8 @@ Label = Namespace(
     verb=UNKNOWN.format("verb"),
     adjective=UNKNOWN.format("adjective"),
     adverb=UNKNOWN.format("adverb"),
-    unknown="--unknown--"
-)
+    unknown="--unknown--",
+ )
 #+end_src
 *** The Unknown
 #+begin_src python :noweb-ref the-unknown
@@ -372,6 +388,114 @@ Unknown = Namespace(
     has_uppercase=re.compile("[A-Z]")
 )
 #+end_src
+*** The Empty
+#+begin_src python :noweb-ref the-empty
+Empty = Namespace(
+    word="--n--",
+    tag="--s--",
+)
+#+end_src    
+*** The Corpus Pre-Processor
+#+begin_src python :noweb-ref corpus-processor
+@attr.s(auto_attribs=True)
+class CorpusProcessor:
+    """Pre-processes the corpus
+
+    Args:
+     vocabulary: holder of our known words
+    """
+    vocabulary: dict
+#+end_src
+
+**** Split Tuples
+#+begin_src python :noweb-ref corpus-split
+def split_tuples(self, lines: list):
+    """Generates tuples
+
+    Args:
+     lines: iterable of lines from the corpus
+
+    Yields:
+     whitespace split of line
+    """
+    for line in lines:
+        yield line.split()
+    return
+#+end_src     
+**** Handle Empty Lines
+#+begin_src python :noweb-ref corpus-handle-empty
+def handle_empty(self, tuples: list):
+    """checks for empty strings
+
+    Args:
+     tuples: tuples of corpus lines
+
+    Yields:
+     line with empty string marked
+    """
+    for line in tuples:
+        if not line:
+            yield Empty.word, Empty.tag
+        else:
+            yield line
+    return
+#+end_src
+**** Handle Unknowns
+#+begin_src python :noweb-ref corpus-unknowns
+def label_unknowns(self, tuples: list) -> str:
+    """
+    Assign tokens to unknown words
+
+    Args:
+     tuples: word, tag tuples
+
+    Yields:
+     word or label for the word if unknown, tag
+    """
+    for word, tag in tuples:
+        if word in self.vocabulary:
+            yield word, tag
+            
+        elif Unknown.has_digit.search(word):
+            yield Unknown.label.digit, tag
+    
+        elif not Unknown.punctuation.isdisjoint(set(word)):
+            yield Unknown.label.punctuation, tag
+    
+        elif Unknown.has_uppercase.search(word):
+            yield Unknown.label.uppercase, tag
+    
+        elif any(word.endswith(suffix) for suffix in Unknown.suffix.noun):
+            yield Unknown.label.noun, tag
+    
+        elif any(word.endswith(suffix) for suffix in Unknown.suffix.verb):
+            yield Unknown.label.verb, tag
+    
+        elif any(word.endswith(suffix) for suffix in Unknown.suffix.adjective):
+            yield Unknown.label.adjective, tag
+    
+        elif any(word.endswith(suffix) for suffix in Unknown.suffix.adverb):
+            yield Unknown.label.adverb, tag
+        else:
+            yield Unknown.label.unknown, tag
+    return
+#+end_src
+**** The Call
+#+begin_src python :noweb-ref corpus-call
+def __call__(self, tuples: list) -> list:
+    """preprocesses the words and tags
+
+    Args:
+     tuples: list of words and tags to process
+    
+    Returns:
+     preprocessed version of words, tags
+    """
+    processed = self.split_tuples(tuples)
+    processed = self.handle_empty(processed)
+    processed = [word for word in self.label_unknowns(processed)]
+    return processed
+#+end_src     
 *** The Data Pre-Processor
 #+begin_src python :noweb-ref data-preprocessor-class
 @attr.s(auto_attribs=True)
@@ -383,7 +507,6 @@ class DataPreprocessor:
      empty_token: what to use if a line is an empty string
     """
     vocabulary: dict
-    empty_token: str="--n--"
 #+end_src
 **** Handle Empty Lines
 #+begin_src python :noweb-ref data-handle-empty
@@ -399,7 +522,7 @@ def handle_empty(self, words: list):
     """
     for word in words:
         if not word.strip():
-            yield self.empty_token
+            yield Empty.word
         else:
             yield word
     return
@@ -411,8 +534,7 @@ def label_unknowns(self, words: list) -> str:
     Assign tokens to unknown words
 
     Args:
-     word: word not in our vocabulary
-     vocabulary: something to check if it is a known word
+     words: iterable of words to check
 
     Yields:
      word or label for the word if unknown
@@ -470,11 +592,12 @@ class DataLoader:
     Args:
      environment: namespace with keys for the environment to load paths
     """
-    environment: Namespace
+    environment: Namespace=Environment
     _preprocess: DataPreprocessor=None
     _vocabulary_words: list=None
     _vocabulary: dict=None
     _training_corpus: list=None
+    _processed_training: list=None
     _test_corpus: list=None
     _test_words: list=None
 #+end_src
@@ -520,6 +643,16 @@ def training_corpus(self) -> list:
     if self._training_corpus is None:
         self._training_corpus = self.load(os.environ[self.environment.training_corpus])
     return self._training_corpus
+#+end_src
+*** Processed Training
+#+begin_src python :noweb-ref data-processed-training
+@property
+def processed_training(self) -> list:
+    """Pre-processes the training corpus"""
+    if self._processed_training is None:
+        processor = CorpusProcessor(self.vocabulary)
+        self._processed_training = processor(self.training_corpus)
+    return self._processed_training
 #+end_src
 *** The Test Corpus
 #+begin_src python :noweb-ref data-test-corpus
