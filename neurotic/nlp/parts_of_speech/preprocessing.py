@@ -235,8 +235,10 @@ class DataLoader:
     _vocabulary_words: list=None
     _vocabulary: dict=None
     _training_corpus: list=None
+    _training_data: dict=None
     _processed_training: list=None
-    _test_corpus: list=None
+    _test_data_raw: list=None
+    _test_data: dict=None
     _test_words: list=None
 
     @property
@@ -248,7 +250,7 @@ class DataLoader:
 
     @property
     def vocabulary_words(self) -> list:
-        """The list of vocabulary words for tranining"""
+        """The list of vocabulary words for training"""
         if self._vocabulary_words is None:
             self._vocabulary_words = sorted(
                 self.load(os.environ[self.environment.vocabulary]))
@@ -260,6 +262,15 @@ class DataLoader:
         if self._training_corpus is None:
             self._training_corpus = self.load(os.environ[self.environment.training_corpus])
         return self._training_corpus
+
+    @property
+    def training_data(self) -> dict:
+        """The word-tag training data"""
+        if self._training_data is None:
+            words_tags = (line.split() for line in self.training_corpus)
+            words_tags = (tokens for tokens in words_tags if len(tokens) == 2)        
+            self._training_data = {word: tag for word, tag in words_tags}
+        return self._training_data
 
     @property
     def processed_training(self) -> list:
@@ -283,11 +294,25 @@ class DataLoader:
         return self._vocabulary
 
     @property
-    def test_corpus(self) -> list:
-        """The corpus  for tranining"""
-        if self._test_corpus is None:
-            self._test_corpus = self.load(os.environ[self.environment.test_corpus])
-        return self._test_corpus
+    def test_data_raw(self) -> list:
+        """The lines for testing
+    
+        Note:
+         The assignment expects the lines to be un-processed so this is just the
+        raw lines
+        """
+        if self._test_data_raw is None:
+            self._test_data_raw = self.load(os.environ[self.environment.test_corpus])
+        return self._test_data_raw
+
+    @property
+    def test_data(self) -> dict:
+        """The word,tag test data"""
+        if self._test_data is None:
+            words_tags = (line.split() for line in self.test_data_raw)
+            words_tags = (tokens for tokens in words_tags if len(tokens) == 2)
+            self._test_data = {word: tag for word, tag in words_tags}
+        return self._test_data
 
     @property
     def test_words(self) -> list:
@@ -307,5 +332,5 @@ class DataLoader:
          list of lines from the file
         """
         with open(path) as reader:
-            lines = reader.read().split("\n")
+            lines = [line for line in reader.read().split("\n") if line]
         return lines

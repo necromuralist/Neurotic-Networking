@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6fa93b57-6166-4019-9c30-50c4eecde2f1-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-45805d00-f49f-4f90-9e51-2600ba6d2345-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -319,11 +319,15 @@ Weird that the letters "e" and "r" are known words...
 
     <<data-training-corpus>>
 
+    <<data-training-data>>
+
     <<data-processed-training>>
 
     <<data-vocabulary>>
 
-    <<data-test-corpus>>
+    <<data-test-data-raw>>
+
+    <<data-test-data>>
 
     <<data-test-words>>
 
@@ -597,8 +601,10 @@ class DataLoader:
     _vocabulary_words: list=None
     _vocabulary: dict=None
     _training_corpus: list=None
+    _training_data: dict=None
     _processed_training: list=None
-    _test_corpus: list=None
+    _test_data_raw: list=None
+    _test_data: dict=None
     _test_words: list=None
 #+end_src
 *** The Preprocessor
@@ -614,7 +620,7 @@ def preprocess(self) -> DataPreprocessor:
 #+begin_src python :noweb-ref data-vocabulary-words
 @property
 def vocabulary_words(self) -> list:
-    """The list of vocabulary words for tranining"""
+    """The list of vocabulary words for training"""
     if self._vocabulary_words is None:
         self._vocabulary_words = sorted(
             self.load(os.environ[self.environment.vocabulary]))
@@ -644,6 +650,17 @@ def training_corpus(self) -> list:
         self._training_corpus = self.load(os.environ[self.environment.training_corpus])
     return self._training_corpus
 #+end_src
+*** The Training Data
+#+begin_src python :noweb-ref data-training-data
+@property
+def training_data(self) -> dict:
+    """The word-tag training data"""
+    if self._training_data is None:
+        words_tags = (line.split() for line in self.training_corpus)
+        words_tags = (tokens for tokens in words_tags if len(tokens) == 2)        
+        self._training_data = {word: tag for word, tag in words_tags}
+    return self._training_data
+#+end_src
 *** Processed Training
 #+begin_src python :noweb-ref data-processed-training
 @property
@@ -654,14 +671,32 @@ def processed_training(self) -> list:
         self._processed_training = processor(self.training_corpus)
     return self._processed_training
 #+end_src
-*** The Test Corpus
-#+begin_src python :noweb-ref data-test-corpus
+*** The Raw Test Corpus
+#+begin_src python :noweb-ref data-test-data-raw
 @property
-def test_corpus(self) -> list:
-    """The corpus  for tranining"""
-    if self._test_corpus is None:
-        self._test_corpus = self.load(os.environ[self.environment.test_corpus])
-    return self._test_corpus
+def test_data_raw(self) -> list:
+    """The lines for testing
+
+    Note:
+     The assignment expects the lines to be un-processed so this is just the
+    raw lines
+    """
+    if self._test_data_raw is None:
+        self._test_data_raw = self.load(os.environ[self.environment.test_corpus])
+    return self._test_data_raw
+#+end_src
+*** The Test Data
+    The =test_data_raw= converted to a dictionary.
+
+#+begin_src python :noweb-ref data-test-data
+@property
+def test_data(self) -> dict:
+    """The word,tag test data"""
+    if self._test_data is None:
+        words_tags = (line.split() for line in self.test_data_raw)
+        words_tags = (tokens for tokens in words_tags if len(tokens) == 2)
+        self._test_data = {word: tag for word, tag in words_tags}
+    return self._test_data
 #+end_src
 *** Test Words
 #+begin_src python :noweb-ref data-test-words
@@ -685,12 +720,23 @@ def load(self, path: str) -> list:
      list of lines from the file
     """
     with open(path) as reader:
-        lines = reader.read().split("\n")
+        lines = [line for line in reader.read().split("\n") if line]
     return lines
 #+end_src    
 ** Test it Out
 #+begin_src python :results none
 from neurotic.nlp.parts_of_speech.preprocessing import Environment, DataLoader
+#+end_src
+
+#+begin_src python :results none
+loader = DataLoader()
+for theirs, mine in zip(vocabulary_words, loader.vocabulary_words):
+    assert theirs == mine
+#+end_src
+
+#+begin_src python :results none
+for theirs, mine in zip(vocabulary, loader.vocabulary):
+    assert vocabulary[theirs] == loader.vocabulary[mine]
 #+end_src
 
 #+begin_src python :results output :exports both
