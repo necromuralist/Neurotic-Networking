@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-45805d00-f49f-4f90-9e51-2600ba6d2345-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-333e6032-526d-4e7b-a303-60650d530e9f-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -285,6 +285,8 @@ Weird that the letters "e" and "r" are known words...
 
 <<the-label>>
 
+<<theirs-to-mine>>
+
 <<the-unknown>>
 
 <<the-empty>>
@@ -382,6 +384,23 @@ Label = Namespace(
     unknown="--unknown--",
  )
 #+end_src
+*** Theirs To Ours
+    The vocabulary file has their unknown tags alreads inserted which don't matnch mine so, rather than redoing everything I'm going to translate theirs to match mine.
+
+#+begin_src python :noweb-ref theirs-to-mine
+THEIR_UNKNOWN = "--unk_{}--"
+
+THEIRS_TO_MINE = {
+    "--unk--": "--unknown--",
+    THEIR_UNKNOWN.format("digit"): Label.digit,
+    THEIR_UNKNOWN.format("punct"): Label.punctuation,
+    THEIR_UNKNOWN.format("upper"): Label.uppercase,
+    THEIR_UNKNOWN.format("noun"): Label.noun,
+    THEIR_UNKNOWN.format("verb"): Label.verb,
+    THEIR_UNKNOWN.format("adj"): Label.adjective,
+    THEIR_UNKNOWN.format("adv"): Label.adverb,
+}
+#+end_src    
 *** The Unknown
 #+begin_src python :noweb-ref the-unknown
 Unknown = Namespace(
@@ -454,7 +473,7 @@ def label_unknowns(self, tuples: list) -> str:
      tuples: word, tag tuples
 
     Yields:
-     word or label for the word if unknown, tag
+     (word (or label for the word if unknown), tag) tuple
     """
     for word, tag in tuples:
         if word in self.vocabulary:
@@ -497,7 +516,7 @@ def __call__(self, tuples: list) -> list:
     """
     processed = self.split_tuples(tuples)
     processed = self.handle_empty(processed)
-    processed = [word for word in self.label_unknowns(processed)]
+    processed = [(word, tag) for (word, tag) in self.label_unknowns(processed)]
     return processed
 #+end_src     
 *** The Data Pre-Processor
@@ -591,7 +610,7 @@ def __call__(self, words: list) -> list:
 #+begin_src python :noweb-ref data-loader
 @attr.s(auto_attribs=True)
 class DataLoader:
-    """Loads the traning and test data
+    """Loads the training and test data
 
     Args:
      environment: namespace with keys for the environment to load paths
@@ -620,10 +639,17 @@ def preprocess(self) -> DataPreprocessor:
 #+begin_src python :noweb-ref data-vocabulary-words
 @property
 def vocabulary_words(self) -> list:
-    """The list of vocabulary words for training"""
+    """The list of vocabulary words for training
+    
+    Note:
+     This is ``hmm_vocab.txt``
+    """
     if self._vocabulary_words is None:
-        self._vocabulary_words = sorted(
-            self.load(os.environ[self.environment.vocabulary]))
+        # I haven't figured out yet why they include spaces, so leave it for now
+        #sorted(self.load(os.environ[self.environment.vocabulary]))
+        with open(os.environ[self.environment.vocabulary]) as reader:
+            words = reader.read().split("\n")
+        self._vocabulary_words = [THEIRS_TO_MINE.get(word, word) for word in words]
     return self._vocabulary_words
 #+end_src
 *** The Vocabulary
@@ -633,19 +659,23 @@ def vocabulary(self) -> dict:
     """Converts the vocabulary list of words to a dict
 
     Returns:
-     word to index of word in vocabulary words
+     word : index of word in vocabulary words> dictionary
     """
     if self._vocabulary is None:
         self._vocabulary = {
             word: index
-            for index, word in enumerate(self.vocabulary_words)}
+            for index, word in enumerate(sorted(self.vocabulary_words))}
     return self._vocabulary
 #+end_src        
 *** The Training Corpus
 #+begin_src python :noweb-ref data-training-corpus
 @property
 def training_corpus(self) -> list:
-    """The corpus  for tranining"""
+    """The corpus for training
+
+    Note:
+     ``WSJ_02_20.pos`` lines (<word><tab><pos> all as one string)
+    """
     if self._training_corpus is None:
         self._training_corpus = self.load(os.environ[self.environment.training_corpus])
     return self._training_corpus
@@ -654,7 +684,11 @@ def training_corpus(self) -> list:
 #+begin_src python :noweb-ref data-training-data
 @property
 def training_data(self) -> dict:
-    """The word-tag training data"""
+    """The word-tag training data
+
+    Note:
+     this is the ``training_corpus`` converted to a <word>:<pos> dictionary
+    """
     if self._training_data is None:
         words_tags = (line.split() for line in self.training_corpus)
         words_tags = (tokens for tokens in words_tags if len(tokens) == 2)        
@@ -665,7 +699,11 @@ def training_data(self) -> dict:
 #+begin_src python :noweb-ref data-processed-training
 @property
 def processed_training(self) -> list:
-    """Pre-processes the training corpus"""
+    """Pre-processes the training corpus
+
+    Note:
+     ``training_corpus`` converted to (word, tag) tuples with unknown tags added
+    """
     if self._processed_training is None:
         processor = CorpusProcessor(self.vocabulary)
         self._processed_training = processor(self.training_corpus)
@@ -679,7 +717,7 @@ def test_data_raw(self) -> list:
 
     Note:
      The assignment expects the lines to be un-processed so this is just the
-    raw lines
+    raw lines from ``WSJ_24.pos``
     """
     if self._test_data_raw is None:
         self._test_data_raw = self.load(os.environ[self.environment.test_corpus])
@@ -691,7 +729,11 @@ def test_data_raw(self) -> list:
 #+begin_src python :noweb-ref data-test-data
 @property
 def test_data(self) -> dict:
-    """The word,tag test data"""
+    """The word,tag test data
+
+    Note:
+     this is the ``test_data_raw`` property converted to a dictionary
+    """
     if self._test_data is None:
         words_tags = (line.split() for line in self.test_data_raw)
         words_tags = (tokens for tokens in words_tags if len(tokens) == 2)
@@ -702,9 +744,16 @@ def test_data(self) -> dict:
 #+begin_src python :noweb-ref data-test-words
 @property
 def test_words(self) -> list:
-    """The pre-processed test words"""
+    """The pre-processed test words
+
+    Note:
+     ``test.words`` with some pre-processing done
+    """
     if self._test_words is None:
-        self._test_words = self.load(os.environ[self.environment.test_words])
+        # the original code doesn't remove empty lines for some reason
+        # self._test_words = self.load(os.environ[self.environment.test_words])
+        with open(os.environ[self.environment.test_words]) as reader:
+            self._test_words = reader.readlines()
         self._test_words = self.preprocess(self._test_words)
     return self._test_words
 #+end_src        
@@ -726,10 +775,11 @@ def load(self, path: str) -> list:
 ** Test it Out
 #+begin_src python :results none
 from neurotic.nlp.parts_of_speech.preprocessing import Environment, DataLoader
+
+loader = DataLoader()
 #+end_src
 
 #+begin_src python :results none
-loader = DataLoader()
 for theirs, mine in zip(vocabulary_words, loader.vocabulary_words):
     assert theirs == mine
 #+end_src
@@ -779,4 +829,159 @@ print(random.sample(loader.test_words, 2))
 ['the', ';']
 #+end_example
 
+** Re-Test
+   I'm trying to troubleshoot differences between my output and the original notebook.
 
+#+begin_src python :results none
+punct = set(string.punctuation)
+
+noun_suffix = ["action", "age", "ance", "cy", "dom", "ee", "ence", "er", "hood", "ion", "ism", "ist", "ity", "ling", "ment", "ness", "or", "ry", "scape", "ship", "ty"]
+verb_suffix = ["ate", "ify", "ise", "ize"]
+adj_suffix = ["able", "ese", "ful", "i", "ian", "ible", "ic", "ish", "ive", "less", "ly", "ous"]
+adv_suffix = ["ward", "wards", "wise"]
+#+end_src
+
+#+begin_src python :results none
+def preprocess(vocab, data_fp):
+    """
+    Preprocess data
+    """
+    orig = []
+    prep = []
+
+    # Read data
+    with open(data_fp, "r") as data_file:
+
+        for cnt, word in enumerate(data_file):
+
+            # End of sentence
+            if not word.split():
+                orig.append(word.strip())
+                word = "--n--"
+                prep.append(word)
+                continue
+
+            # Handle unknown words
+            elif word.strip() not in vocab:
+                orig.append(word.strip())
+                # this seems like a bug
+                word = assign_unk(word)
+
+                # this makes it work better, but isn't in their code
+                # word = assign_unk(word.strip())
+                prep.append(word)
+                continue
+
+            else:
+                orig.append(word.strip())
+                prep.append(word.strip())
+
+    assert(len(orig) == len(open(data_fp, "r").readlines()))
+    assert(len(prep) == len(open(data_fp, "r").readlines()))
+
+    return orig, prep
+#+end_src
+
+#+begin_src python :results none
+def assign_unk(tok):
+    """
+    Assign unknown word tokens
+    """
+    # Digits
+    if any(char.isdigit() for char in tok):
+        return "--unk_digit--"
+
+    # Punctuation
+    elif any(char in punct for char in tok):
+        return "--unk_punct--"
+
+    # Upper-case
+    elif any(char.isupper() for char in tok):
+        return "--unk_upper--"
+
+    # Nouns
+    elif any(tok.endswith(suffix) for suffix in noun_suffix):
+        return "--unk_noun--"
+
+    # Verbs
+    elif any(tok.endswith(suffix) for suffix in verb_suffix):
+        return "--unk_verb--"
+
+    # Adjectives
+    elif any(tok.endswith(suffix) for suffix in adj_suffix):
+        return "--unk_adj--"
+
+    # Adverbs
+    elif any(tok.endswith(suffix) for suffix in adv_suffix):
+        return "--unk_adv--"
+
+    return "--unk--"
+#+end_src
+
+#+begin_src python :results none
+loader = DataLoader(Environment)
+#+end_src
+*** The Vocabulary
+#+begin_src python :results none
+UNKNOWN = "--unknown-{}--"
+THEIR_UNKNOWN = "--unk_{}--"
+
+THEIRS_TO_MINE = {
+    "--unk--": "--unknown--",
+    THEIR_UNKNOWN.format("digit"):UNKNOWN.format("digit"),
+    THEIR_UNKNOWN.format("punct"):UNKNOWN.format("punctuation"),
+    THEIR_UNKNOWN.format("upper"):UNKNOWN.format("uppercase"),
+    THEIR_UNKNOWN.format("noun"):UNKNOWN.format("noun"),    
+    THEIR_UNKNOWN.format("verb"):UNKNOWN.format("verb"),
+    THEIR_UNKNOWN.format("adj"): UNKNOWN.format("adjective"),
+    THEIR_UNKNOWN.format("adv"):UNKNOWN.format("adverb"),    
+}
+
+with open(os.environ[Environment.vocabulary]) as reader:
+    voc_l = reader.read().split("\n")
+
+index = 0
+for theirs, mine in zip(voc_l, loader.vocabulary_words):
+    assert THEIRS_TO_MINE.get(theirs, theirs)==mine, (index, theirs, mine)
+    index += 1
+#+end_src
+*** Vocabulary Word
+    They include empty strings so the dictionaries won't match exactly.
+    
+#+begin_src python :results none
+vocab = {}
+for index, word in enumerate(sorted(voc_l)):
+    vocab[word] = index
+
+for word in vocab:
+    assert THEIRS_TO_MINE.get(word, word) in loader.vocabulary, (word)
+#+end_src
+
+*** The Preprocessed Test Words
+#+begin_src python :results output :exports both
+original, prep = preprocess(vocab, os.environ[Environment.test_words])
+
+index = 0
+for theirs, mine in zip(prep, loader.test_words):
+    if THEIRS_TO_MINE.get(theirs, theirs) != mine:
+        token = original[index]
+        print(index, theirs, mine, token, assign_unk(token))
+    index += 1
+#+end_src
+
+#+RESULTS:
+
+#+begin_src python :results output :exports both
+for word in (line for line in loader.vocabulary_words if line.startswith("--u")):
+    print(word)
+#+end_src
+
+#+RESULTS:
+: --unknown--
+: --unknown-adjective--
+: --unknown-adverb--
+: --unknown-digit--
+: --unknown-noun--
+: --unknown-punctuation--
+: --unknown-uppercase--
+: --unknown-verb--

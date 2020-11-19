@@ -37,6 +37,19 @@ Label = Namespace(
     unknown="--unknown--",
  )
 
+THEIR_UNKNOWN = "--unk_{}--"
+
+THEIRS_TO_MINE = {
+    "--unk--": "--unknown--",
+    THEIR_UNKNOWN.format("digit"): Label.digit,
+    THEIR_UNKNOWN.format("punct"): Label.punctuation,
+    THEIR_UNKNOWN.format("upper"): Label.uppercase,
+    THEIR_UNKNOWN.format("noun"): Label.noun,
+    THEIR_UNKNOWN.format("verb"): Label.verb,
+    THEIR_UNKNOWN.format("adj"): Label.adjective,
+    THEIR_UNKNOWN.format("adv"): Label.adverb,
+}
+
 Unknown = Namespace(
     punctuation = set(string.punctuation),
     suffix = Suffixes,
@@ -97,7 +110,7 @@ class CorpusProcessor:
          tuples: word, tag tuples
     
         Yields:
-         word or label for the word if unknown, tag
+         (word (or label for the word if unknown), tag) tuple
         """
         for word, tag in tuples:
             if word in self.vocabulary:
@@ -138,7 +151,7 @@ class CorpusProcessor:
         """
         processed = self.split_tuples(tuples)
         processed = self.handle_empty(processed)
-        processed = [word for word in self.label_unknowns(processed)]
+        processed = [(word, tag) for (word, tag) in self.label_unknowns(processed)]
         return processed
 
 
@@ -225,7 +238,7 @@ class DataPreprocessor:
 
 @attr.s(auto_attribs=True)
 class DataLoader:
-    """Loads the traning and test data
+    """Loads the training and test data
 
     Args:
      environment: namespace with keys for the environment to load paths
@@ -250,22 +263,37 @@ class DataLoader:
 
     @property
     def vocabulary_words(self) -> list:
-        """The list of vocabulary words for training"""
+        """The list of vocabulary words for training
+        
+        Note:
+         This is ``hmm_vocab.txt``
+        """
         if self._vocabulary_words is None:
-            self._vocabulary_words = sorted(
-                self.load(os.environ[self.environment.vocabulary]))
+            # I haven't figured out yet why they include spaces, so leave it for now
+            #sorted(self.load(os.environ[self.environment.vocabulary]))
+            with open(os.environ[self.environment.vocabulary]) as reader:
+                words = reader.read().split("\n")
+            self._vocabulary_words = [THEIRS_TO_MINE.get(word, word) for word in words]
         return self._vocabulary_words
 
     @property
     def training_corpus(self) -> list:
-        """The corpus  for tranining"""
+        """The corpus for training
+    
+        Note:
+         ``WSJ_02_20.pos`` lines (<word><tab><pos> all as one string)
+        """
         if self._training_corpus is None:
             self._training_corpus = self.load(os.environ[self.environment.training_corpus])
         return self._training_corpus
 
     @property
     def training_data(self) -> dict:
-        """The word-tag training data"""
+        """The word-tag training data
+    
+        Note:
+         this is the ``training_corpus`` converted to a <word>:<pos> dictionary
+        """
         if self._training_data is None:
             words_tags = (line.split() for line in self.training_corpus)
             words_tags = (tokens for tokens in words_tags if len(tokens) == 2)        
@@ -274,7 +302,11 @@ class DataLoader:
 
     @property
     def processed_training(self) -> list:
-        """Pre-processes the training corpus"""
+        """Pre-processes the training corpus
+    
+        Note:
+         ``training_corpus`` converted to (word, tag) tuples with unknown tags added
+        """
         if self._processed_training is None:
             processor = CorpusProcessor(self.vocabulary)
             self._processed_training = processor(self.training_corpus)
@@ -285,12 +317,12 @@ class DataLoader:
         """Converts the vocabulary list of words to a dict
     
         Returns:
-         word to index of word in vocabulary words
+         word : index of word in vocabulary words> dictionary
         """
         if self._vocabulary is None:
             self._vocabulary = {
                 word: index
-                for index, word in enumerate(self.vocabulary_words)}
+                for index, word in enumerate(sorted(self.vocabulary_words))}
         return self._vocabulary
 
     @property
@@ -299,7 +331,7 @@ class DataLoader:
     
         Note:
          The assignment expects the lines to be un-processed so this is just the
-        raw lines
+        raw lines from ``WSJ_24.pos``
         """
         if self._test_data_raw is None:
             self._test_data_raw = self.load(os.environ[self.environment.test_corpus])
@@ -307,7 +339,11 @@ class DataLoader:
 
     @property
     def test_data(self) -> dict:
-        """The word,tag test data"""
+        """The word,tag test data
+    
+        Note:
+         this is the ``test_data_raw`` property converted to a dictionary
+        """
         if self._test_data is None:
             words_tags = (line.split() for line in self.test_data_raw)
             words_tags = (tokens for tokens in words_tags if len(tokens) == 2)
@@ -316,9 +352,16 @@ class DataLoader:
 
     @property
     def test_words(self) -> list:
-        """The pre-processed test words"""
+        """The pre-processed test words
+    
+        Note:
+         ``test.words`` with some pre-processing done
+        """
         if self._test_words is None:
-            self._test_words = self.load(os.environ[self.environment.test_words])
+            # the original code doesn't remove empty lines for some reason
+            # self._test_words = self.load(os.environ[self.environment.test_words])
+            with open(os.environ[self.environment.test_words]) as reader:
+                self._test_words = reader.readlines()
             self._test_words = self.preprocess(self._test_words)
         return self._test_words
 
