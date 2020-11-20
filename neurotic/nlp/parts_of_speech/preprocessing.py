@@ -251,6 +251,7 @@ class DataLoader:
     _training_data: dict=None
     _processed_training: list=None
     _test_data_raw: list=None
+    _test_data_tuples: list=None
     _test_data: dict=None
     _test_words: list=None
 
@@ -269,10 +270,7 @@ class DataLoader:
          This is ``hmm_vocab.txt``
         """
         if self._vocabulary_words is None:
-            # I haven't figured out yet why they include spaces, so leave it for now
-            #sorted(self.load(os.environ[self.environment.vocabulary]))
-            with open(os.environ[self.environment.vocabulary]) as reader:
-                words = reader.read().split("\n")
+            words = self.load(os.environ[self.environment.vocabulary])
             self._vocabulary_words = [THEIRS_TO_MINE.get(word, word) for word in words]
         return self._vocabulary_words
 
@@ -336,19 +334,19 @@ class DataLoader:
         if self._test_data_raw is None:
             self._test_data_raw = self.load(os.environ[self.environment.test_corpus])
         return self._test_data_raw
-
+    
     @property
-    def test_data(self) -> dict:
-        """The word,tag test data
+    def test_data_tuples(self) -> list:
+        """The test data lines split into tuples
     
         Note:
-         this is the ``test_data_raw`` property converted to a dictionary
+         this is the test_data_raw with the lines split
         """
-        if self._test_data is None:
-            words_tags = (line.split() for line in self.test_data_raw)
-            words_tags = (tokens for tokens in words_tags if len(tokens) == 2)
-            self._test_data = {word: tag for word, tag in words_tags}
-        return self._test_data
+        if self._test_data_tuples is None:
+            self._test_data_tuples = [line.split() for line in self.test_data_raw]
+        return self._test_data_tuples
+
+    
 
     @property
     def test_words(self) -> list:
@@ -358,22 +356,20 @@ class DataLoader:
          ``test.words`` with some pre-processing done
         """
         if self._test_words is None:
-            # the original code doesn't remove empty lines for some reason
-            # self._test_words = self.load(os.environ[self.environment.test_words])
-            with open(os.environ[self.environment.test_words]) as reader:
-                self._test_words = reader.readlines()
+            self._test_words = self.load(os.environ[self.environment.test_words])
             self._test_words = self.preprocess(self._test_words)
         return self._test_words
 
-    def load(self, path: str) -> list:
+    def load(self, path: str, keep_empty: bool=True) -> list:
         """Loads the strings from the file
     
         Args:
          path: path to the text file
+         keep_empty: keep empty lines if true
     
         Returns:
          list of lines from the file
         """
         with open(path) as reader:
-            lines = [line for line in reader.read().split("\n") if line]
+            lines = [line for line in reader.read().split("\n") if keep_empty or line]
         return lines

@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-45805d00-f49f-4f90-9e51-2600ba6d2345-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6f7a1dc1-2226-4c47-9731-6e45efa2b7b4-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -60,9 +60,9 @@ print(f"y in x: {100 * len(in_common)/len(preprocessed):0.3f} %")
 #+end_src
 
 #+RESULTS:
-: y in x: 99.865 %
+: y in x: 100.000 %
 
-It looks like most of the words in our test set are in the training set, sot that's good. How much of those words are unambiguous (only have one part-of-speech tag)?
+So, we shouldn't lose any words just because we never saw them during training.
 
 #+begin_src python :results output :exports both
 print(loader.processed_training[:2])
@@ -99,19 +99,11 @@ print("percent of words in common that are unambiguous:"
 #+end_src
 
 #+RESULTS:
-: percent of words in common that are unambiguous: 58.27
+: percent of words in common that are unambiguous: 58.19
 
 Sort of low.
 
-#+begin_src python :results output :exports both
-print("Percent of test words we know are unambiguous: "
-      f"{len(common_unambiguous)/len(preprocessed) * 100: .2f} %")
-#+end_src
-
-#+RESULTS:
-: Percent of test words we know are unambiguous:  58.19 %
-
-So our training set thinks that it knows about 58 % of the test set's tags without any other algorithm.
+This means that if we just labeled the unambiguous words we'd be right about 58% of the time. Let's just double-check.
 
 #+begin_src python :results output :exports both
 guesses = {word: tag for word, tag in loader.test_data.items() if word in unambiguous}
@@ -126,14 +118,14 @@ for word in preprocessed:
     else:
         continue
 
-print(f"Correct: {correct_guess/total}")
+print(f"Correct: {100 * correct_guess/total: 0.2f}%")
 #+end_src
 
 #+RESULTS:
-: Correct: 0.5816779170684667
+: Correct:  58.17%
 
 So this is the amount we get if we just use the unambiguous words. Our baseline should be even better.
-
+** The Baseline Implementation
 #+begin_src python :results none
 def predict_pos(prep, y, emission_counts, vocab, states):
     '''
@@ -213,37 +205,57 @@ print(f"Accuracy of prediction using predict_pos is {accuracy_predict_pos:.4f}")
 #+end_src
 
 #+RESULTS:
-: Accuracy of prediction using predict_pos is 0.8658
+: Accuracy of prediction using predict_pos is 0.8913
 
-* Raw
-#+begin_example
+So our baseline prediction is 89% - any algorithm we create should do as well or better (but probably better for it to be worth doing).
 
-# Now you will test the accuracy of your parts-of-speech tagger using your `emission_counts` dictionary. 
-# - Given your preprocessed test corpus `prep`, you will assign a parts-of-speech tag to every word in that corpus. 
-# - Using the original tagged test corpus `y`, you will then compute what percent of the tags you got correct. 
+** Take Two
+#+begin_src python :results none
+def predict(preprocessed: list, y: list, emission_counts: dict, vocabulary: dict, states: list):
+    """Calculate the baseline accuracy
+    Args: 
+        preprocessed: a preprocessed version of 'y'. A list with the 'word' component of the tuples.
+        y: a corpus composed of a list of tuples where each tuple consists of (word, POS)
+        emission_counts: a dictionary where the keys are (tag,word) tuples and the value is the count
+        vocabulary: a dictionary where keys are words in vocabulary and value is an index
+        states: a sorted list of all possible tags for this assignment
 
-# <a name='ex-02'></a>
-# ### Exercise 02
-# 
-# **Instructions:** Implement `predict_pos` that computes the accuracy of your model. 
-# 
-# - This is a warm up exercise. 
-# - To assign a part of speech to a word, assign the most frequent POS for that word in the training set. 
-# - Then evaluate how well this approach works.  Each time you predict based on the most frequent POS for the given word, check whether the actual POS of that word is the same.  If so, the prediction was correct!
-# - Calculate the accuracy as the number of correct predictions divided by the total number of words for which you predicted the POS tag.
+    Returns: 
+        accuracy: Number of times you classified a word correctly
+    """
+    # filter (``preprocessed`` has unknown words replaced by special tags so we
+    # need to use it to filter separately from the words in ``y``)
+    # because using the raw word instead of the special tag will throw away
+    # the row but we tagged it specifically to keep it
+    inputs = [(word, tokens) for word, tokens in zip(preprocessed, y)
+              if (len(tokens) == 2 and word in vocabulary)]
 
-# In[ ]:
+    # our final data sets    
+    true_tags = (tag for word, (raw, tag) in inputs)
+    words = (word for word, (raw, tag) in inputs)
 
+    # each guess is the POS tag for the word with the highest occurrence in the training data
+    guesses = (
+        max((emission_counts.get((pos, word), 0), pos) for pos in states)
+        for word in words)
 
+    # accuracy is sum of correct guesses/total rows in y
+    return (sum(
+        actual == guess for actual, (count, guess) in zip(true_tags, guesses))
+            /len(y))
 
+#+end_src   
 
+#+begin_src python :results output :exports both
+states = sorted(trainer.tag_counts.keys())
+accuracy = predict(preprocessed=loader.test_words,
+                   y=loader.test_data_tuples,
+                   emission_counts=trainer.emission_counts,
+                   vocabulary=loader.vocabulary,
+                   states=states)
+print(f"Accuracy of prediction using predict_pos is {accuracy:.4f}")
+#+end_src
 
+#+RESULTS:
+: Accuracy of prediction using predict_pos is 0.8921
 
-
-# ##### Expected Output
-# ```CPP
-# Accuracy of prediction using predict_pos is 0.8889
-# ```
-# 
-# 88.9% is really good for this warm up exercise. With hidden markov models, you should be able to get **95% accuracy.**
-#+end_example
