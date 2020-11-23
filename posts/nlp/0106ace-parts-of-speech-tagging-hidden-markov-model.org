@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-36a8b624-64ee-4fb4-abec-0e4e5f8fbc72-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-23fb4ecd-1033-420a-9820-93ad6f6de951-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -26,35 +26,57 @@ Now you will build something more context specific. Concretely, you will be impl
 
 The Markov Model contains a number of states and the probability of transition between those states. 
 - In this case, the states are the parts-of-speech. 
-- A Markov Model utilizes a transition matrix, `A`. 
-- A Hidden Markov Model adds an observation or emission matrix `B` which describes the probability of a visible observation when we are in a particular state. 
+- A Markov Model utilizes a transition matrix, =A=. 
+- A Hidden Markov Model adds an observation or emission matrix =B= which describes the probability of a visible observation when we are in a particular state. 
 - In this case, the emissions are the words in the corpus
 - The state, which is hidden, is the POS tag of that word.
   
 ** Imports
 #+begin_src python :results none
 # python
+from argparse import Namespace
+from functools import partial
+
 import math
 
 # pypi
 from dotenv import load_dotenv
 
+import holoviews
+import hvplot.pandas
 import numpy
 import pandas
 
-np = numpy
-pd = pandas
-
 # this repository
 from neurotic.nlp.parts_of_speech import DataLoader, TheTrainer
+
+# my other stuff
+from graeae import EmbedHoloviews
 #+end_src
 ** Set Up
+*** The Data
 #+begin_src python :results none
 load_dotenv("posts/nlp/.env")
 loader = DataLoader()
 trainer = TheTrainer(loader.processed_training)
 #+end_src
-   
+*** Plotting
+#+begin_src python :results none
+SLUG = "parts-of-speech-tagging-hidden-markov-model"
+FOLDER = f"files/posts/nlp/{SLUG}/" 
+Embed = partial(EmbedHoloviews, folder_path=FOLDER)
+
+Plot = Namespace(
+    width=990,
+    height=780,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+    color_map="OrRd",
+    path_color_map="blues",
+)
+#+end_src    
 * Middle
 ** Generating Matrices
 *** Creating the 'A' transition probabilities matrix
@@ -97,8 +119,6 @@ trainer = TheTrainer(loader.processed_training)
  - \(\alpha\) is a smoothing parameter.
 
 #+begin_src python :results none
-# UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
-# GRADED FUNCTION: create_transition_matrix
 def create_transition_matrix(alpha: float, tag_counts: dict,
                              transition_counts: dict) -> numpy.ndarray:
     """Transition Matrix for the Hidden Markov Model
@@ -118,13 +138,11 @@ def create_transition_matrix(alpha: float, tag_counts: dict,
     num_tags = len(all_tags)
     
     # Initialize the transition matrix 'A'
-    A = np.zeros((num_tags,num_tags))
+    A = numpy.zeros((num_tags,num_tags))
     
     # Get the unique transition tuples (previous POS, current POS)
     trans_keys = set(transition_counts.keys())
-    
-    ### START CODE HERE (Replace instances of 'None' with your code) ### 
-    
+
     # Go through each row of the transition matrix A
     for i in range(num_tags):
         
@@ -152,8 +170,6 @@ def create_transition_matrix(alpha: float, tag_counts: dict,
             # Apply smoothing using count of the tuple, alpha, 
             # count of previous tag, alpha, and total number of tags
             A[i,j] = (count + alpha)/(count_prev_tag + alpha * num_tags)
-    ### END CODE HERE ###
-    
     return A
 #+end_src
 
@@ -178,8 +194,19 @@ print(f"A at row 3, col 1: {actual:.4f}")
 assert math.isclose(expected, actual, abs_tol=1e-4)
 
 print("View a subset of transition matrix A")
-A_sub = pd.DataFrame(A[30:35,30:35], index=states[30:35], columns = states[30:35] )
+actual = A[30:35,30:35]
+A_sub = pandas.DataFrame(actual, index=states[30:35], columns = states[30:35] )
 print(A_sub)
+
+expected = numpy.array([
+ [2.217069e-06, 2.217069e-06, 2.217069e-06, 0.008870, 2.217069e-06],
+ [3.756509e-07, 7.516775e-04, 3.756509e-07, 0.051089, 3.756509e-07],
+ [1.722772e-05, 1.722772e-05, 1.722772e-05, 0.000017, 1.722772e-05],
+ [4.477336e-05, 4.472863e-08, 4.472863e-08, 0.000090, 4.477336e-05],
+ [1.030439e-05, 1.030439e-05, 1.030439e-05, 0.061837, 3.092348e-02],
+])
+
+assert numpy.allclose(expected, actual, atol=1e-5)
 #+end_src
 
 #+RESULTS:
@@ -193,6 +220,95 @@ print(A_sub)
 : TO   4.477336e-05  4.472863e-08  4.472863e-08  0.000090  4.477336e-05
 : UH   1.030439e-05  1.030439e-05  1.030439e-05  0.061837  3.092348e-02
 
+#+begin_src python :results none
+plotter = pandas.DataFrame(A, index=states, columns=states)[::-1]
+plot = plotter.hvplot.heatmap(cmap=Plot.color_map).opts(
+    title="Emission Matrix A",
+    width=Plot.width, height=Plot.height, fontscale=Plot.fontscale,
+    xrotation=90,
+)
+#plot *= holoviews.Labels(plot)
+outcome = Embed(plot=plot, file_name="emission_matrix_a")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="emission_matrix_a.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Looking at the plot you can see that there are a few transitions that are very likely. Maybe we can look at them to see if they're helpful.
+
+#+begin_src python :results none
+URL = "https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html"
+data = pandas.read_html(URL, header=0)[0]
+
+TRANSLATOR = {row.Tag:row.Description for row in data.itertuples()}
+#+end_src
+
+#+begin_src python :results output :exports both
+print("|Tag| Description|")
+print("|-+-|")
+for tag in states:
+    print(f"|{tag}|{TRANSLATOR.get(tag, 'unknown')}|")
+#+end_src
+
+#+RESULTS:
+| Tag  | Description                              |
+|------+------------------------------------------|
+| #    | unknown                                  |
+| $    | unknown                                  |
+| ''   | unknown                                  |
+| (    | unknown                                  |
+| )    | unknown                                  |
+| ,    | unknown                                  |
+|------+------------------------------------------|
+| .    | unknown                                  |
+| :    | unknown                                  |
+| CC   | Coordinating conjunction                 |
+| CD   | Cardinal number                          |
+| DT   | Determiner                               |
+| EX   | Existential there                        |
+| FW   | Foreign word                             |
+| IN   | Preposition or subordinating conjunction |
+| JJ   | Adjective                                |
+| JJR  | Adjective, comparative                   |
+| JJS  | Adjective, superlative                   |
+| LS   | List item marker                         |
+| MD   | Modal                                    |
+| NN   | Noun, singular or mass                   |
+| NNP  | Proper noun, singular                    |
+| NNPS | Proper noun, plural                      |
+| NNS  | Noun, plural                             |
+| PDT  | Predeterminer                            |
+| POS  | Possessive ending                        |
+| PRP  | Personal pronoun                         |
+| PRP$ | Possessive pronoun                       |
+| RB   | Adverb                                   |
+| RBR  | Adverb, comparative                      |
+| RBS  | Adverb, superlative                      |
+| RP   | Particle                                 |
+| SYM  | Symbol                                   |
+| TO   | to                                       |
+| UH   | Interjection                             |
+| VB   | Verb, base form                          |
+| VBD  | Verb, past tense                         |
+| VBG  | Verb, gerund or present participle       |
+| VBN  | Verb, past participle                    |
+| VBP  | Verb, non-3rd person singular present    |
+| VBZ  | Verb, 3rd person singular present        |
+| WDT  | Wh-determiner                            |
+| WP   | Wh-pronoun                               |
+| WP$  | Possessive wh-pronoun                    |
+| WRB  | Wh-adverb                                |
+| ``   | unknown                                  |
+
+The highest probabilities are at the bottom of the table (the red blocks) where it show that there's a 99% probability that a =$= or a =#= will be followed by a Cardinal Number, which seems to make sense, especially since the original source was the Wall Street Journal, and you might expect there to be references to dollars. The next highest probability is that a /Predeterminer/ will be followed by a /Determiner/, which makes sense based on the names, although I have no idea what those things are. And then the notion that a =.= will be followed by a =--s---= (a period will be followed by the start of a new statement). So, at least for the most common cases it looks fairly intuitive.
 ** Create the 'B' emission probabilities matrix
 
  Now you will create the =B= transition matrix which computes the emission probability. 
@@ -203,7 +319,7 @@ print(A_sub)
 P(w_i | t_i) = \frac{C(t_i, word_i)+ \alpha}{C(t_{i}) +\alpha * N}
 \]
 
- - \(C(t_i, word_i)\) is the number of times\($word_i\) was associated with \(tag_i\) in the training data (stored in =emission_counts= dictionary).
+ - \(C(t_i, word_i)\) is the number of times\$word_i\) was associated with \(tag_i\) in the training data (stored in =emission_counts= dictionary).
  - \(C(t_i)\) is the number of times \(tag_i\) was in the training data (stored in =tag_counts= dictionary).
  - \(N\) is the number of words in the vocabulary
  - \(\alpha\) is a smoothing parameter. 
@@ -222,13 +338,10 @@ P(w_i | t_i) = \frac{C(t_i, word_i)+ \alpha}{C(t_{i}) +\alpha * N}
  | **RP**  | ... |     3.723317e-07 |     3.723317e-07 |     3.723317e-07 | **3.723317e-07** |     3.723317e-07 | ... |
  | ...     | ... |              ... |              ... |              ... |              ... |              ... | ... |
  
- **Instructions:** Implement the =create_emission_matrix= below that computes the =B= emission probabilities matrix. Your function takes in \(\alpha\), the smoothing parameter, =tag_counts=, which is a dictionary mapping each tag to its respective count, the =emission_counts= dictionary where the keys are (tag, word) and the values are the counts. Your task is to output a matrix that computes equation 4 for each cell in matrix =B=. 
+ We're now going to implement the =create_emission_matrix= that computes the =B= emission probabilities matrix. Your function takes in \(\alpha\), the smoothing parameter, =tag_counts=, which is a dictionary mapping each tag to its respective count, the =emission_counts= dictionary where the keys are (tag, word) and the values are the counts. Your task is to output a matrix that computes equation 4 for each cell in matrix =B=. 
 
 *** Create Emission Matrix
 #+begin_src python :results none
-# UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
-# GRADED FUNCTION: create_emission_matrix
-
 def create_emission_matrix(alpha: float,
                            tag_counts: dict,
                            emission_counts: dict,
@@ -256,7 +369,7 @@ def create_emission_matrix(alpha: float,
     
     # Initialize the emission matrix B with places for
     # tags in the rows and words in the columns
-    B = np.zeros((num_tags, num_words))
+    B = numpy.zeros((num_tags, num_words))
     
     # Get a set of all (POS, word) tuples 
     # from the keys of the emission_counts dictionary
@@ -274,7 +387,7 @@ def create_emission_matrix(alpha: float,
             count = 0
                     
             # Define the (POS tag, word) tuple for this row and column
-            key =  (all_tags[i], vocab[i])
+            key =  (all_tags[i], vocab[j])
 
             # check if the (POS tag, word) tuple exists as a key in emission counts
             if key in emission_counts: # complete this line
@@ -324,18 +437,275 @@ rvals =['CD','NN','NNS', 'VB','RB','RP']
 rows = [states.index(a) for a in rvals]
 
 # Get the emissions for the sample of words, and the sample of POS tags
-B_sub = pd.DataFrame(B[np.ix_(rows,cols)], index=rvals, columns = cidx )
+actual = B[numpy.ix_(rows,cols)]
+B_sub = pandas.DataFrame(actual, index=rvals, columns = cidx )
 print(B_sub)
+expected = ([
+ [8.201296e-05, 2.732854e-08, 2.732854e-08, 2.732854e-08, 2.732854e-08],
+ [7.521128e-09, 7.521128e-09, 7.521128e-09, 7.521128e-09, 2.257091e-05],
+ [1.670013e-08, 1.670013e-08, 4.676203e-04, 1.670013e-08, 1.670013e-08],
+ [3.779036e-08, 3.779036e-08, 3.779036e-08, 3.779036e-08, 3.779036e-08],
+ [3.226454e-08, 6.456135e-05, 3.226454e-08, 3.226454e-08, 3.226454e-08],
+ [3.723317e-07, 3.723317e-07, 3.723317e-07, 3.723317e-07, 3.723317e-07],
+])
+
+assert numpy.allclose(expected, actual, atol=1e-5)
  #+end_src
 
  #+RESULTS:
  : View Matrix position at row 0, column 0: 0.000006032
  : View Matrix position at row 3, column 1: 0.000000720
  :               725      adroitly     engineers      promoted       synergy
- : CD   2.735587e-05  2.735587e-05  2.735587e-05  2.735587e-05  2.735587e-05
- : NN   7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09
- : NNS  1.670013e-08  1.670013e-08  1.670013e-08  1.670013e-08  1.670013e-08
- : VB   1.020377e-03  1.020377e-03  1.020377e-03  1.020377e-03  1.020377e-03
- : RB   3.226454e-08  3.226454e-08  3.226454e-08  3.226454e-08  3.226454e-08
+ : CD   8.201296e-05  2.732854e-08  2.732854e-08  2.732854e-08  2.732854e-08
+ : NN   7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09  2.257091e-05
+ : NNS  1.670013e-08  1.670013e-08  4.676203e-04  1.670013e-08  1.670013e-08
+ : VB   3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08
+ : RB   3.226454e-08  6.456135e-05  3.226454e-08  3.226454e-08  3.226454e-08
  : RP   3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07
 
+
+#+begin_src python :results none
+plotter = B_sub[::-1]
+plot = plotter.hvplot.heatmap(cmap=Plot.color_map).opts(
+    title="Emission Matrix B",
+    width=Plot.width, height=Plot.height, fontscale=Plot.fontscale,
+    xrotation=90,
+)
+outcome = Embed(plot=plot, file_name="emission_matrix_b")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="emission_matrix_b.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+There's 23,777 words in the vocabulary so I'm not plotting the whole thing.
+
+* End
+** Bundle It Up
+#+begin_src python :tangle ../../neurotic/nlp/parts_of_speech/matrices.py
+<<imports>>
+
+<<matrices>>
+
+    <<tags>>
+
+    <<tag-count>>
+
+    <<word-count>>
+
+    <<transition>>
+
+    <<emission>>
+#+end_src
+*** The Imports
+#+begin_src python :noweb-ref imports
+# pypi
+import attr
+import numpy
+#+end_src
+*** The Matrices
+#+begin_src python :noweb-ref matrices
+@attr.s(auto_attribs=True)
+class Matrices:
+    """The matrices for the hidden markov model
+
+    Args:
+     ``transition_counts``: dictionary of counts of adjacent POS tags
+     ``emission_counts``: dictionary of (word, POS) counts
+     ``tag_counts``: dictionary of POS tag-counts
+     ``words``: list of words in the vocabulary
+     ``alpha``: The smoothing value
+    """
+    transition_counts: dict
+    emission_counts: dict
+    tag_counts: dict
+    # all the lists have to be sorted for the matrices to match
+    words: list=attr.ib(converter=sorted)
+    alpha: float=0.001
+    _tags: list=None
+    _tag_count: int=None
+    _word_count: int=None
+    _transition: numpy.ndarray=None
+    _emission: numpy.ndarray=None
+#+end_src
+*** The Tags
+#+begin_src python :noweb-ref tags
+@property
+def tags(self) -> list:
+    """Sorted list of the POS tags"""
+    if self._tags is None:
+        self._tags = sorted(self.tag_counts)
+    return self._tags
+#+end_src
+*** The Tag Count
+#+begin_src python :noweb-ref tag-count
+@property
+def tag_count(self) -> int:
+    """Number of tags"""
+    if self._tag_count is None:
+        self._tag_count = len(self.tags)
+    return self._tag_count
+#+end_src
+*** The Word Count
+#+begin_src python :noweb-ref word-count
+@property
+def word_count(self) -> int:
+    """Number of words in the vocabulary"""
+    if self._word_count is None:
+        self._word_count = len(self.words)
+    return self._word_count
+#+end_src    
+*** The Transition Matrix
+#+begin_src python :noweb-ref transition
+@property
+def transition(self) -> numpy.ndarray:
+    """The Transition Matrix"""
+    if self._transition is None:
+        self._transition = numpy.zeros((self.tag_count, self.tag_count))
+        for row in range(self.tag_count):
+            for column in range(self.tag_count):
+                key = (self.tags[row], self.tags[column])
+                count = self.transition_counts[key] if key in self.transition_counts else 0
+                previous_tag_count = self.tag_counts[self.tags[row]]
+                self._transition[row, column] = (
+                    (count + self.alpha)
+                    /(previous_tag_count + self.alpha * self.tag_count))
+    return self._transition
+#+end_src
+*** The Emission Matrix
+#+begin_src python :noweb-ref emission
+@property
+def emission(self) -> numpy.ndarray:
+    """The Emission Matrix"""
+    if self._emission is None:
+        self._emission = numpy.zeros((self.tag_count, self.word_count))
+        for row in range(self.tag_count):
+            for column in range(self.word_count):
+                key = (self.tags[row], self.words[column])
+                emission_count = self.emission_counts[key] if key in self.emission_counts else 0
+                tag_count = self.tag_counts[self.tags[row]]
+                self._emission[row, column] = (
+                    (emission_count + self.alpha)
+                    /(tag_count + self.alpha * self.word_count)                
+                )
+    return self._emission
+#+end_src
+** Test It Out
+#+begin_src python :results none
+from neurotic.nlp.parts_of_speech.matrices import Matrices
+load_dotenv("posts/nlp/.env")
+loader = DataLoader()
+trainer = TheTrainer(loader.processed_training)
+
+matrices = Matrices(transition_counts=trainer.transition_counts,
+                    emission_counts=trainer.emission_counts,
+                    tag_counts=trainer.tag_counts,
+                    words=loader.vocabulary_words,
+                    alpha=0.001)
+#+end_src
+*** The Transition Matrix
+#+begin_src python :results output :exports both
+transition = matrices.transition
+expected = 0.000007040
+actual = transition_matrix[0,0]
+
+print(f"Transition Matrix at row 0, col 0: {actual:.9f}")
+assert math.isclose(expected, actual, abs_tol=1e-6), (expected, actual)
+
+expected = 0.1691
+actual = transition_matrix[3,1]
+print(f"Transition Matrix at row 3, col 1: {actual:.4f}")
+assert math.isclose(expected, actual, abs_tol=1e-4)
+
+print("View a subset of the transition matrix")
+actual = transition_matrix[30:35,30:35]
+A_sub = pandas.DataFrame(actual, index=states[30:35], columns = states[30:35] )
+print(A_sub)
+
+expected = numpy.array([
+ [2.217069e-06, 2.217069e-06, 2.217069e-06, 0.008870, 2.217069e-06],
+ [3.756509e-07, 7.516775e-04, 3.756509e-07, 0.051089, 3.756509e-07],
+ [1.722772e-05, 1.722772e-05, 1.722772e-05, 0.000017, 1.722772e-05],
+ [4.477336e-05, 4.472863e-08, 4.472863e-08, 0.000090, 4.477336e-05],
+ [1.030439e-05, 1.030439e-05, 1.030439e-05, 0.061837, 3.092348e-02],
+])
+
+assert numpy.allclose(expected, actual, atol=1e-5)
+#+end_src
+
+#+RESULTS:
+: Transition Matrix at row 0, col 0: 0.000007040
+: Transition Matrix at row 3, col 1: 0.1691
+: View a subset of the transition matrix
+:               RBS            RP           SYM        TO            UH
+: RBS  2.217069e-06  2.217069e-06  2.217069e-06  0.008870  2.217069e-06
+: RP   3.756509e-07  7.516775e-04  3.756509e-07  0.051089  3.756509e-07
+: SYM  1.722772e-05  1.722772e-05  1.722772e-05  0.000017  1.722772e-05
+: TO   4.477336e-05  4.472863e-08  4.472863e-08  0.000090  4.477336e-05
+: UH   1.030439e-05  1.030439e-05  1.030439e-05  0.061837  3.092348e-02
+*** The Emission Matrix
+#+begin_src python :results output :exports both
+matrices = Matrices(transition_counts=trainer.transition_counts,
+                    emission_counts=trainer.emission_counts,
+                    words=loader.vocabulary_words,
+                    tag_counts=trainer.tag_counts,
+                    alpha=0.001)
+emission = matrices.emission
+
+actual = emission[0,0]
+expected = 0.000006032
+print(f"Emission Matrix position at row 0, column 0: {actual:.9f}")
+assert math.isclose(actual, expected, abs_tol=1e-6)
+
+actual = emission[3,1]
+expected = 0.000000720
+print(f"Emission Matrix position at row 3, column 1: {actual:.9f}")
+assert math.isclose(actual, expected, abs_tol=1e-7)
+
+# Try viewing emissions for a few words in a sample dataframe
+columns  = ['725','adroitly','engineers', 'promoted', 'synergy']
+
+# Get the integer ID for each word
+column_ids = [loader.vocabulary[column] for column in columns]
+
+# Choose POS tags to show in a sample dataframe
+rows =['CD','NN','NNS', 'VB','RB','RP']
+
+# For each POS tag, get the row number from the 'states' list
+row_numbers = [matrices.tags.index(a) for a in rows]
+
+# Get the emissions for the sample of words, and the sample of POS tags
+actual = emission[numpy.ix_(row_numbers,column_ids)]
+B_sub = pandas.DataFrame(actual, index=rows, columns = columns)
+print(B_sub)
+expected = ([
+ [8.201296e-05, 2.732854e-08, 2.732854e-08, 2.732854e-08, 2.732854e-08],
+ [7.521128e-09, 7.521128e-09, 7.521128e-09, 7.521128e-09, 2.257091e-05],
+ [1.670013e-08, 1.670013e-08, 4.676203e-04, 1.670013e-08, 1.670013e-08],
+ [3.779036e-08, 3.779036e-08, 3.779036e-08, 3.779036e-08, 3.779036e-08],
+ [3.226454e-08, 6.456135e-05, 3.226454e-08, 3.226454e-08, 3.226454e-08],
+ [3.723317e-07, 3.723317e-07, 3.723317e-07, 3.723317e-07, 3.723317e-07],
+])
+
+assert numpy.allclose(expected, actual, atol=1e-5)
+#+end_src
+
+#+RESULTS:
+: Emission Matrix position at row 0, column 0: 0.000006032
+: Emission Matrix position at row 3, column 1: 0.000000720
+:               725      adroitly     engineers      promoted       synergy
+: CD   8.201296e-05  2.732854e-08  2.732854e-08  2.732854e-08  2.732854e-08
+: NN   7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09  2.257091e-05
+: NNS  1.670013e-08  1.670013e-08  4.676203e-04  1.670013e-08  1.670013e-08
+: VB   3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08
+: RB   3.226454e-08  6.456135e-05  3.226454e-08  3.226454e-08  3.226454e-08
+: RP   3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07
+
+**Note:** I was getting the wrong values because I switched to the =DataLoader.vocabulary_words= list, which isn't sorted (because I was trying to follow the example). The =vocabulary= is sorted, but it's a dict so then you have to convert it to a list... in the future just sort everything.
