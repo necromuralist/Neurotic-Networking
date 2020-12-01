@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-494d7abc-c0bb-44c6-94ea-ea68d37ecd6b-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2f489f75-6176-4c5b-8a1d-5644d6ae56fb-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -22,18 +22,29 @@
 ** Imports
 #+begin_src python :results none
 # python
+from unittest.mock import call, MagicMock
+
 import math
 
 # pypi
 from dotenv import load_dotenv
+from expects import (equal, expect)
 
 import numpy
 np = numpy
 
 # this stuff
 from neurotic.nlp.parts_of_speech import DataLoader, Matrices, TheTrainer
+
+# my other stuff
+from graeae import Timer
 #+end_src
 ** Set Up
+*** The Timer
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** The Matrices
 #+begin_src python :results none
 load_dotenv("posts/nlp/.env")
 loader = DataLoader()
@@ -44,6 +55,12 @@ matrices = Matrices(transition_counts=trainer.transition_counts,
                     tag_counts=trainer.tag_counts,
                     alpha=0.001)
 #+end_src
+
+These classes were defined in other posts:
+
+ - {{% lancelot title="DataLoader" %}}parts-of-speech-tagging-the-data{{% /lancelot %}}
+ - {{% lancelot title="TheTrainer" %}}parts-of-speech-tagging-training{{% /lancelot %}}
+ - {{% lancelot title="Matrices" %}}parts-of-speech-tagging-hidden-markov-model{{% /lancelot %}}
 * Middle
 ** Initialization
  Write a program below that initializes the =best_probs= and the =best_paths= matrix. 
@@ -125,20 +142,18 @@ def initialize(states, tag_counts, A, B, corpus, vocab):
     
     # Go through each of the POS tags
     for i in range(len(states)): # complete this line
-        
         # Handle the special case when the transition from start token to POS tag i is zero
         if A[s_idx, i] == 0: # complete this line
             
             # Initialize best_probs at POS tag 'i', column 0, to negative infinity
             best_probs[i,0] = float("-inf")
+            print(f"{i}: negitive infinity")
         
         # For all other cases when transition from start token to POS tag i is non-zero:
         else:
-            
             # Initialize best_probs at POS tag 'i', column 0
             # Check the formula in the instructions above
             best_probs[i,0] = math.log(A[s_idx, i]) + math.log(B[i, vocab[corpus[0]]])
-                        
     ### END CODE HERE ### 
     return best_probs, best_paths
 #+end_src
@@ -237,17 +252,18 @@ Please use [[https://docs.python.org/3/library/math.html][math.log]] to compute 
 
 #+begin_src python :results none
 def viterbi_forward(A, B, test_corpus, best_probs, best_paths, vocab):
-    '''
-    Input: 
+    """The forward training pass
+
+    Args: 
         A, B: The transition and emission matrices respectively
         test_corpus: a list containing a preprocessed corpus
         best_probs: an initilized matrix of dimension (num_tags, len(corpus))
         best_paths: an initilized matrix of dimension (num_tags, len(corpus))
         vocab: a dictionary where keys are words in vocabulary and value is an index 
-    Output: 
+    Returns: 
         best_probs: a completed matrix of dimension (num_tags, len(corpus))
         best_paths: a completed matrix of dimension (num_tags, len(corpus))
-    '''
+    """
     # Get the number of unique POS tags (which is the num of rows in best_probs)
     num_tags = best_probs.shape[0]
     
@@ -289,7 +305,7 @@ def viterbi_forward(A, B, test_corpus, best_probs, best_paths, vocab):
                     # that is part of the best path.  
                     # Save the index (integer) associated with 
                     # that previous word's POS tag
-                    best_path_i = i
+                    best_path_i = k
 
             # Save the best probability for the 
             # given current word's POS tag
@@ -310,16 +326,24 @@ def viterbi_forward(A, B, test_corpus, best_probs, best_paths, vocab):
  **Note** that this will take a few minutes to run.  There are about 30,000 words to process.
 
 #+begin_src python :results output :exports both
-best_probs, best_paths = viterbi_forward(A, B, prep, best_probs, best_paths, vocab)
+with TIMER:
+    best_probs, best_paths = viterbi_forward(A, B,
+                                             prep,
+                                             best_probs,
+                                             best_paths,
+                                             vocab)
 #+end_src
 
 #+RESULTS:
+: 2020-11-30 19:35:42,383 graeae.timers.timer start: Started: 2020-11-30 19:35:42.383922
 : Words processed:     5000
 : Words processed:    10000
 : Words processed:    15000
 : Words processed:    20000
 : Words processed:    25000
 : Words processed:    30000
+: 2020-11-30 19:37:56,143 graeae.timers.timer end: Ended: 2020-11-30 19:37:56.143551
+: 2020-11-30 19:37:56,144 graeae.timers.timer end: Elapsed: 0:02:13.759629
 
 #+begin_src python :results output :exports both
 expected = -24.7822
@@ -389,7 +413,7 @@ assert math.isclose(actual, expected, abs_tol=1e-4)
 def viterbi_backward(best_probs: numpy.ndarray,
                      best_paths: numpy.ndarray,
                      corpus: list,
-                     states: list) -> list:
+                     states: dict) -> list:
     """
     This function returns the best path.
     """
@@ -427,71 +451,58 @@ def viterbi_backward(best_probs: numpy.ndarray,
             # Store the unique integer ID of the POS tag
             # which is also the row number in best_probs
             z[m - 1] = k
-            
+ 
     # Convert the last word's predicted POS tag
     # from its unique integer ID into the string representation
     # using the 'states' dictionary
     # store this in the 'pred' array for the last word
-    pred[m - 1] = states[z[m-1]]
-    
+    pred[m - 1] = states[z[m - 1]]
+
     ## Step 2 ##
     # Find the best POS tags by walking backward through the best_paths
     # From the last word in the corpus to the 0th word in the corpus
-    for i in range(num_tags, 0, -1): # complete this line
+    for i in range(m - 1, 0, -1): # complete this line
         
         # Retrieve the unique integer ID of
         # the POS tag for the word at position 'i' in the corpus
-        pos_tag_for_word_i = corpus[i]
+        pos_tag_for_word_i = z[i]
         
         # In best_paths, go to the row representing the POS tag of word i
         # and the column representing the word's position in the corpus
         # to retrieve the predicted POS for the word at position i-1 in the corpus
-        z[i - 1] = best_paths[i, pos_tag_for_word_i]
+        z[i - 1] = best_paths[pos_tag_for_word_i, i]
         
         # Get the previous word's POS tag in string form
         # Use the 'states' dictionary, 
         # where the key is the unique integer ID of the POS tag,
         # and the value is the string representation of that POS tag
-        pred[i - 1] = states[pos_tag_for_word_i]
+        pred[i - 1] = states[z[i - 1]]
         
      ### END CODE HERE ###
     return pred
 #+end_src
 
 #+begin_src python :results output :exports both
-pred = viterbi_backward(best_probs, best_paths, prep, states)
+states = matrices.tags
+pred = viterbi_backward(best_probs, best_paths, corpus=prep, states=states)
 m=len(pred)
 actual_prep = prep[-7:m-1]
 actual_pred = pred[-7:m-1]
 
 expected_prep =  ['see', 'them', 'here', 'with', 'us', '.']  
 print('The prediction for pred[-7:m-1] is: \n', actual_prep, "\n", actual_pred, "\n")
-print('The prediction for pred[0:8] is: \n', pred[0:7], "\n", prep[0:7])
+print('The prediction for pred[0:7] is: \n', pred[0:7], "\n", prep[0:7])
 #+end_src
 
 #+RESULTS:
-:RESULTS:
-# [goto error]
-#+begin_example
----------------------------------------------------------------------------
-IndexError                                Traceback (most recent call last)
-<ipython-input-62-8fbf946ba34e> in <module>
-----> 1 pred = viterbi_backward(best_probs, best_paths, prep, states)
-      2 m=len(pred)
-      3 actual_prep = prep[-7:m-1]
-      4 actual_pred = pred[-7:m-1]
-      5 
+: The prediction for pred[-7:m-1] is: 
+:  ['them', 'here', 'with', 'us', '.', '--n--'] 
+:  ['PRP', 'RB', 'IN', 'PRP', '.', '--s--'] 
+: 
+: The prediction for pred[0:8] is: 
+:  ['DT', 'NN', 'POS', 'NN', 'MD', 'VB', 'VBN'] 
+:  ['The', 'economy', "'s", 'temperature', 'will', 'be', 'taken']
 
-<ipython-input-61-de6f5de9a901> in viterbi_backward(best_probs, best_paths, corpus, states)
-     59         # and the column representing the word's position in the corpus
-     60         # to retrieve the predicted POS for the word at position i-1 in the corpus
----> 61         z[i - 1] = best_paths[i, pos_tag_for_word_i]
-     62 
-     63         # Get the previous word's POS tag in string form
-
-IndexError: only integers, slices (`:`), ellipsis (`...`), numpy.newaxis (`None`) and integer or boolean arrays are valid indices
-#+end_example
-:END:
 
 # **Expected Output:**   
 # 
@@ -500,7 +511,7 @@ IndexError: only integers, slices (`:`), ellipsis (`...`), numpy.newaxis (`None`
 
 #  ['VB', 'PRP', 'RB', 'IN', 'PRP', '.']   
 # The prediction for pred[0:8] is:    
-#  ['DT', 'NN', 'POS', 'NN', 'MD', 'VB', 'VBN']   
+#  ['DT', 'NN', 'POS', 'NN', 'MD', 'VB', 'VBN']
 #  ['The', 'economy', "'s", 'temperature', 'will', 'be', 'taken'] 
 # ```
 # 
@@ -508,24 +519,342 @@ IndexError: only integers, slices (`:`), ellipsis (`...`), numpy.newaxis (`None`
 
    
 * End
-* Raw
-#+begin_example
-# In this part of the assignment you will implement the Viterbi algorithm which makes use of dynamic programming. Specifically, you will use your two matrices, `A` and `B` to compute the Viterbi algorithm. We have decomposed this process into three main steps for you. 
-# 
-# * **Initialization** - In this part you initialize the `best_paths` and `best_probabilities` matrices that you will be populating in `feed_forward`.
-# * **Feed forward** - At each step, you calculate the probability of each path happening and the best paths up to that point. 
-# * **Feed backward**: This allows you to find the best path with the highest probabilities. 
-# 
-# <a name='3.1'></a>
-# ## Part 3.1:  Initialization 
-# 
-# You will start by initializing two matrices of the same dimension. 
-# 
-# - best_probs: Each cell contains the probability of going from one POS tag to a word in the corpus.
-# 
-# - best_paths: A matrix that helps you trace through the best possible path in the corpus. 
+Bundle it up.
+#+begin_src python :tangle ../../neurotic/nlp/parts_of_speech/hidden_markov_model.py
+<<hidden-markov-imports>>
 
-# <a name='ex-05'></a>
-# ### Exercise 05
-# **Instructions**: 
-#+end_example
+
+<<exception>>
+
+
+<<hidden-markov>>
+
+    <<states>>
+
+    <<tag-counts>>
+
+    <<tag-count>>
+
+    <<transition-matrix>>
+
+    <<emission-matrix>>
+
+    <<test-words>>
+
+    <<test-word-count>>
+
+    <<vocabulary>>
+
+    <<start-token>>
+
+    <<negative-infinity>>
+
+    <<initialize-matrices>>
+
+    <<viterbi-forward>>
+
+    <<viterbi-backward>>
+
+    <<call-it>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref hidden-markov-imports
+# python
+from collections import Counter
+
+import math
+
+# pypi
+import attr
+import numpy
+
+# this project
+from .preprocessing import DataLoader, Empty
+from .training import TheTrainer
+from .matrices import Matrices
+#+end_src
+** An Exception
+   This is so that if the viterbi is called out of order things will break.
+#+begin_src python :noweb-ref exception
+class AlgorithmError(Exception):
+    """Called when the methods are called out of order"""
+#+end_src
+** The Model Class
+#+begin_src python :noweb-ref hidden-markov
+@attr.s(auto_attribs=True)
+class HiddenMarkov:
+    """A Hidden Markov Model Class
+
+    Args:
+     loader: a DataLoader
+     trainer: A TheTrainer object
+     matrices: A Matrices object
+    """
+    loader: DataLoader
+    trainer: TheTrainer
+    matrices: Matrices
+    best_probabilities: numpy.ndarray=None
+    best_paths: numpy.ndarray=None
+    _states: list=None
+    _tag_counts: Counter=None
+    _tag_count: int=None
+    _transition_matrix: numpy.ndarray=None
+    _emission_matrix: numpy.ndarray=None
+    _test_words: list=None
+    _test_word_count: int=None
+    _vocabulary: dict=None
+    _start_token_index: int=None
+    _negative_infinity: float = None
+#+end_src
+*** The States List
+#+begin_src python :noweb-ref states
+@property
+def states(self) -> list:
+    """POS Tags representing nodes in the HMM graph
+
+    Returns:
+     list of POS tags found in the training set
+    """
+    if self._states is None:
+        self._states = self.matrices.tags
+    return self._states
+#+end_src
+*** The Tag Counts
+#+begin_src python :noweb-ref tag-counts
+@property
+def tag_counts(self) -> Counter:
+    """The number of times a POS tag was in the training set
+
+    Returns:
+     dict-like of POS: Count
+    """
+    if self._tag_counts is None:
+        self._tag_counts = self.trainer.tag_counts
+    return self._tag_counts
+#+end_src
+*** Tag Count
+#+begin_src python :noweb-ref tag-count
+@property
+def tag_count(self) -> int:
+    """The Number of tags in the corpus"""
+    if self._tag_count is None:
+        self._tag_count = len(self.tag_counts)
+    return self._tag_count
+#+end_src    
+*** Transition Matrix (A)
+#+begin_src python :noweb-ref transition-matrix
+@property
+def transition_matrix(self) -> numpy.ndarray:
+    """The 'A' Matrix with the transitions"""
+    if self._transition_matrix is None:
+        self._transition_matrix = self.matrices.transition
+    return self._transition_matrix
+#+end_src
+*** Emission Matrix (B)
+#+begin_src python :noweb-ref emission-matrix
+@property
+def emission_matrix(self) -> numpy.ndarray:
+    """The Emission matrix (B)"""
+    if self._emission_matrix is None:
+        self._emission_matrix = self.matrices.emission
+    return self._emission_matrix
+#+end_src
+*** Test Words
+#+begin_src python :noweb-ref test-words
+@property
+def test_words(self) -> list:
+    """The preprocessed test-words"""
+    if self._test_words is None:
+        self._test_words = self.loader.test_words
+    return self._test_words
+#+end_src
+*** Test Word Count
+#+begin_src python :noweb-ref test-word-count
+@property
+def test_word_count(self) -> int:
+    """Number of words in the test set"""
+    if self._test_word_count is None:
+        self._test_word_count = len(self.test_words)
+    return self._test_word_count
+#+end_src
+*** Vocabulary
+#+begin_src python :noweb-ref vocabulary
+@property
+def vocabulary(self) -> dict:
+    """Training tokens mapped to index in the training corpus"""
+    if self._vocabulary is None:
+        self._vocabulary = self.loader.vocabulary
+    return self._vocabulary
+#+end_src
+*** Start Token Index
+#+begin_src python :noweb-ref start-token
+@property
+def start_token_index(self) -> int:
+    """The index of the start token in the graph states"""
+    if self._start_token_index is None:
+        self._start_token_index = self.states.index(Empty.tag)
+    return self._start_token_index
+#+end_src
+*** Negative Infinity
+#+begin_src python :noweb-ref negative-infinity
+@property
+def negative_infinity(self) -> float:
+    """a value for no probability"""
+    if self._negative_infinity is None:
+        self._negative_infinity = float("-inf")
+    return self._negative_infinity
+#+end_src
+*** Initialize the Matrices
+#+begin_src python :noweb-ref initialize-matrices
+def initialize_matrices(self):
+    """Initializes the ``best_probs`` and ``best_paths`` matrices
+
+    """
+    self.best_probabilities = numpy.zeros((self.tag_count, self.test_word_count))
+    self.best_paths = numpy.zeros((self.tag_count, self.test_word_count), dtype=int)
+    
+    for pos_tag in range(len(self.states)):
+        if self.transition_matrix[self.start_token_index, pos_tag] == 0:
+            self.best_probabilities[pos_tag, 0] = self.negative_infinity
+        else:
+            self.best_probabilities[pos_tag, 0] = (
+                math.log(self.transition_matrix[self.start_token_index, pos_tag])
+                + math.log(self.emission_matrix[
+                    pos_tag, self.vocabulary[self.test_words[0]]]))
+    return
+#+end_src    
+*** Virterbi Forward
+#+begin_src python :noweb-ref viterbi-forward
+def viterbi_forward(self):
+    """The forward training pass
+
+    Raises:
+      AlgorithmError: initalize_matrices wasn't run before this method
+    """
+    if self.best_probabilities is None:
+        raise AlgorithmError("initialize_matrices must be called before viterbi_forward")
+    for word in range(1, self.test_word_count): 
+        for pos_tag in range(self.tag_count):
+            best_probability_for_this_tag = self.negative_infinity
+            best_path_for_this_tag = None
+            for previous_possible_tag in range(self.tag_count):
+
+                probability = (
+                    self.best_probabilities[previous_possible_tag, word-1]
+                    + math.log(self.transition_matrix[previous_possible_tag, pos_tag])
+                    + math.log(self.emission_matrix[
+                        pos_tag,
+                        self.vocabulary[self.test_words[word]]]))
+
+                if probability > best_probability_for_this_tag:
+                    best_probability_for_this_tag = probability
+                    best_path_for_this_tag = previous_possible_tag
+            self.best_probabilities[pos_tag, word] = best_probability_for_this_tag
+            self.best_paths[pos_tag, word] = best_path_for_this_tag
+    return
+#+end_src
+*** Viterbi Backward
+#+begin_src python :noweb-ref viterbi-backward
+def viterbi_backward(self):
+    """
+    This function creates the best path.
+
+    Raises:
+     AlgorithmError: initialize or forward-pass not done
+    """
+    if self.best_probabilities is None:
+        raise AlgorithmError("initialize and forward-pass not run")
+    elif self.best_probabilities[:, 1:].sum() == 0:
+        raise AlgorithmError("forward-pass not run")
+
+    z = [None] * self.test_word_count
+    
+    best_probability_for_last_word = self.negative_infinity
+    prediction = [None] * self.test_word_count
+    last_column = self.test_word_count - 1
+    for pos_tag in range(self.tag_count):
+        if self.best_probabilities[pos_tag, last_column] > best_probability_for_last_word:
+            best_probability_for_last_word = self.best_probabilities[pos_tag, last_column]
+            z[last_column] = pos_tag
+    prediction[last_column] = self.states[z[last_column]]
+
+    for word in range(last_column, 0, -1):
+        previous_word = word - 1
+        pos_tag_for_word = z[word]
+        z[previous_word] = self.best_paths[pos_tag_for_word, word]
+        prediction[previous_word] = self.states[z[previous_word]]
+    self.predictions = prediction    
+    return
+#+end_src
+*** Call It
+#+begin_src python :noweb-ref call-it
+def __call__(self):
+    """Calls the methods in order"""
+    self.initialize_matrices()
+    self.viterbi_forward()
+    self.viterbi_backward()
+    return
+#+end_src
+** Test it out
+#+begin_src python :results none
+from neurotic.nlp.parts_of_speech import HiddenMarkov
+
+model = HiddenMarkov(loader, trainer, matrices)
+assert all(original == other for original, other in zip(states, model.states))
+assert all(value == model.tag_counts[key] for key, value in tag_counts.items())
+assert numpy.array_equal(A, model.transition_matrix)
+assert numpy.array_equal(B, model.emission_matrix)
+assert all(original == new for original, new in zip(prep, model.test_words))
+assert all(value == model.vocabulary[key] for key, value in vocab.items())
+
+model.initialize_matrices()
+
+assert model.best_probabilities.shape == best_probs.shape
+assert model.best_paths.shape == best_paths.shape
+
+actual = model.best_probabilities[0,0]
+expected = -22.6098
+assert math.isclose(actual, expected, abs_tol=1e-4), (actual, expected)
+
+actual = model.best_paths[2,3]
+expected = 0.0000
+assert math.isclose(actual, expected)
+
+model.viterbi_forward()
+expected = -24.7822
+actual = model.best_probabilities[0,1]
+assert math.isclose(expected, actual, abs_tol=1e-4)
+
+actual = model.best_probabilities[0,4]
+expected = -49.5601
+assert math.isclose(actual, expected, abs_tol=1e-4)
+
+model.viterbi_backward()
+#+end_src
+
+#+begin_src python :results none
+actual = pred[0:7]
+expected = ['DT', 'NN', 'POS', 'NN', 'MD', 'VB', 'VBN']
+assert all((a==e for a,e in zip(actual, expected)))
+#+end_src
+
+*** Run The Methods In the correct order with a call
+#+begin_src python :results none
+mock = MagicMock()
+step_1 = MagicMock()
+step_2 = MagicMock()
+step_3 = MagicMock()
+
+mock.initialize = step_1
+mock.viterbi_forward = step_2
+mock.viterbi_backward = step_3
+
+HiddenMarkov.initialize_matrices = step_1
+HiddenMarkov.viterbi_forward = step_2
+HiddenMarkov.viterbi_backward = step_3
+model = HiddenMarkov(loader, trainer, matrices)
+model()
+expect(mock.mock_calls).to(equal([call.initialize(),
+                                  call.viterbi_forward(),
+                                  call.viterbi_backward()]))
+#+end_src
