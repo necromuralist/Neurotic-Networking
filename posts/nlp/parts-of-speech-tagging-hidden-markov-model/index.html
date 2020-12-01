@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Implementing the Hidden Markov Model for Part-of-Speech tagging." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Parts-of-Speech Tagging: Hidden Markov Model | Neurotic Networking</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/Neurotic-Networking/posts/nlp/parts-of-speech-tagging-hidden-markov-model/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<meta content="Cloistered Monkey" name="author">
+<link href="../parts-of-speech-tagging-most-frequent-class-baseline/" rel="prev" title="Parts-of-Speech Tagging: Most Frequent Class Baseline" type="text/html">
+<link href="../parts-of-speech-viterbi-algorithm/" rel="next" title="Parts-of-Speech: Viterbi Algorithm" type="text/html">
+<meta content="Neurotic Networking" property="og:site_name">
+<meta content="Parts-of-Speech Tagging: Hidden Markov Model" property="og:title">
+<meta content="https://necromuralist.github.io/Neurotic-Networking/posts/nlp/parts-of-speech-tagging-hidden-markov-model/" property="og:url">
+<meta content="Implementing the Hidden Markov Model for Part-of-Speech tagging." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2020-11-19T17:26:36-08:00" property="article:published_time">
+<meta content="hidden markov model" property="article:tag">
+<meta content="nlp" property="article:tag">
+<meta content="pos tagging" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/Neurotic-Networking/"><span id="blog-title">Neurotic Networking</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/Neurotic-Networking/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Parts-of-Speech Tagging: Hidden Markov Model</a></h1>
+<div class="metadata">
+<p class="byline author vcard p-author h-card"><span class="byline-name fn p-name" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2020-11-19T17:26:36-08:00" itemprop="datePublished" title="2020-11-19 17:26">2020-11-19 17:26</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org2b31834">Beginning</a>
+<ul>
+<li><a href="#org4da83e4">Imports</a></li>
+<li><a href="#orge9b4c60">Set Up</a>
+<ul>
+<li><a href="#org6a47695">The Data</a></li>
+<li><a href="#org17b3c47">Plotting</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgb9acb91">Middle</a>
+<ul>
+<li><a href="#org58cc916">Generating Matrices</a>
+<ul>
+<li><a href="#orgdfaaaf8">Creating the 'A' transition probabilities matrix</a></li>
+</ul>
+</li>
+<li><a href="#org735101a">Create the 'B' emission probabilities matrix</a>
+<ul>
+<li><a href="#org341fc58">Create Emission Matrix</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#orgbe72f8f">End</a>
+<ul>
+<li><a href="#org0ca5889">Bundle It Up</a>
+<ul>
+<li><a href="#orgdc720b8">The Imports</a></li>
+<li><a href="#orgc6d0f48">The Matrices</a></li>
+<li><a href="#org27456da">The Tags</a></li>
+<li><a href="#orgba72823">The Tag Count</a></li>
+<li><a href="#org2ce7bb3">The Word Count</a></li>
+<li><a href="#org1545d18">The Transition Matrix</a></li>
+<li><a href="#org6255af7">The Emission Matrix</a></li>
+</ul>
+</li>
+<li><a href="#org0034a89">Test It Out</a>
+<ul>
+<li><a href="#orgf14cd9b">The Transition Matrix</a></li>
+<li><a href="#orged17297">The Emission Matrix</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org2b31834">
+<h2 id="org2b31834">Beginning</h2>
+<div class="outline-text-2" id="text-org2b31834">
+<p>Now you will build something more context specific. Concretely, you will be implementing a Hidden Markov Model (HMM) with a Viterbi decoder</p>
+<ul class="org-ul">
+<li>The HMM is one of the most commonly used algorithms in Natural Language Processing, and is a foundation to many deep learning techniques you will see in this specialization.</li>
+<li>In addition to parts-of-speech tagging, HMM is used in speech recognition, speech synthesis, etc.</li>
+<li>By completing this part of the assignment you will get a 95% accuracy on the same dataset you used in Part 1.</li>
+</ul>
+<p>The Markov Model contains a number of states and the probability of transition between those states.</p>
+<ul class="org-ul">
+<li>In this case, the states are the parts-of-speech.</li>
+<li>A Markov Model utilizes a transition matrix, <code>A</code>.</li>
+<li>A Hidden Markov Model adds an observation or emission matrix <code>B</code> which describes the probability of a visible observation when we are in a particular state.</li>
+<li>In this case, the emissions are the words in the corpus</li>
+<li>The state, which is hidden, is the POS tag of that word.</li>
+</ul>
+</div>
+<div class="outline-3" id="outline-container-org4da83e4">
+<h3 id="org4da83e4">Imports</h3>
+<div class="outline-text-3" id="text-org4da83e4">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span> <span class="nn">math</span>
+
+<span class="c1"># pypi</span>
+<span class="kn">from</span> <span class="nn">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+
+<span class="c1"># this repository</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.parts_of_speech</span> <span class="kn">import</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">TheTrainer</span>
+
+<span class="c1"># my other stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orge9b4c60">
+<h3 id="orge9b4c60">Set Up</h3>
+<div class="outline-text-3" id="text-orge9b4c60"></div>
+<div class="outline-4" id="outline-container-org6a47695">
+<h4 id="org6a47695">The Data</h4>
+<div class="outline-text-4" id="text-org6a47695">
+<div class="highlight">
+<pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
+<span class="n">loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">()</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">TheTrainer</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">processed_training</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org17b3c47">
+<h4 id="org17b3c47">Plotting</h4>
+<div class="outline-text-4" id="text-org17b3c47">
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"parts-of-speech-tagging-hidden-markov-model"</span>
+<span class="n">FOLDER</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"files/posts/nlp/</span><span class="si">{</span><span class="n">SLUG</span><span class="si">}</span><span class="s2">/"</span> 
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="n">FOLDER</span><span class="p">)</span>
+
+<span class="n">Plot</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
+    <span class="n">width</span><span class="o">=</span><span class="mi">990</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="mi">780</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">tan</span><span class="o">=</span><span class="s2">"#ddb377"</span><span class="p">,</span>
+    <span class="n">blue</span><span class="o">=</span><span class="s2">"#4687b7"</span><span class="p">,</span>
+    <span class="n">red</span><span class="o">=</span><span class="s2">"#ce7b6d"</span><span class="p">,</span>
+    <span class="n">color_map</span><span class="o">=</span><span class="s2">"OrRd"</span><span class="p">,</span>
+    <span class="n">path_color_map</span><span class="o">=</span><span class="s2">"blues"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgb9acb91">
+<h2 id="orgb9acb91">Middle</h2>
+<div class="outline-text-2" id="text-orgb9acb91"></div>
+<div class="outline-3" id="outline-container-org58cc916">
+<h3 id="org58cc916">Generating Matrices</h3>
+<div class="outline-text-3" id="text-org58cc916"></div>
+<div class="outline-4" id="outline-container-orgdfaaaf8">
+<h4 id="orgdfaaaf8">Creating the 'A' transition probabilities matrix</h4>
+<div class="outline-text-4" id="text-orgdfaaaf8">
+<p>Now that you have your `emission_counts`, `transition_counts`, and `tag_counts`, you will start implementing the Hidden Markov Model.</p>
+<p>This will allow you to quickly construct the</p>
+<ul class="org-ul">
+<li><code>A</code> transition probabilities matrix.</li>
+<li>and the <code>B</code> emission probabilities matrix.</li>
+</ul>
+<p>You will also use some smoothing when computing these matrices.</p>
+<p>Here is an example of what the <code>A</code> transition matrix would look like (it is simplified to 5 tags for viewing. It is a 46x46 matrix in this assignment.</p>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-left">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-left"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col"><b>A</b></th>
+<th class="org-left" scope="col">…</th>
+<th class="org-right" scope="col">RBS</th>
+<th class="org-right" scope="col">RP</th>
+<th class="org-right" scope="col">SYM</th>
+<th class="org-right" scope="col">TO</th>
+<th class="org-right" scope="col">UH</th>
+<th class="org-left" scope="col">…</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><b>RBS</b></td>
+<td class="org-left">…</td>
+<td class="org-right">2.217069e-06</td>
+<td class="org-right">2.217069e-06</td>
+<td class="org-right">2.217069e-06</td>
+<td class="org-right">0.008870</td>
+<td class="org-right">2.217069e-06</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>RP</b></td>
+<td class="org-left">…</td>
+<td class="org-right">3.756509e-07</td>
+<td class="org-right">7.516775e-04</td>
+<td class="org-right">3.756509e-07</td>
+<td class="org-right">0.051089</td>
+<td class="org-right">3.756509e-07</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>SYM</b></td>
+<td class="org-left">…</td>
+<td class="org-right">1.722772e-05</td>
+<td class="org-right">1.722772e-05</td>
+<td class="org-right">1.722772e-05</td>
+<td class="org-right">0.000017</td>
+<td class="org-right">1.722772e-05</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>TO</b></td>
+<td class="org-left">…</td>
+<td class="org-right">4.477336e-05</td>
+<td class="org-right">4.472863e-08</td>
+<td class="org-right">4.472863e-08</td>
+<td class="org-right">0.000090</td>
+<td class="org-right">4.477336e-05</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>UH</b></td>
+<td class="org-left">…</td>
+<td class="org-right">1.030439e-05</td>
+<td class="org-right">1.030439e-05</td>
+<td class="org-right">1.030439e-05</td>
+<td class="org-right">0.061837</td>
+<td class="org-right">3.092348e-02</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left">…</td>
+<td class="org-left">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-left">…</td>
+</tr>
+</tbody>
+</table>
+<p>Note that the matrix above was computed with smoothing.</p>
+<p>Each cell gives you the probability to go from one part of speech to another.</p>
+<ul class="org-ul">
+<li>In other words, there is a 4.47e-8 chance of going from parts-of-speech <code>TO</code> to <code>RP</code>.</li>
+<li>The sum of each row has to equal 1, because we assume that the next POS tag must be one of the available columns in the table.</li>
+</ul>
+<p>The smoothing was done as follows:</p>
+<p>\[ P(t_i | t_{i-1}) = \frac{C(t_{i-1}, t_{i}) + \alpha }{C(t_{i-1}) +\alpha * N}\tag{3} \]</p>
+<ul class="org-ul">
+<li>\(N\) is the total number of tags</li>
+<li>\(C(t_{i-1}, t_{i})\) is the count of the tuple (previous POS, current POS) in `transition_counts` dictionary.</li>
+<li>\(C(t_{i-1})\) is the count of the previous POS in the `tag_counts` dictionary.</li>
+<li>\(\alpha\) is a smoothing parameter.</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">create_transition_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tag_counts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+                             <span class="n">transition_counts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Transition Matrix for the Hidden Markov Model</span>
+
+<span class="sd">    Args: </span>
+<span class="sd">      ``alpha``: number used for smoothing</span>
+<span class="sd">      ``tag_counts``: a dictionary mapping each tag to its respective count</span>
+<span class="sd">      ``transition_counts``: transition count for the previous word and tag</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">      ``A``: matrix of dimension (``num_tags``,``num_tags``)</span>
+<span class="sd">    """</span>
+    <span class="c1"># Get a sorted list of unique POS tags</span>
+    <span class="n">all_tags</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">tag_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="c1"># Count the number of unique POS tags</span>
+    <span class="n">num_tags</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_tags</span><span class="p">)</span>
+
+    <span class="c1"># Initialize the transition matrix 'A'</span>
+    <span class="n">A</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">num_tags</span><span class="p">,</span><span class="n">num_tags</span><span class="p">))</span>
+
+    <span class="c1"># Get the unique transition tuples (previous POS, current POS)</span>
+    <span class="n">trans_keys</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">transition_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="c1"># Go through each row of the transition matrix A</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_tags</span><span class="p">):</span>
+
+        <span class="c1"># Go through each column of the transition matrix A</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_tags</span><span class="p">):</span>
+
+            <span class="c1"># Initialize the count of the (prev POS, current POS) to zero</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="c1"># Define the tuple (prev POS, current POS)</span>
+            <span class="c1"># Get the tag at position i and tag at position j (from the all_tags list)</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">all_tags</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">all_tags</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+
+            <span class="c1"># Check if the (prev POS, current POS) tuple </span>
+            <span class="c1"># exists in the transition counts dictionary</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">transition_counts</span><span class="p">:</span> <span class="c1">#complete this line</span>
+
+                <span class="c1"># Get count from the transition_counts dictionary </span>
+                <span class="c1"># for the (prev POS, current POS) tuple</span>
+                <span class="n">count</span> <span class="o">=</span> <span class="n">transition_counts</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+
+            <span class="c1"># Get the count of the previous tag (index position i) from tag_counts</span>
+            <span class="n">count_prev_tag</span> <span class="o">=</span> <span class="n">tag_counts</span><span class="p">[</span><span class="n">all_tags</span><span class="p">[</span><span class="n">i</span><span class="p">]]</span>
+
+            <span class="c1"># Apply smoothing using count of the tuple, alpha, </span>
+            <span class="c1"># count of previous tag, alpha, and total number of tags</span>
+            <span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">count</span> <span class="o">+</span> <span class="n">alpha</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">count_prev_tag</span> <span class="o">+</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">num_tags</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">A</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># setup some values</span>
+<span class="n">alpha</span> <span class="o">=</span> <span class="mf">0.001</span>
+<span class="n">states</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">tag_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+<span class="n">A</span> <span class="o">=</span> <span class="n">create_transition_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">,</span>
+                             <span class="n">trainer</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">,</span>
+                             <span class="n">trainer</span><span class="o">.</span><span class="n">transition_counts</span><span class="p">)</span>
+<span class="c1"># Testing your function</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000007040</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">A</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"A at row 0, col 0: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">),</span> <span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.1691</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">A</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"A at row 3, col 1: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"View a subset of transition matrix A"</span><span class="p">)</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">A</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">,</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">]</span>
+<span class="n">A_sub</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">states</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">],</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">]</span> <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">A_sub</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+ <span class="p">[</span><span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">0.008870</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.756509e-07</span><span class="p">,</span> <span class="mf">7.516775e-04</span><span class="p">,</span> <span class="mf">3.756509e-07</span><span class="p">,</span> <span class="mf">0.051089</span><span class="p">,</span> <span class="mf">3.756509e-07</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">0.000017</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">4.477336e-05</span><span class="p">,</span> <span class="mf">4.472863e-08</span><span class="p">,</span> <span class="mf">4.472863e-08</span><span class="p">,</span> <span class="mf">0.000090</span><span class="p">,</span> <span class="mf">4.477336e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">0.061837</span><span class="p">,</span> <span class="mf">3.092348e-02</span><span class="p">],</span>
+<span class="p">])</span>
+
+<span class="k">assert</span> <span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+A at row 0, col 0: 0.000007040
+A at row 3, col 1: 0.1691
+View a subset of transition matrix A
+              RBS            RP           SYM        TO            UH
+RBS  2.217069e-06  2.217069e-06  2.217069e-06  0.008870  2.217069e-06
+RP   3.756509e-07  7.516775e-04  3.756509e-07  0.051089  3.756509e-07
+SYM  1.722772e-05  1.722772e-05  1.722772e-05  0.000017  1.722772e-05
+TO   4.477336e-05  4.472863e-08  4.472863e-08  0.000090  4.477336e-05
+UH   1.030439e-05  1.030439e-05  1.030439e-05  0.061837  3.092348e-02
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">plotter</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">states</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">states</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">plotter</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">heatmap</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_map</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Emission Matrix A"</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span> <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">fontscale</span><span class="p">,</span>
+    <span class="n">xrotation</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1">#plot *= holoviews.Labels(plot)</span>
+<span class="n">outcome</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"emission_matrix_a"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+</pre></div>
+<object data="emission_matrix_a.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>Looking at the plot you can see that there are a few transitions that are very likely. Maybe we can look at them to see if they're helpful.</p>
+<div class="highlight">
+<pre><span></span><span class="n">URL</span> <span class="o">=</span> <span class="s2">"https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html"</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">read_html</span><span class="p">(</span><span class="n">URL</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="mi">0</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+<span class="n">TRANSLATOR</span> <span class="o">=</span> <span class="p">{</span><span class="n">row</span><span class="o">.</span><span class="n">Tag</span><span class="p">:</span><span class="n">row</span><span class="o">.</span><span class="n">Description</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">itertuples</span><span class="p">()}</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="s2">"|Tag| Description|"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"|-+-|"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">states</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"|</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">TRANSLATOR</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tag</span><span class="p">,</span> <span class="s1">'unknown'</span><span class="p">)</span><span class="si">}</span><span class="s2">|"</span><span class="p">)</span>
+</pre></div>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-left"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Tag</th>
+<th class="org-left" scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">#</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">$</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">''</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">(</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">)</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">,</td>
+<td class="org-left">unknown</td>
+</tr>
+</tbody>
+<tbody>
+<tr>
+<td class="org-left">.</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">:</td>
+<td class="org-left">unknown</td>
+</tr>
+<tr>
+<td class="org-left">CC</td>
+<td class="org-left">Coordinating conjunction</td>
+</tr>
+<tr>
+<td class="org-left">CD</td>
+<td class="org-left">Cardinal number</td>
+</tr>
+<tr>
+<td class="org-left">DT</td>
+<td class="org-left">Determiner</td>
+</tr>
+<tr>
+<td class="org-left">EX</td>
+<td class="org-left">Existential there</td>
+</tr>
+<tr>
+<td class="org-left">FW</td>
+<td class="org-left">Foreign word</td>
+</tr>
+<tr>
+<td class="org-left">IN</td>
+<td class="org-left">Preposition or subordinating conjunction</td>
+</tr>
+<tr>
+<td class="org-left">JJ</td>
+<td class="org-left">Adjective</td>
+</tr>
+<tr>
+<td class="org-left">JJR</td>
+<td class="org-left">Adjective, comparative</td>
+</tr>
+<tr>
+<td class="org-left">JJS</td>
+<td class="org-left">Adjective, superlative</td>
+</tr>
+<tr>
+<td class="org-left">LS</td>
+<td class="org-left">List item marker</td>
+</tr>
+<tr>
+<td class="org-left">MD</td>
+<td class="org-left">Modal</td>
+</tr>
+<tr>
+<td class="org-left">NN</td>
+<td class="org-left">Noun, singular or mass</td>
+</tr>
+<tr>
+<td class="org-left">NNP</td>
+<td class="org-left">Proper noun, singular</td>
+</tr>
+<tr>
+<td class="org-left">NNPS</td>
+<td class="org-left">Proper noun, plural</td>
+</tr>
+<tr>
+<td class="org-left">NNS</td>
+<td class="org-left">Noun, plural</td>
+</tr>
+<tr>
+<td class="org-left">PDT</td>
+<td class="org-left">Predeterminer</td>
+</tr>
+<tr>
+<td class="org-left">POS</td>
+<td class="org-left">Possessive ending</td>
+</tr>
+<tr>
+<td class="org-left">PRP</td>
+<td class="org-left">Personal pronoun</td>
+</tr>
+<tr>
+<td class="org-left">PRP$</td>
+<td class="org-left">Possessive pronoun</td>
+</tr>
+<tr>
+<td class="org-left">RB</td>
+<td class="org-left">Adverb</td>
+</tr>
+<tr>
+<td class="org-left">RBR</td>
+<td class="org-left">Adverb, comparative</td>
+</tr>
+<tr>
+<td class="org-left">RBS</td>
+<td class="org-left">Adverb, superlative</td>
+</tr>
+<tr>
+<td class="org-left">RP</td>
+<td class="org-left">Particle</td>
+</tr>
+<tr>
+<td class="org-left">SYM</td>
+<td class="org-left">Symbol</td>
+</tr>
+<tr>
+<td class="org-left">TO</td>
+<td class="org-left">to</td>
+</tr>
+<tr>
+<td class="org-left">UH</td>
+<td class="org-left">Interjection</td>
+</tr>
+<tr>
+<td class="org-left">VB</td>
+<td class="org-left">Verb, base form</td>
+</tr>
+<tr>
+<td class="org-left">VBD</td>
+<td class="org-left">Verb, past tense</td>
+</tr>
+<tr>
+<td class="org-left">VBG</td>
+<td class="org-left">Verb, gerund or present participle</td>
+</tr>
+<tr>
+<td class="org-left">VBN</td>
+<td class="org-left">Verb, past participle</td>
+</tr>
+<tr>
+<td class="org-left">VBP</td>
+<td class="org-left">Verb, non-3rd person singular present</td>
+</tr>
+<tr>
+<td class="org-left">VBZ</td>
+<td class="org-left">Verb, 3rd person singular present</td>
+</tr>
+<tr>
+<td class="org-left">WDT</td>
+<td class="org-left">Wh-determiner</td>
+</tr>
+<tr>
+<td class="org-left">WP</td>
+<td class="org-left">Wh-pronoun</td>
+</tr>
+<tr>
+<td class="org-left">WP$</td>
+<td class="org-left">Possessive wh-pronoun</td>
+</tr>
+<tr>
+<td class="org-left">WRB</td>
+<td class="org-left">Wh-adverb</td>
+</tr>
+<tr>
+<td class="org-left">``</td>
+<td class="org-left">unknown</td>
+</tr>
+</tbody>
+</table>
+<p>The highest probabilities are at the bottom of the table (the red blocks) where it show that there's a 99% probability that a <code>$</code> or a <code>#</code> will be followed by a Cardinal Number, which seems to make sense, especially since the original source was the Wall Street Journal, and you might expect there to be references to dollars. The next highest probability is that a <i>Predeterminer</i> will be followed by a <i>Determiner</i>, which makes sense based on the names, although I have no idea what those things are. And then the notion that a <code>.</code> will be followed by a <code>--s---</code> (a period will be followed by the start of a new statement). So, at least for the most common cases it looks fairly intuitive.</p>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org735101a">
+<h3 id="org735101a">Create the 'B' emission probabilities matrix</h3>
+<div class="outline-text-3" id="text-org735101a">
+<p>Now you will create the <code>B</code> transition matrix which computes the emission probability.</p>
+<p>You will use smoothing as defined below:</p>
+<p>\[ P(w_i | t_i) = \frac{C(t_i, word_i)+ \alpha}{C(t_{i}) +\alpha * N} \]</p>
+<ul class="org-ul">
+<li>\(C(t_i, word_i)\) is the number of times\$word_i\) was associated with \(tag_i\) in the training data (stored in <code>emission_counts</code> dictionary).</li>
+<li>\(C(t_i)\) is the number of times \(tag_i\) was in the training data (stored in <code>tag_counts</code> dictionary).</li>
+<li>\(N\) is the number of words in the vocabulary</li>
+<li>\(\alpha\) is a smoothing parameter.</li>
+</ul>
+<p>The matrix <code>B</code> is of dimension (num_tags, N), where num_tags is the number of possible parts-of-speech tags.</p>
+<p>Here is an example of the matrix, only a subset of tags and words are shown:</p>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-left">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-right">
+<col class="org-left"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col"><b>B</b></th>
+<th class="org-left" scope="col">…</th>
+<th class="org-right" scope="col">725</th>
+<th class="org-right" scope="col">adroitly</th>
+<th class="org-right" scope="col">engineers</th>
+<th class="org-right" scope="col">promoted</th>
+<th class="org-right" scope="col">synergy</th>
+<th class="org-left" scope="col">…</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">&nbsp;</td>
+<td class="org-left">…</td>
+<td class="org-right"><b>8.201296e-05</b></td>
+<td class="org-right">2.732854e-08</td>
+<td class="org-right">2.732854e-08</td>
+<td class="org-right">2.732854e-08</td>
+<td class="org-right">2.732854e-08</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>NN</b></td>
+<td class="org-left">…</td>
+<td class="org-right">7.521128e-09</td>
+<td class="org-right">7.521128e-09</td>
+<td class="org-right">7.521128e-09</td>
+<td class="org-right">7.521128e-09</td>
+<td class="org-right"><b>2.257091e-05</b></td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>NNS</b></td>
+<td class="org-left">…</td>
+<td class="org-right">1.670013e-08</td>
+<td class="org-right">1.670013e-08</td>
+<td class="org-right"><b>4.676203e-04</b></td>
+<td class="org-right">1.670013e-08</td>
+<td class="org-right">1.670013e-08</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>VB</b></td>
+<td class="org-left">…</td>
+<td class="org-right">3.779036e-08</td>
+<td class="org-right">3.779036e-08</td>
+<td class="org-right">3.779036e-08</td>
+<td class="org-right">3.779036e-08</td>
+<td class="org-right">3.779036e-08</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>RB</b></td>
+<td class="org-left">…</td>
+<td class="org-right">3.226454e-08</td>
+<td class="org-right"><b>6.456135e-05</b></td>
+<td class="org-right">3.226454e-08</td>
+<td class="org-right">3.226454e-08</td>
+<td class="org-right">3.226454e-08</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left"><b>RP</b></td>
+<td class="org-left">…</td>
+<td class="org-right">3.723317e-07</td>
+<td class="org-right">3.723317e-07</td>
+<td class="org-right">3.723317e-07</td>
+<td class="org-right"><b>3.723317e-07</b></td>
+<td class="org-right">3.723317e-07</td>
+<td class="org-left">…</td>
+</tr>
+<tr>
+<td class="org-left">…</td>
+<td class="org-left">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-right">…</td>
+<td class="org-left">…</td>
+</tr>
+</tbody>
+</table>
+<p>We're now going to implement the <code>create_emission_matrix</code> that computes the <code>B</code> emission probabilities matrix. Your function takes in \(\alpha\), the smoothing parameter, <code>tag_counts</code>, which is a dictionary mapping each tag to its respective count, the <code>emission_counts</code> dictionary where the keys are (tag, word) and the values are the counts. Your task is to output a matrix that computes equation 4 for each cell in matrix <code>B</code>.</p>
+</div>
+<div class="outline-4" id="outline-container-org341fc58">
+<h4 id="org341fc58">Create Emission Matrix</h4>
+<div class="outline-text-4" id="text-org341fc58">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">create_emission_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                           <span class="n">tag_counts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+                           <span class="n">emission_counts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+                           <span class="n">vocab</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""Create Matrix B</span>
+
+<span class="sd">    Args: </span>
+<span class="sd">       ``alpha``: tuning parameter used in smoothing </span>
+<span class="sd">       ``tag_counts``: a dictionary mapping each tag to its respective count</span>
+<span class="sd">       ``emission_counts``: a dictionary where the keys are (tag, word) and the values are the counts</span>
+<span class="sd">       ``vocab``: a dictionary where keys are words in vocabulary and value is an index.</span>
+<span class="sd">              within the function it'll be treated as a list</span>
+<span class="sd">    Returns:</span>
+<span class="sd">       ``B``: a matrix of dimension ``(num_tags, len(vocab))``</span>
+<span class="sd">    """</span>
+
+    <span class="c1"># get the number of POS tag</span>
+    <span class="n">num_tags</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">tag_counts</span><span class="p">)</span>
+
+    <span class="c1"># Get a list of all POS tags</span>
+    <span class="n">all_tags</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">tag_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+    <span class="c1"># Get the total number of unique words in the vocabulary</span>
+    <span class="n">num_words</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">vocab</span><span class="p">)</span>
+
+    <span class="c1"># Initialize the emission matrix B with places for</span>
+    <span class="c1"># tags in the rows and words in the columns</span>
+    <span class="n">B</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">num_tags</span><span class="p">,</span> <span class="n">num_words</span><span class="p">))</span>
+
+    <span class="c1"># Get a set of all (POS, word) tuples </span>
+    <span class="c1"># from the keys of the emission_counts dictionary</span>
+    <span class="n">emis_keys</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">emission_counts</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+
+    <span class="c1">### START CODE HERE (Replace instances of 'None' with your code) ###</span>
+
+    <span class="c1"># Go through each row (POS tags)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_tags</span><span class="p">):</span> <span class="c1"># complete this line</span>
+
+        <span class="c1"># Go through each column (words)</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_words</span><span class="p">):</span> <span class="c1"># complete this line</span>
+
+            <span class="c1"># Initialize the emission count for the (POS tag, word) to zero</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="c1"># Define the (POS tag, word) tuple for this row and column</span>
+            <span class="n">key</span> <span class="o">=</span>  <span class="p">(</span><span class="n">all_tags</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">vocab</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+
+            <span class="c1"># check if the (POS tag, word) tuple exists as a key in emission counts</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">emission_counts</span><span class="p">:</span> <span class="c1"># complete this line</span>
+
+                <span class="c1"># Get the count of (POS tag, word) from the emission_counts d</span>
+                <span class="n">count</span> <span class="o">=</span> <span class="n">emission_counts</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+
+            <span class="c1"># Get the count of the POS tag</span>
+            <span class="n">count_tag</span> <span class="o">=</span> <span class="n">tag_counts</span><span class="p">[</span><span class="n">all_tags</span><span class="p">[</span><span class="n">i</span><span class="p">]]</span>
+
+            <span class="c1"># Apply smoothing and store the smoothed value </span>
+            <span class="c1"># into the emission matrix B for this row and column</span>
+            <span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">count</span> <span class="o">+</span> <span class="n">alpha</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">count_tag</span> <span class="o">+</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">num_words</span><span class="p">)</span>
+
+    <span class="c1">### END CODE HERE ###</span>
+    <span class="k">return</span> <span class="n">B</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1"># creating your emission probability matrix. this takes a few minutes to run.</span>
+<span class="n">vocab</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">vocabulary</span>
+<span class="n">B</span> <span class="o">=</span> <span class="n">create_emission_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">,</span>
+                           <span class="n">trainer</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">,</span>
+                           <span class="n">trainer</span><span class="o">.</span><span class="n">emission_counts</span><span class="p">,</span>
+                           <span class="nb">list</span><span class="p">(</span><span class="n">vocab</span><span class="p">))</span>
+
+<span class="n">actual</span> <span class="o">=</span> <span class="n">B</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000006032</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"View Matrix position at row 0, column 0: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+
+<span class="n">actual</span> <span class="o">=</span> <span class="n">B</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000000720</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"View Matrix position at row 3, column 1: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-7</span><span class="p">)</span>
+
+<span class="c1"># Try viewing emissions for a few words in a sample dataframe</span>
+<span class="n">cidx</span>  <span class="o">=</span> <span class="p">[</span><span class="s1">'725'</span><span class="p">,</span><span class="s1">'adroitly'</span><span class="p">,</span><span class="s1">'engineers'</span><span class="p">,</span> <span class="s1">'promoted'</span><span class="p">,</span> <span class="s1">'synergy'</span><span class="p">]</span>
+
+<span class="c1"># Get the integer ID for each word</span>
+<span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">vocab</span><span class="p">[</span><span class="n">a</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">cidx</span><span class="p">]</span>
+
+<span class="c1"># Choose POS tags to show in a sample dataframe</span>
+<span class="n">rvals</span> <span class="o">=</span><span class="p">[</span><span class="s1">'CD'</span><span class="p">,</span><span class="s1">'NN'</span><span class="p">,</span><span class="s1">'NNS'</span><span class="p">,</span> <span class="s1">'VB'</span><span class="p">,</span><span class="s1">'RB'</span><span class="p">,</span><span class="s1">'RP'</span><span class="p">]</span>
+
+<span class="c1"># For each POS tag, get the row number from the 'states' list</span>
+<span class="n">rows</span> <span class="o">=</span> <span class="p">[</span><span class="n">states</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">rvals</span><span class="p">]</span>
+
+<span class="c1"># Get the emissions for the sample of words, and the sample of POS tags</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">B</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span><span class="n">cols</span><span class="p">)]</span>
+<span class="n">B_sub</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">rvals</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">cidx</span> <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">B_sub</span><span class="p">)</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="p">([</span>
+ <span class="p">[</span><span class="mf">8.201296e-05</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">2.257091e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">4.676203e-04</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">6.456135e-05</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">],</span>
+<span class="p">])</span>
+
+<span class="k">assert</span> <span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+View Matrix position at row 0, column 0: 0.000006032
+View Matrix position at row 3, column 1: 0.000000720
+              725      adroitly     engineers      promoted       synergy
+CD   8.201296e-05  2.732854e-08  2.732854e-08  2.732854e-08  2.732854e-08
+NN   7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09  2.257091e-05
+NNS  1.670013e-08  1.670013e-08  4.676203e-04  1.670013e-08  1.670013e-08
+VB   3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08
+RB   3.226454e-08  6.456135e-05  3.226454e-08  3.226454e-08  3.226454e-08
+RP   3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">plotter</span> <span class="o">=</span> <span class="n">B_sub</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">plotter</span><span class="o">.</span><span class="n">hvplot</span><span class="o">.</span><span class="n">heatmap</span><span class="p">(</span><span class="n">cmap</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">color_map</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Emission Matrix B"</span><span class="p">,</span>
+    <span class="n">width</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">height</span><span class="p">,</span> <span class="n">fontscale</span><span class="o">=</span><span class="n">Plot</span><span class="o">.</span><span class="n">fontscale</span><span class="p">,</span>
+    <span class="n">xrotation</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">outcome</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"emission_matrix_b"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
+</pre></div>
+<object data="emission_matrix_b.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object>
+<p>There's 23,777 words in the vocabulary so I'm not plotting the whole thing.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgbe72f8f">
+<h2 id="orgbe72f8f">End</h2>
+<div class="outline-text-2" id="text-orgbe72f8f"></div>
+<div class="outline-3" id="outline-container-org0ca5889">
+<h3 id="org0ca5889">Bundle It Up</h3>
+<div class="outline-text-3" id="text-org0ca5889"></div>
+<div class="outline-4" id="outline-container-orgdc720b8">
+<h4 id="orgdc720b8">The Imports</h4>
+<div class="outline-text-4" id="text-orgdc720b8">
+<div class="highlight">
+<pre><span></span><span class="c1"># pypi</span>
+<span class="kn">import</span> <span class="nn">attr</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgc6d0f48">
+<h4 id="orgc6d0f48">The Matrices</h4>
+<div class="outline-text-4" id="text-orgc6d0f48">
+<div class="highlight">
+<pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">Matrices</span><span class="p">:</span>
+    <span class="sd">"""The matrices for the hidden markov model</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     ``transition_counts``: dictionary of counts of adjacent POS tags</span>
+<span class="sd">     ``emission_counts``: dictionary of (word, POS) counts</span>
+<span class="sd">     ``tag_counts``: dictionary of POS tag-counts</span>
+<span class="sd">     ``words``: list of words in the vocabulary</span>
+<span class="sd">     ``alpha``: The smoothing value</span>
+<span class="sd">    """</span>
+    <span class="n">transition_counts</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">emission_counts</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">tag_counts</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="c1"># all the lists have to be sorted for the matrices to match</span>
+    <span class="n">words</span><span class="p">:</span> <span class="nb">list</span><span class="o">=</span><span class="n">attr</span><span class="o">.</span><span class="n">ib</span><span class="p">(</span><span class="n">converter</span><span class="o">=</span><span class="nb">sorted</span><span class="p">)</span>
+    <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span><span class="o">=</span><span class="mf">0.001</span>
+    <span class="n">_tags</span><span class="p">:</span> <span class="nb">list</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">_tag_count</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">_word_count</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">_transition</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">_emission</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="o">=</span><span class="kc">None</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org27456da">
+<h4 id="org27456da">The Tags</h4>
+<div class="outline-text-4" id="text-org27456da">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">tags</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="sd">"""Sorted list of the POS tags"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tags</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tags</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgba72823">
+<h4 id="orgba72823">The Tag Count</h4>
+<div class="outline-text-4" id="text-orgba72823">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">tag_count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""Number of tags"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tag_count</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tag_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tag_count</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org2ce7bb3">
+<h4 id="org2ce7bb3">The Word Count</h4>
+<div class="outline-text-4" id="text-org2ce7bb3">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">word_count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="sd">"""Number of words in the vocabulary"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_word_count</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_word_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">words</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_word_count</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org1545d18">
+<h4 id="org1545d18">The Transition Matrix</h4>
+<div class="outline-text-4" id="text-org1545d18">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">transition</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""The Transition Matrix"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transition</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transition</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">):</span>
+                <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="n">row</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="n">column</span><span class="p">])</span>
+                <span class="n">count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transition_counts</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">transition_counts</span> <span class="k">else</span> <span class="mi">0</span>
+                <span class="n">previous_tag_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="n">row</span><span class="p">]]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_transition</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">column</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="p">(</span><span class="n">count</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span>
+                    <span class="o">/</span><span class="p">(</span><span class="n">previous_tag_count</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transition</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org6255af7">
+<h4 id="org6255af7">The Emission Matrix</h4>
+<div class="outline-text-4" id="text-org6255af7">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">emission</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="sd">"""The Emission Matrix"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_emission</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_emission</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_count</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tag_count</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">word_count</span><span class="p">):</span>
+                <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="n">row</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">words</span><span class="p">[</span><span class="n">column</span><span class="p">])</span>
+                <span class="n">emission_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">emission_counts</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">emission_counts</span> <span class="k">else</span> <span class="mi">0</span>
+                <span class="n">tag_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="n">row</span><span class="p">]]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_emission</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">column</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="p">(</span><span class="n">emission_count</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span>
+                    <span class="o">/</span><span class="p">(</span><span class="n">tag_count</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">word_count</span><span class="p">)</span>                
+                <span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_emission</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org0034a89">
+<h3 id="org0034a89">Test It Out</h3>
+<div class="outline-text-3" id="text-org0034a89">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.parts_of_speech.matrices</span> <span class="kn">import</span> <span class="n">Matrices</span>
+<span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
+<span class="n">loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">()</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">TheTrainer</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">processed_training</span><span class="p">)</span>
+
+<span class="n">matrices</span> <span class="o">=</span> <span class="n">Matrices</span><span class="p">(</span><span class="n">transition_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">transition_counts</span><span class="p">,</span>
+                    <span class="n">emission_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">emission_counts</span><span class="p">,</span>
+                    <span class="n">tag_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">,</span>
+                    <span class="n">words</span><span class="o">=</span><span class="n">loader</span><span class="o">.</span><span class="n">vocabulary_words</span><span class="p">,</span>
+                    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.001</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orgf14cd9b">
+<h4 id="orgf14cd9b">The Transition Matrix</h4>
+<div class="outline-text-4" id="text-orgf14cd9b">
+<div class="highlight">
+<pre><span></span><span class="n">transition</span> <span class="o">=</span> <span class="n">matrices</span><span class="o">.</span><span class="n">transition</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000007040</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">transition_matrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Transition Matrix at row 0, col 0: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">),</span> <span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.1691</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">transition_matrix</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Transition Matrix at row 3, col 1: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"View a subset of the transition matrix"</span><span class="p">)</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">transition_matrix</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">,</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">]</span>
+<span class="n">A_sub</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">states</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">],</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">states</span><span class="p">[</span><span class="mi">30</span><span class="p">:</span><span class="mi">35</span><span class="p">]</span> <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">A_sub</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+ <span class="p">[</span><span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">,</span> <span class="mf">0.008870</span><span class="p">,</span> <span class="mf">2.217069e-06</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.756509e-07</span><span class="p">,</span> <span class="mf">7.516775e-04</span><span class="p">,</span> <span class="mf">3.756509e-07</span><span class="p">,</span> <span class="mf">0.051089</span><span class="p">,</span> <span class="mf">3.756509e-07</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">,</span> <span class="mf">0.000017</span><span class="p">,</span> <span class="mf">1.722772e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">4.477336e-05</span><span class="p">,</span> <span class="mf">4.472863e-08</span><span class="p">,</span> <span class="mf">4.472863e-08</span><span class="p">,</span> <span class="mf">0.000090</span><span class="p">,</span> <span class="mf">4.477336e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">1.030439e-05</span><span class="p">,</span> <span class="mf">0.061837</span><span class="p">,</span> <span class="mf">3.092348e-02</span><span class="p">],</span>
+<span class="p">])</span>
+
+<span class="k">assert</span> <span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Transition Matrix at row 0, col 0: 0.000007040
+Transition Matrix at row 3, col 1: 0.1691
+View a subset of the transition matrix
+              RBS            RP           SYM        TO            UH
+RBS  2.217069e-06  2.217069e-06  2.217069e-06  0.008870  2.217069e-06
+RP   3.756509e-07  7.516775e-04  3.756509e-07  0.051089  3.756509e-07
+SYM  1.722772e-05  1.722772e-05  1.722772e-05  0.000017  1.722772e-05
+TO   4.477336e-05  4.472863e-08  4.472863e-08  0.000090  4.477336e-05
+UH   1.030439e-05  1.030439e-05  1.030439e-05  0.061837  3.092348e-02
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orged17297">
+<h4 id="orged17297">The Emission Matrix</h4>
+<div class="outline-text-4" id="text-orged17297">
+<div class="highlight">
+<pre><span></span><span class="n">matrices</span> <span class="o">=</span> <span class="n">Matrices</span><span class="p">(</span><span class="n">transition_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">transition_counts</span><span class="p">,</span>
+                    <span class="n">emission_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">emission_counts</span><span class="p">,</span>
+                    <span class="n">words</span><span class="o">=</span><span class="n">loader</span><span class="o">.</span><span class="n">vocabulary_words</span><span class="p">,</span>
+                    <span class="n">tag_counts</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">tag_counts</span><span class="p">,</span>
+                    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.001</span><span class="p">)</span>
+<span class="n">emission</span> <span class="o">=</span> <span class="n">matrices</span><span class="o">.</span><span class="n">emission</span>
+
+<span class="n">actual</span> <span class="o">=</span> <span class="n">emission</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000006032</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Emission Matrix position at row 0, column 0: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+
+<span class="n">actual</span> <span class="o">=</span> <span class="n">emission</span><span class="p">[</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="mf">0.000000720</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Emission Matrix position at row 3, column 1: </span><span class="si">{</span><span class="n">actual</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">abs_tol</span><span class="o">=</span><span class="mf">1e-7</span><span class="p">)</span>
+
+<span class="c1"># Try viewing emissions for a few words in a sample dataframe</span>
+<span class="n">columns</span>  <span class="o">=</span> <span class="p">[</span><span class="s1">'725'</span><span class="p">,</span><span class="s1">'adroitly'</span><span class="p">,</span><span class="s1">'engineers'</span><span class="p">,</span> <span class="s1">'promoted'</span><span class="p">,</span> <span class="s1">'synergy'</span><span class="p">]</span>
+
+<span class="c1"># Get the integer ID for each word</span>
+<span class="n">column_ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">loader</span><span class="o">.</span><span class="n">vocabulary</span><span class="p">[</span><span class="n">column</span><span class="p">]</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+
+<span class="c1"># Choose POS tags to show in a sample dataframe</span>
+<span class="n">rows</span> <span class="o">=</span><span class="p">[</span><span class="s1">'CD'</span><span class="p">,</span><span class="s1">'NN'</span><span class="p">,</span><span class="s1">'NNS'</span><span class="p">,</span> <span class="s1">'VB'</span><span class="p">,</span><span class="s1">'RB'</span><span class="p">,</span><span class="s1">'RP'</span><span class="p">]</span>
+
+<span class="c1"># For each POS tag, get the row number from the 'states' list</span>
+<span class="n">row_numbers</span> <span class="o">=</span> <span class="p">[</span><span class="n">matrices</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">]</span>
+
+<span class="c1"># Get the emissions for the sample of words, and the sample of POS tags</span>
+<span class="n">actual</span> <span class="o">=</span> <span class="n">emission</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">row_numbers</span><span class="p">,</span><span class="n">column_ids</span><span class="p">)]</span>
+<span class="n">B_sub</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">columns</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">B_sub</span><span class="p">)</span>
+<span class="n">expected</span> <span class="o">=</span> <span class="p">([</span>
+ <span class="p">[</span><span class="mf">8.201296e-05</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">,</span> <span class="mf">2.732854e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">7.521128e-09</span><span class="p">,</span> <span class="mf">2.257091e-05</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">4.676203e-04</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">,</span> <span class="mf">1.670013e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">,</span> <span class="mf">3.779036e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">6.456135e-05</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">,</span> <span class="mf">3.226454e-08</span><span class="p">],</span>
+ <span class="p">[</span><span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">,</span> <span class="mf">3.723317e-07</span><span class="p">],</span>
+<span class="p">])</span>
+
+<span class="k">assert</span> <span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">actual</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Emission Matrix position at row 0, column 0: 0.000006032
+Emission Matrix position at row 3, column 1: 0.000000720
+              725      adroitly     engineers      promoted       synergy
+CD   8.201296e-05  2.732854e-08  2.732854e-08  2.732854e-08  2.732854e-08
+NN   7.521128e-09  7.521128e-09  7.521128e-09  7.521128e-09  2.257091e-05
+NNS  1.670013e-08  1.670013e-08  4.676203e-04  1.670013e-08  1.670013e-08
+VB   3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08  3.779036e-08
+RB   3.226454e-08  6.456135e-05  3.226454e-08  3.226454e-08  3.226454e-08
+RP   3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07  3.723317e-07
+</pre>
+<p><b>Note:</b> I was getting the wrong values because I switched to the <code>DataLoader.vocabulary_words</code> list, which isn't sorted (because I was trying to follow the example). The <code>vocabulary</code> is sorted, but it's a dict so then you have to convert it to a list… in the future just sort everything.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/hidden-markov-model/" rel="tag">hidden markov model</a></li>
+<li><a class="tag p-category" href="../../../categories/nlp/" rel="tag">nlp</a></li>
+<li><a class="tag p-category" href="../../../categories/pos-tagging/" rel="tag">pos tagging</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../parts-of-speech-tagging-most-frequent-class-baseline/" rel="prev" title="Parts-of-Speech Tagging: Most Frequent Class Baseline">Previous post</a></li>
+<li class="next"><a href="../parts-of-speech-viterbi-algorithm/" rel="next" title="Parts-of-Speech: Viterbi Algorithm">Next post</a></li>
+</ul>
+</nav>
+</aside>
+<script async id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" type="text/javascript"></script>
+<script type="text/x-mathjax-config">
+
+        MathJax.Hub.Config({tex2jax: {inlineMath: [['$latex ','$'], ['\\(','\\)']],},
+
+        });
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script>
+<script>
+
+    MathJax = {
+        tex: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script></article>
+<!--End of body content-->
+<footer id="footer"><a href="http://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://i.creativecommons.org/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

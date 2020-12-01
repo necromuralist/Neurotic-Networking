@@ -1,0 +1,479 @@
+#+BEGIN_COMMENT
+.. title: Parts-of-Speech Tagging: Training
+.. slug: parts-of-speech-tagging-training
+.. date: 2020-11-16 21:23:21 UTC-08:00
+.. tags: nlp,pos tagging
+.. category: NLP
+.. link: 
+.. description: Training the POS model.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-dc6c3ee1-e501-4735-a925-d82e7504d624-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from collections import defaultdict
+
+# pypi
+from dotenv import load_dotenv
+
+# this repository
+from neurotic.nlp.parts_of_speech.preprocessing import Environment, DataLoader
+#+end_src   
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Data
+#+begin_src python :results none
+loader = DataLoader()
+#+end_src
+* Training
+ 
+ In this section, you will find the words that are not ambiguous. 
+ - For example, the word =is= is a verb and it is not ambiguous. 
+ - In the =WSJ= corpus, /86%/ of the tokens are unambiguous (meaning they have only one tag) 
+ - About /14%/ /are/ ambiguous (meaning that they have more than one tag)
+
+Before you start predicting the tags of each word, you will need to compute a few dictionaries that will help you to generate the tables. 
+** Preprocessing
+   For some idiotic reason instead of pre-processing the training corpus with the rest of the data they make a call on each entry in the first graded function. Since the grader checks literal code rather than the output of the code I'll have to make those calls here too (until I pass and get rid of it).
+
+#+begin_src python :results none
+# replace the next three code blocks once the assignment is done
+import string
+
+punct = set(string.punctuation)
+noun_suffix = ["action", "age", "ance", "cy", "dom", "ee", "ence", "er", "hood", "ion", "ism", "ist", "ity", "ling", "ment", "ness", "or", "ry", "scape", "ship", "ty"]
+verb_suffix = ["ate", "ify", "ise", "ize"]
+adj_suffix = ["able", "ese", "ful", "i", "ian", "ible", "ic", "ish", "ive", "less", "ly", "ous"]
+adv_suffix = ["ward", "wards", "wise"]
+#+end_src
+#+begin_src python :results none
+def get_word_tag(line: str, vocab: dict):
+    """splits line and handles unknowns and empty lines
+
+
+    Args:
+     line: whitespace separated string with word and tag
+     vocab: hashable that holds the known words
+    """
+    if not line.split():
+        word = "--n--"
+        tag = "--s--"
+        return word, tag
+    else:
+        word, tag = line.split()
+        if word not in vocab: 
+            # Handle unknown words
+            word = assign_unk(word)
+        return word, tag
+    return None 
+#+end_src
+
+#+begin_src python :results none
+def assign_unk(tok):
+    """
+    Assign unknown word tokens
+    """
+    # Digits
+    if any(char.isdigit() for char in tok):
+        return "--unk_digit--"
+
+    # Punctuation
+    elif any(char in punct for char in tok):
+        return "--unk_punct--"
+
+    # Upper-case
+    elif any(char.isupper() for char in tok):
+        return "--unk_upper--"
+
+    # Nouns
+    elif any(tok.endswith(suffix) for suffix in noun_suffix):
+        return "--unk_noun--"
+
+    # Verbs
+    elif any(tok.endswith(suffix) for suffix in verb_suffix):
+        return "--unk_verb--"
+
+    # Adjectives
+    elif any(tok.endswith(suffix) for suffix in adj_suffix):
+        return "--unk_adj--"
+
+    # Adverbs
+    elif any(tok.endswith(suffix) for suffix in adv_suffix):
+        return "--unk_adv--"
+
+    return "--unk--"
+#+end_src
+** Transition counts
+ - The first dictionary is the =transition_counts= dictionary which computes the number of times each tag happened next to another tag. 
+
+This dictionary will be used to compute:
+\[
+P(t_i |t_{i-1})
+\]
+
+This is the probability of a tag at position /i/ given the tag at position /i-1/.
+
+ In order for you to compute equation 1, you will create a =transition_counts= dictionary where 
+ - The keys are =(prev_tag, tag)=
+ - The values are the number of times those two tags appeared in that order. 
+
+** Emission counts
+
+ The second dictionary you will compute is the =emission_counts= dictionary. This dictionary will be used to compute:
+#
+\[
+P(w_i|t_i)
+\]
+
+In other words, you will use it to compute the probability of a word given its tag. 
+
+ In order for you to compute equation 2, you will create an =emission_counts= dictionary where 
+ - The keys are =(tag, word)= 
+ - The values are the number of times that pair showed up in your training set. 
+
+** Tag counts
+
+ The last dictionary you will compute is the =tag_counts= dictionary. 
+ - The key is the tag 
+ - The value is the number of times each tag appeared.
+
+
+ #+begin_src python :results none
+def create_dictionaries(training_corpus: list, vocab: dict):
+    """Creat the three training dictionaries
+
+    Args: 
+        ``training_corpus``: a corpus where each line has a word followed by its tag.
+        ``vocab``: a dictionary where keys are words in vocabulary and value is an index
+    Returns: 
+        ``emission_counts``: a dictionary where the keys are (tag, word) and the values are the counts
+        ``transition_counts``: a dictionary where the keys are (prev_tag, tag) and the values are the counts
+        ``tag_counts``: a dictionary where the keys are the tags and the values are the counts
+    """
+    
+    # initialize the dictionaries using defaultdict
+    emission_counts = defaultdict(int)
+    transition_counts = defaultdict(int)
+    tag_counts = defaultdict(int)
+    
+    # Initialize "prev_tag" (previous tag) with the start state, denoted by '--s--'
+    prev_tag = '--s--' 
+    
+    # use 'i' to track the line number in the corpus
+    i = 0 
+    
+    # Each item in the training corpus contains a word and its POS tag
+    # Go through each word and its tag in the training corpus
+    for word_tag in training_corpus:
+        
+        # Increment the word_tag count
+        i += 1
+        
+        # Every 50,000 words, print the word count
+        if i % 50000 == 0:
+            print(f"word count = {i}")
+            
+        ### START CODE HERE (Replace instances of 'None' with your code) ###
+        # get the word and tag using the get_word_tag helper function (imported from utils_pos.py)
+        word, tag = get_word_tag(word_tag, vocab)
+        
+        # Increment the transition count for the previous word and tag
+        transition_counts[(prev_tag, tag)] += 1
+        
+        # Increment the emission count for the tag and word
+        emission_counts[(tag, word)] += 1
+
+        # Increment the tag count
+        tag_counts[tag] += 1
+
+        # Set the previous tag to this tag (for the next iteration of the loop)
+        prev_tag = tag
+        
+        ### END CODE HERE ###
+        
+    return emission_counts, transition_counts, tag_counts
+#+end_src
+
+#+begin_src python :results none
+emission_counts, transition_counts, tag_counts = create_dictionaries(loader.training_corpus, loader.vocabulary)
+#+end_src
+
+Get all the POS states.
+
+#+begin_src python :results output :exports both
+states = sorted(tag_counts.keys())
+print(f"Number of POS tags (number of 'states'): {len(states)}")
+print("View these POS tags (states)")
+print(states)
+
+expected_states = ['#', '$', "''", '(', ')', ',', '--s--', '.', ':', 'CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD', 'NN', 'NNP', 'NNPS', 'NNS', 'PDT', 'POS', 'PRP', 'PRP$', 'RB', 'RBR', 'RBS', 'RP', 'SYM', 'TO', 'UH', 'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ', 'WDT', 'WP', 'WP$', 'WRB', '``']
+
+print(set(expected_states) - set(states))
+for expected, actual in zip(expected_states, states):
+    assert expected == actual, (expected, actual)
+assert len(states) == 46, len(states)    
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Number of POS tags (number of 'states'): 45
+: View these POS tags (states)
+: ['#', '$', "''", '(', ')', ',', '.', ':', 'CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD', 'NN', 'NNP', 'NNPS', 'NNS', 'PDT', 'POS', 'PRP', 'PRP$', 'RB', 'RBR', 'RBS', 'RP', 'SYM', 'TO', 'UH', 'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ', 'WDT', 'WP', 'WP$', 'WRB', '``']
+: {'--s--'}
+# [goto error]
+: ---------------------------------------------------------------------------
+: AssertionError                            Traceback (most recent call last)
+: <ipython-input-29-299deb6488d2> in <module>
+:       8 print(set(expected_states) - set(states))
+:       9 for expected, actual in zip(expected_states, states):
+: ---> 10     assert expected == actual, (expected, actual)
+:      11 assert len(states) == 46, len(states)
+: 
+: AssertionError: ('--s--', '.')
+:END:
+
+
+#+begin_src python :results output :exports both
+print("transition examples: ")
+expected = ((('--s--', 'IN'), 5050),
+            (('IN', 'DT'), 32364),
+            (('DT', 'NNP'), 9044))
+
+for index, example in enumerate(list(transition_counts.items())[:3]):
+    print(example)
+    assert example == expected[index]
+#+end_src
+
+#+RESULTS:
+: transition examples: 
+: (('--s--', 'IN'), 5050)
+: (('IN', 'DT'), 32364)
+: (('DT', 'NNP'), 9044)
+
+#+begin_src python :results output :exports both
+expected = ((('DT', 'any'), 721),
+            (('NN', 'decrease'), 7),
+            (('NN', 'insider-trading'), 5))
+
+print("emission examples: ")
+for actual, expected in zip(list(emission_counts.items())[200:203], expected):
+    print (actual)
+    assert actual == expected
+#+end_src
+
+#+RESULTS:
+: emission examples: 
+: (('DT', 'any'), 721)
+: (('NN', 'decrease'), 7)
+: (('NN', 'insider-trading'), 5)
+
+#+begin_src python :results output :exports both
+expected = ((('RB', 'back'), 304),
+            (('VB', 'back'), 20),
+            (('RP', 'back'), 84),
+            (('JJ', 'back'), 25),
+            (('NN', 'back'), 29),
+            (('VBP', 'back'), 4))
+
+print("ambiguous word example: ")
+counter = 0
+for tup, cnt in emission_counts.items():
+    if tup[1] == 'back':
+        print(tup, cnt)
+        assert expected[counter] == (tup, cnt)
+        counter += 1
+#+end_src
+
+#+RESULTS:
+: ambiguous word example: 
+: ('RB', 'back') 304
+: ('VB', 'back') 20
+: ('RP', 'back') 84
+: ('JJ', 'back') 25
+: ('NN', 'back') 29
+: ('VBP', 'back') 4
+
+* Bundle It Up
+#+begin_src python :tangle ../../neurotic/nlp/parts_of_speech/training.py
+<<imports>>
+
+
+<<the-trainer>>
+
+    <<transition-counts>>
+
+    <<emission-counts>>
+
+    <<tag-counts>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import defaultdict, Counter
+# pypi
+import attr
+#+end_src   
+** The Trainer
+#+begin_src python :noweb-ref the-trainer
+@attr.s(auto_attribs=True)
+class TheTrainer:
+    """Trains the POS model
+
+    Args:
+     corpus: iterable of word, tag tuples
+    """
+    corpus: list
+    _transition_counts: dict=None
+    _emission_counts: dict=None
+    _tag_counts: dict=None
+#+end_src
+*** Transition Counts
+    This dictionary will be used to compute:
+\[
+P(t_i |t_{i-1})
+\]
+
+This is the probability of a tag at position /i/ given the tag at position /i-1/.
+
+#+begin_src python :noweb-ref transition-counts
+@property
+def transition_counts(self) -> dict:
+    """maps previous, next tags to counts"""
+    if self._transition_counts is None:
+        self._transition_counts = defaultdict(int)
+        previous_tag = "--s--"
+        for word, tag in self.corpus:
+            self._transition_counts[(previous_tag, tag)] += 1
+            previous_tag = tag
+    return self._transition_counts
+#+end_src
+*** Emission Counts
+ The second dictionary you will compute is the =emission_counts= dictionary. This dictionary will be used to compute:
+
+\[
+P(w_i|t_i)
+\]
+
+In other words, you will use it to compute the probability of a word given its tag. 
+
+    
+#+begin_src python :noweb-ref emission-counts
+@property
+def emission_counts(self) -> dict:
+    """Maps tag, word pairs to counts"""
+    if self._emission_counts is None:
+        self._emission_counts = Counter(
+            ((tag, word) for word, tag in self.corpus)
+        )
+    return self._emission_counts
+#+end_src
+*** Tag Counts
+#+begin_src python :noweb-ref tag-counts
+@property
+def tag_counts(self) -> dict:
+    """Count of tags"""
+    if self._tag_counts is None:
+        self._tag_counts = Counter((tag for word, tag in self.corpus))
+    return self._tag_counts
+#+end_src    
+** Test It Out
+#+begin_src python :results none
+from neurotic.nlp.parts_of_speech.training import TheTrainer
+
+trainer = TheTrainer(loader.processed_training)
+#+end_src
+
+*** Tag Counts
+#+begin_src python :results output :exports both
+states = sorted(trainer.tag_counts.keys())
+print(f"Number of POS tags (number of 'states'): {len(states)}")
+print("View these POS tags (states)")
+print(states)
+
+assert len(states) == 46, len(states)
+expected_states = ['#', '$', "''", '(', ')', ',', '--s--', '.', ':', 'CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD', 'NN', 'NNP', 'NNPS', 'NNS', 'PDT', 'POS', 'PRP', 'PRP$', 'RB', 'RBR', 'RBS', 'RP', 'SYM', 'TO', 'UH', 'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ', 'WDT', 'WP', 'WP$', 'WRB', '``']
+for expected, actual in zip(expected_states, states):
+    assert expected == actual
+#+end_src
+
+#+RESULTS:
+: Number of POS tags (number of 'states'): 46
+: View these POS tags (states)
+: ['#', '$', "''", '(', ')', ',', '--s--', '.', ':', 'CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD', 'NN', 'NNP', 'NNPS', 'NNS', 'PDT', 'POS', 'PRP', 'PRP$', 'RB', 'RBR', 'RBS', 'RP', 'SYM', 'TO', 'UH', 'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ', 'WDT', 'WP', 'WP$', 'WRB', '``']
+
+*** Transition Counts
+#+begin_src python :results output :exports both
+print("transition examples: ")
+expected = ((('--s--', 'IN'), 5050),
+            (('IN', 'DT'), 32364),
+            (('DT', 'NNP'), 9044))
+
+for index, example in enumerate(list(trainer.transition_counts.items())[:3]):
+    print(example)
+    assert example == expected[index]
+#+end_src
+
+#+RESULTS:
+: transition examples: 
+: (('--s--', 'IN'), 5050)
+: (('IN', 'DT'), 32364)
+: (('DT', 'NNP'), 9044)
+
+*** Emission Counts
+#+begin_src python :results output :exports both
+expected = ((('DT', 'any'), 721),
+            (('NN', 'decrease'), 7),
+            (('NN', 'insider-trading'), 5))
+
+print("emission examples: ")
+for actual, expected in zip(list(trainer.emission_counts.items())[200:203], expected):
+    print (actual)
+    assert actual == expected
+#+end_src
+
+#+RESULTS:
+: emission examples: 
+: (('DT', 'any'), 721)
+: (('NN', 'decrease'), 7)
+: (('NN', 'insider-trading'), 5)
+
+*** Ambiuguous Word Emission Counts
+#+begin_src python :results output :exports both
+expected = ((('RB', 'back'), 304),
+            (('VB', 'back'), 20),
+            (('RP', 'back'), 84),
+            (('JJ', 'back'), 25),
+            (('NN', 'back'), 29),
+            (('VBP', 'back'), 4))
+
+print("ambiguous word example: ")
+counter = 0
+for tag_word, count in trainer.emission_counts.items():
+    if tag_word[1] == 'back':
+        print(tag_word, count)
+        assert expected[counter] == (tag_word, count)
+        counter += 1
+#+end_src
+
+#+RESULTS:
+: ambiguous word example: 
+: ('RB', 'back') 304
+: ('VB', 'back') 20
+: ('RP', 'back') 84
+: ('JJ', 'back') 25
+: ('NN', 'back') 29
+: ('VBP', 'back') 4
