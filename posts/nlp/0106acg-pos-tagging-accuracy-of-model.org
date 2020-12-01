@@ -1,0 +1,169 @@
+#+BEGIN_COMMENT
+.. title: POS Tagging: Accuracy of Model
+.. slug: pos-tagging-accuracy-of-model
+.. date: 2020-11-30 20:18:45 UTC-08:00
+.. tags: nlp,pos tagging,testing
+.. category: NLP
+.. link: 
+.. description: Checking the accuracy of our Hidden Markov Model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-7b36ed12-12aa-41cc-bc31-b3bc068de767.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Predicting on a data set
+ Compute the accuracy of your prediction by comparing it with the true `y` labels. 
+ - `pred` is a list of predicted POS tags corresponding to the words of the `test_corpus`. 
+** Imports
+#+begin_src python :results none
+# python
+import math
+
+# pypi
+from dotenv import load_dotenv
+
+# this stuff
+from neurotic.nlp.parts_of_speech import DataLoader, HiddenMarkov, Matrices, TheTrainer
+
+# some other stuff
+from graeae import Timer
+#+end_src
+** Set Up
+*** The Timer
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** The Matrices
+#+begin_src python :results output :exports both
+with TIMER:
+    load_dotenv("posts/nlp/.env")
+    loader = DataLoader()
+    trainer = TheTrainer(loader.processed_training)
+    matrices = Matrices(transition_counts=trainer.transition_counts,
+                        emission_counts=trainer.emission_counts,
+                        words=loader.vocabulary_words,
+                        tag_counts=trainer.tag_counts,
+                        alpha=0.001)
+    model = HiddenMarkov(loader, trainer, matrices)
+    model()
+#+end_src
+
+#+RESULTS:
+: 2020-11-30 20:41:51,497 graeae.timers.timer start: Started: 2020-11-30 20:41:51.497226
+: 2020-11-30 20:43:32,311 graeae.timers.timer end: Ended: 2020-11-30 20:43:32.311608
+: 2020-11-30 20:43:32,312 graeae.timers.timer end: Elapsed: 0:01:40.814382
+
+These classes were defined in other posts:
+
+ - {{% lancelot title="DataLoader" %}}parts-of-speech-tagging-the-data{{% /lancelot %}}
+ - {{% lancelot title="TheTrainer" %}}parts-of-speech-tagging-training{{% /lancelot %}}
+ - {{% lancelot title="Matrices" %}}parts-of-speech-tagging-hidden-markov-model{{% /lancelot %}}
+ - {{% lancelot title="Hidden Markov Model" %}}parts-of-speech-viterbi-algorithm{{% /lancelot %}}
+* Middle
+** Aliases
+   The original notebooks use a naming scheme that I don't really like so have to be aliased to make my stuff work with theirs.
+#+begin_src python :results output :exports both
+prep = loader.test_words
+pred = model.predictions
+
+raw = loader.test_data_tuples
+missing = [index for index, pair in enumerate(raw) if not pair]
+for index in missing:
+    raw[index] = tuple(("", "--n--"))
+
+y = [label for word, label in raw]
+
+print('The third word is:', prep[3])
+print('Your prediction is:', pred[3])
+print('Your corresponding label y is: ', y[3])
+
+assert len(y) == len(prep)
+assert len(y) == len(pred)
+#+end_src
+
+#+RESULTS:
+: The third word is: temperature
+: Your prediction is: NN
+: Your corresponding label y is:  NN
+
+** Redo Y
+   Now that I look at their code, they expect the "y" list to be the un-split strings. Ugh.
+
+#+begin_src python :results output :exports both
+y = loader.test_data_raw
+print('Your corresponding label y is: ', y[3])
+#+end_src   
+
+#+RESULTS:
+: Your corresponding label y is:  temperature	NN
+
+** Compute Accuraty
+#+begin_src python :results none
+def compute_accuracy(predlist, y: list) -> float:
+    """Calculate the accuracy of our model's predictions
+
+    Args: 
+      pred: a list of the predicted parts-of-speech 
+      y: a list of lines where each word is separated by a '\t' (i.e. word \t tag)
+    Returns: 
+      accuracy of the predictions
+    """
+    num_correct = 0
+    total = 0
+    
+    # Zip together the prediction and the labels
+    for prediction, y in zip(pred, y):
+        ### START CODE HERE (Replace instances of 'None' with your code) ###
+        # Split the label into the word and the POS tag
+        word_tag_tuple = y.split()
+        
+        # Check that there is actually a word and a tag
+        # no more and no less than 2 items
+        if len(word_tag_tuple) != 2: # complete this line
+            continue 
+
+        # store the word and tag separately
+        word, tag = word_tag_tuple
+        
+        # Check if the POS tag label matches the prediction
+        if tag == prediction: # complete this line
+            
+            # count the number of times that the prediction
+            # and label match
+            num_correct += 1
+            
+        # keep track of the total number of examples (that have valid labels)
+        total += 1
+        
+        ### END CODE HERE ###
+    return num_correct/total
+#+end_src
+
+#+begin_src python :results output :exports both
+accuracy = compute_accuracy(pred, y)
+print(f"Accuracy of the Viterbi algorithm is {accuracy:.4f}")
+assert math.isclose(accuracy, 0.95, abs_tol=1e-2)
+#+end_src
+
+#+RESULTS:
+: Accuracy of the Viterbi algorithm is 0.9545
+
+**Note:** The original notebook accuracy was 0.9531. I don't really know what caused the difference - I suspect their preprocessing -  but since this is better I'll keep it.
+* End
+ In this assignment you learned about parts-of-speech tagging. 
+ - In this assignment, you predicted POS tags by walking forward through a corpus and knowing the previous word.
+ - There are other implementations that use bidirectional POS tagging.
+ - Bidirectional POS tagging requires knowing the previous word and the next word in the corpus when predicting the current word's POS tag.
+ - Bidirectional POS tagging would tell you more about the POS instead of just knowing the previous word. 
+ - Since you have learned to implement the unidirectional approach, you have the foundation to implement other POS taggers used in industry.
+
+** References
+
+ - [[https://web.stanford.edu/~jurafsky/slp3/]["Speech and Language Processing", Dan Jurafsky and James H. Martin]]
