@@ -1,0 +1,261 @@
+#+BEGIN_COMMENT
+.. title: Parts-of-Speech Tagging: Most Frequent Class Baseline
+.. slug: parts-of-speech-tagging-most-frequent-class-baseline
+.. date: 2020-11-17 18:23:32 UTC-08:00
+.. tags: nlp,pos tagging
+.. category: NLP
+.. link: 
+.. description: Building the Most Frequent Class baseline for WSJ POS tagging.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6f7a1dc1-2226-4c47-9731-6e45efa2b7b4-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Begin
+** Imports
+#+begin_src python :results none
+# python
+from collections import Counter
+
+# pypi
+from dotenv import load_dotenv
+
+# this repo
+from neurotic.nlp.parts_of_speech.preprocessing import DataLoader
+from neurotic.nlp.parts_of_speech.training import TheTrainer
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+#+end_src
+*** The Data
+#+begin_src python :results none
+loader = DataLoader()
+#+end_src
+*** The Trained Model
+#+begin_src python :results none
+trainer = TheTrainer(loader.processed_training)
+#+end_src
+* Middle
+** Most Frequent Class Baseline
+   The main purpose of part-of-speech tagging is to disambiguate words (Jurasky) - most words only have one part-of-speech tag, but the most commonly used words have more than one. To decide what the correct part-of-speech tag is for a word, you have to know its context and how to interpret it based on the context. Another way to choose a tag is to give each word the tag that it is most commonly associated with. This will then serve as a baseline for any more sophisticated algorithm. That's what we're going to do here.
+
+*** Processed vs Vocabulary
+    Our =preprocessed= data is the words in the testing data and our =vocabulary= data is the words in the training set. We can't predict anything for the words in the testing set that aren't in the training set so let's see how much of an overlap there is.
+
+#+begin_src python :results output :exports both
+preprocessed = set(loader.test_words)
+vocabulary = set(loader.vocabulary)
+
+in_common = preprocessed.intersection(vocabulary)
+print(f"y in x: {100 * len(in_common)/len(preprocessed):0.3f} %")
+#+end_src
+
+#+RESULTS:
+: y in x: 100.000 %
+
+So, we shouldn't lose any words just because we never saw them during training.
+
+#+begin_src python :results output :exports both
+print(loader.processed_training[:2])
+#+end_src
+
+#+RESULTS:
+: [('In', 'IN'), ('an', 'DT')]
+
+Our =processed_training= attribute is a list of =<word>, <tag>= tuples from the training set.
+
+#+begin_src python :results none
+words_tags = set(loader.processed_training)
+words = [word for word, tag in words_tags]
+word_tag_counts = Counter(words)
+#+end_src
+
+=word_tag_counts= is the count of the number of tags each word had.
+
+#+begin_src python :results output :exports both
+unambiguous = [word for word,count in word_tag_counts.items() if count == 1]
+print("Percent of unambiguous training words: "
+      f"{100 * len(unambiguous)/len(word_tag_counts):.2f} %")
+#+end_src
+
+#+RESULTS:
+: Percent of unambiguous training words: 75.11 %
+
+And now for the subset that is in both the training and testing set.
+
+#+begin_src python :results output :exports both
+common_unambiguous = set(unambiguous).intersection(in_common)
+print("percent of words in common that are unambiguous:"
+      f"{len(common_unambiguous)/len(in_common) * 100: .2f}")
+#+end_src
+
+#+RESULTS:
+: percent of words in common that are unambiguous: 58.19
+
+Sort of low.
+
+This means that if we just labeled the unambiguous words we'd be right about 58% of the time. Let's just double-check.
+
+#+begin_src python :results output :exports both
+guesses = {word: tag for word, tag in loader.test_data.items() if word in unambiguous}
+
+total = len(preprocessed)
+correct_guess = 0
+
+for word in preprocessed:
+    if word in guesses:
+        guess = guesses[word]
+        correct_guess += 1 if guess == loader.test_data[word] else 0
+    else:
+        continue
+
+print(f"Correct: {100 * correct_guess/total: 0.2f}%")
+#+end_src
+
+#+RESULTS:
+: Correct:  58.17%
+
+So this is the amount we get if we just use the unambiguous words. Our baseline should be even better.
+** The Baseline Implementation
+#+begin_src python :results none
+def predict_pos(prep, y, emission_counts, vocab, states):
+    '''
+    Input: 
+        prep: a preprocessed version of 'y'. A list with the 'word' component of the tuples.
+        y: a corpus composed of a list of tuples where each tuple consists of (word, POS)
+        emission_counts: a dictionary where the keys are (tag,word) tuples and the value is the count
+        vocab: a dictionary where keys are words in vocabulary and value is an index
+        states: a sorted list of all possible tags for this assignment
+    Output: 
+        accuracy: Number of times you classified a word correctly
+    '''
+    
+    # Initialize the number of correct predictions to zero
+    num_correct = 0
+    
+    # Get the (tag, word) tuples, stored as a set
+    all_words = set(emission_counts.keys())
+    
+    # Get the number of (word, POS) tuples in the corpus 'y'
+    total = len(y)
+    for word, y_tup in zip(prep, y): 
+
+        # Split the (word, POS) string into a list of two items
+        y_tup_l = y_tup.split()
+        
+        # Verify that y_tup contain both word and POS
+        if len(y_tup_l) == 2:
+            
+            # Set the true POS label for this word
+            true_label = y_tup_l[1]
+
+        else:
+            # If the y_tup didn't contain word and POS, go to next word
+            continue
+    
+        count_final = 0
+        pos_final = ''
+        
+        # If the word is in the vocabulary...
+        if word in vocab:
+            for pos in states:
+
+            ### START CODE HERE (Replace instances of 'None' with your code) ###
+                        
+                # define the key as the tuple containing the POS and word
+                key = (pos, word)
+
+                # check if the (pos, word) key exists in the emission_counts dictionary
+                if key in emission_counts: # complete this line
+                # get the emission count of the (pos,word) tuple 
+                    count = emission_counts[key]
+                    # keep track of the POS with the largest count
+                    if count > count_final: # complete this line
+                        # update the final count (largest count)
+                        count_final = count
+
+                        # update the final POS
+                        pos_final = pos
+            # If the final POS (with the largest count) matches the true POS:
+            if true_label == pos_final: # complete this line
+                # Update the number of correct predictions
+                num_correct += 1
+            
+    ### END CODE HERE ###
+    accuracy = num_correct / total
+    
+    return accuracy
+#+end_src
+
+#+begin_src python :results output :exports both
+states = sorted(trainer.tag_counts.keys())
+accuracy_predict_pos = predict_pos(prep=loader.test_words, y=loader.test_data_raw,
+                                   emission_counts=trainer.emission_counts,
+                                   vocab=loader.vocabulary, states=states)
+print(f"Accuracy of prediction using predict_pos is {accuracy_predict_pos:.4f}")
+#+end_src
+
+#+RESULTS:
+: Accuracy of prediction using predict_pos is 0.8913
+
+So our baseline prediction is 89% - any algorithm we create should do as well or better (but probably better for it to be worth doing).
+
+** Take Two
+#+begin_src python :results none
+def predict(preprocessed: list, y: list, emission_counts: dict, vocabulary: dict, states: list):
+    """Calculate the baseline accuracy
+    Args: 
+        preprocessed: a preprocessed version of 'y'. A list with the 'word' component of the tuples.
+        y: a corpus composed of a list of tuples where each tuple consists of (word, POS)
+        emission_counts: a dictionary where the keys are (tag,word) tuples and the value is the count
+        vocabulary: a dictionary where keys are words in vocabulary and value is an index
+        states: a sorted list of all possible tags for this assignment
+
+    Returns: 
+        accuracy: Number of times you classified a word correctly
+    """
+    # filter (``preprocessed`` has unknown words replaced by special tags so we
+    # need to use it to filter separately from the words in ``y``)
+    # because using the raw word instead of the special tag will throw away
+    # the row but we tagged it specifically to keep it
+    inputs = [(word, tokens) for word, tokens in zip(preprocessed, y)
+              if (len(tokens) == 2 and word in vocabulary)]
+
+    # our final data sets    
+    true_tags = (tag for word, (raw, tag) in inputs)
+    words = (word for word, (raw, tag) in inputs)
+
+    # each guess is the POS tag for the word with the highest occurrence in the training data
+    guesses = (
+        max((emission_counts.get((pos, word), 0), pos) for pos in states)
+        for word in words)
+
+    # accuracy is sum of correct guesses/total rows in y
+    return (sum(
+        actual == guess for actual, (count, guess) in zip(true_tags, guesses))
+            /len(y))
+
+#+end_src   
+
+#+begin_src python :results output :exports both
+states = sorted(trainer.tag_counts.keys())
+accuracy = predict(preprocessed=loader.test_words,
+                   y=loader.test_data_tuples,
+                   emission_counts=trainer.emission_counts,
+                   vocabulary=loader.vocabulary,
+                   states=states)
+print(f"Accuracy of prediction using predict_pos is {accuracy:.4f}")
+#+end_src
+
+#+RESULTS:
+: Accuracy of prediction using predict_pos is 0.8921
+
