@@ -1,0 +1,284 @@
+#+BEGIN_COMMENT
+.. title: N-Grams: Out-of-Vocabulary Words
+.. slug: n-grams-out-of-vocabulary-words
+.. date: 2020-12-03 14:35:57 UTC-08:00
+.. tags: nlp,n-grams
+.. category: NLP
+.. link: 
+.. description: How to handle out-of-vocabulary words with N-grams.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8ffc9f80-febd-4c5a-9427-9ae30816764a-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+#+begin_src python :results none
+# python
+from collections import Counter
+#+end_src
+* Middle
+  We're going to look at a method of deciding whether an unknown word belongs to our vocabulary. It requires that we know the target size of the vocabulary in advance and the vocabulary has the words and their counts from the training set.
+** Build the vocabulary
+   First we'll define the vocabulary target size.
+#+begin_src python :results none
+vocabulary_target_size = 3
+#+end_src
+
+Now build a counter - with a real vocabulary we could use the =Counter= object to build the counts directly, but since we don't have a real corpus we can create it with a dict.
+
+#+begin_src python :results none
+counts = Counter({"happy": 5,
+          "because": 3,
+          "i":2,
+          "am":2,
+          "learning": 3,
+          ".": 1})
+#+end_src
+
+Now trim it down to our target size.
+#+begin_src python :results none
+vocabulary = counts.most_common(vocabulary_target_size)
+#+end_src
+
+Now get the words only.
+
+#+begin_src python :results output :exports both
+vocabulary = set([word for word, count in vocabulary])
+print(f"The {vocabulary_target_size} most frequent words: {vocabulary}")
+#+end_src
+
+#+RESULTS:
+: The 3 most frequent words: {'because', 'learning', 'happy'}
+**  Replace Unknown Words
+#+begin_src python :results output :exports both
+original = "am i learning".split()
+
+output = []
+
+for word in original:
+    word = word if word in vocabulary else "<UNK>"
+    output.append(word)
+
+print(f"Original: {original}")
+print(f"Processed: {output}")
+#+end_src
+
+#+RESULTS:
+: Original: ['am', 'i', 'learning']
+: Processed: ['<UNK>', '<UNK>', 'learning']
+
+*** A Specific Frequency
+    There might also be cases where we need to filter by a specific frequency instead of just the largest frequencies. Here's one way to do it.
+
+#+begin_src python :results output :exports both
+match = 3
+
+word_counts = {"happy": 5,
+               "because": 3,
+               "i": 2,
+               "am": 2,
+               "learning": 3,
+               ".": 1}
+matches = (word for word, count in word_counts.items() if count==match)
+for word in matches:
+    print(word)
+#+end_src    
+
+#+RESULTS:
+: because
+: learning
+    
+** Too Many Unknowns
+   We're going to use perplexity to assess the performance of our model. If you have too many unknowns your perplexity will be low even though your model isn't doing well. Here's an example of this effect.
+
+Rather than going through the trouble of creating the corpus, let's just pretend we calculated the probabilities (the bigram-probabilities for the training set were calculated in {{% lancelot title="the previous post" %}}n-gram-building-the-language-model{{% /lancelot %}}).
+
+Here's the case where everything is known.
+#+begin_src python :results output :exports both
+training_set = ['i', 'am', 'happy', 'because','i', 'am', 'learning', '.']
+
+# pre-calculated probabilities
+bigram_probabilities = {('i', 'am'): 1.0,
+                        ('am', 'happy'): 0.5,
+                        ('happy', 'because'): 1.0,
+                        ('because', 'i'): 1.0,
+                        ('am', 'learning'): 0.5,
+                        ('learning', '.'): 1.0}
+test_set = ['i', 'am', 'learning']
+#+end_src
+
+And here's the case where the training set has a lot of unknowns (Out-of-Vocabulary words).
+
+#+begin_src python :results none
+training_set_unk = ['i', 'am', '<UNK>', '<UNK>','i', 'am', '<UNK>', '<UNK>']
+
+test_set_unk = ['i', 'am', '<UNK>']
+#+end_src
+
+And here's our bigram probabilities for the set with unknowns.
+
+#+begin_src python :results none
+bigram_probabilities_unk = {('i', 'am'): 1.0,
+                            ('am', '<UNK>'): 1.0,
+                            ('<UNK>', '<UNK>'): 0.5,
+                            ('<UNK>', 'i'): 0.25}
+#+end_src
+
+"i" is always followed by "am" so the first probability is going to be 1. "am" is always followed by "<UNK>" so the second probability will also be 1. Two of the four "<UNK>"s are followed by an "<UNK>" so the third probability is 1/2 and "<UNK>" is followed by "i" once, so the last probability is 1/4.
+
+# go through the test set and calculate its bigram probability
+#+begin_src python :results output :exports both
+M = len(test_set)
+probability = 1
+probability_unk = 1
+
+n, N = len(test_set), 2
+
+for i in range(n - N + 1):
+    bigram = tuple(test_set[i: i + N])
+    probability = probability * bigram_probabilities[bigram]
+        
+    bigram_unk = tuple(test_set_unk[i: i + N])
+    probability_unk = probability_unk * bigram_probabilities_unk[bigram_unk]
+
+# calculate perplexity for both original test set and test set with <UNK>
+perplexity = probability ** (-1 / M)
+perplexity_unk = probability_unk ** (-1 / M)
+
+print(f"perplexity for the training set: {perplexity}")
+print(f"perplexity for the training set with <UNK>: {perplexity_unk}")
+
+#+end_src
+
+#+RESULTS:
+: perplexity for the training set: 1.2599210498948732
+: perplexity for the training set with <UNK>: 1.0
+
+So our training set with unknown words does better than our training set with all the words in our test set. It's a little mysterious to me why you would choose to put all these unknowns in the training set, unless you're trying to save space or something. I'll have to go back and read about that.
+
+** Smoothing
+   As with prior cases where we had to calculate probabilities, we need to be able to handle probabilities for n-grams that we didn't learn. We're going to use =add-k= smoothing here as an example.
+
+#+begin_src python :results none
+def add_k_smoothing(k: int, vocabulary_size: int, n_gram_count: int,
+                    n_gram_prefix_count: int) -> float:
+    return  ((n_gram_count + k)/
+             (n_gram_prefix_count + k * vocabulary_size))
+#+end_src
+
+We'll take a look at ~k=1~ (Laplacian) smoothing for a trigram.
+
+#+begin_src python :results output :exports both
+trigram_probabilities = {('i', 'am', 'happy') : 2}
+bigram_probabilities = {( 'am', 'happy') : 10}
+vocabulary_size = 5
+k = 1
+
+probability_known_trigram = add_k_smoothing(k, vocabulary_size, trigram_probabilities[('i', 'am', 'happy')], 
+                           bigram_probabilities[( 'am', 'happy')])
+
+probability_unknown_trigram = add_k_smoothing(k, vocabulary_size, 0, 0)
+
+print(f"probability_known_trigram: {probability_known_trigram: 0.03f}")
+print(f"probability_unknown_trigram: {probability_unknown_trigram: 0.03f}")
+#+end_src
+
+#+RESULTS:
+: probability_known_trigram:  0.200
+: probability_unknown_trigram:  0.200
+
+So, here's a problem with /add-k/ smoothing - when the n-gram is unknown, we still get a 20% probability, which in this case happens to be the same as a trigram that was in the training set.
+** Back-Off
+   Here's an alternate way to handle unknown n-grams - if the n-gram isn't known, use a probability for a smaller /n/.
+
+Here are our pre-calculated probabilities of all types of n-grams.
+#+begin_src python :results none
+trigram_probabilities = {('i', 'am', 'happy'): 0}
+bigram_probabilities = {( 'am', 'happy'): 0.3}
+unigram_probabilities = {'happy': 0.4}
+#+end_src
+
+Here's the trigram that we want the probability for. As you can see, we don't have "you" in our known n-grams.
+
+#+begin_src python :results none
+trigram = ('are', 'you', 'happy')
+bigram, unigram = trigram[1: 3], trigram[2]
+#+end_src
+
+Now we can do a brute-force search for the probabilities. \(\lambda\) was discovered experimentally.
+#+begin_src python :results output :exports both
+lambda_factor = 0.4
+probability_hat_trigram = 0
+
+# search for first non-zero probability starting with the trigram
+# to generalize this for any order of n-gram hierarchy, 
+# you could loop through the probability dictionaries instead of if/else cascade
+if trigram not in trigram_probabilities or trigram_probabilities[trigram] == 0:
+    print(f"probability for trigram {trigram} not found")
+    
+    if bigram not in bigram_probabilities or bigram_probabilities[bigram] == 0:
+        print(f"probability for bigram {bigram} not found")
+        
+        if unigram in unigram_probabilities:
+            print(f"probability for unigram {unigram} found\n")
+            probability_hat_trigram = lambda_factor * lambda_factor * unigram_probabilities[unigram]
+        else:
+            probability_hat_trigram = 0
+    else:
+        probability_hat_trigram = lambda_factor * bigram_probabilities[bigram]
+else:
+    probability_hat_trigram = trigram_probabilities[trigram]
+
+print(f"probability for trigram {trigram} estimated as {probability_hat_trigram:0.3f}")
+
+#+end_src
+
+#+RESULTS:
+: probability for trigram ('are', 'you', 'happy') not found
+: probability for bigram ('you', 'happy') not found
+: probability for unigram happy found
+: 
+: probability for trigram ('are', 'you', 'happy') estimated as 0.064
+** Interpolation
+   Yet another way to handle unknown n-grams. In this case you always use trigrams, bigrams, and unigrams, thus eliminating some of the overhead and use a weighted value instead. As always, there's no free lunch - you have to find the best weights to make this work (but we'll take some pre-made ones).
+   
+Pre-calculated probabilities of all types of n-grams.
+#+begin_src python :results none
+trigram_probabilities = {('i', 'am', 'happy'): 0.15}
+bigram_probabilities = {( 'am', 'happy'): 0.3}
+unigram_probabilities = {'happy': 0.4}
+#+end_src
+
+The weights come from optimization on a validation set.
+#+begin_src python :results none
+lambda_1 = 0.8
+lambda_2 = 0.15
+lambda_3 = 0.05
+#+end_src
+
+And now the trigram whose probability we want to estimate as well as derived bigrams and unigrams.
+#+begin_src python :results none
+trigram = ('i', 'am', 'happy')
+bigram, unigram = trigram[1: 3], trigram[2]
+#+end_src
+
+#+begin_src python :results output :exports both
+probability_hat_trigram = lambda_1 * trigram_probabilities[trigram] 
++ lambda_2 * bigram_probabilities[bigram]
++ lambda_3 * unigram_probabilities[unigram]
+
+print(f"estimated probability of the input trigram {trigram} is {probability_hat_trigram: 0.4f}")
+#+end_src
+
+#+RESULTS:
+: estimated probability of the input trigram ('i', 'am', 'happy') is  0.1200
+
+* End
+So, there's various ways to handle both individual words as well as n-grams we don't recognize.
