@@ -1,0 +1,454 @@
+#+BEGIN_COMMENT
+.. title: Auto-Complete: Pre-Process the Data I
+.. slug: auto-complete-pre-process-the-data-i
+.. date: 2020-12-03 18:24:54 UTC-08:00
+.. tags: nlp,n-grams,auto-complete
+.. category: NLP
+.. link: 
+.. description: Pre-processing twitter data for our auto-complete system.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8017c69b-fcd8-4392-8c2c-c68164643bf2-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is the second part of a series implementing an n-gram-based auto-complete system for tweets. The starting post is {{% doc %}}auto-complete{{% /doc %}}.
+** Imports
+#+begin_src python :results none
+# python
+import os
+import random
+
+# pypi
+from dotenv import load_dotenv
+
+from expects import (
+    contain_exactly,
+    equal,
+    expect
+)
+
+import nltk
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+* Middle
+** Load the Data
+   We're going to use twitter data. There's no listing of the source, so I'm assuming it's the NLTK twitter data. But maybe not.
+
+#+begin_src python :results none
+path = os.environ["TWITTER_AUTOCOMPLETE"]
+with open(path) as reader:
+    data = reader.read()
+#+end_src
+
+#+begin_src python :results output :exports both
+print("Data type:", type(data))
+print(f"Number of letters: {len(data):,}")
+print("First 300 letters of the data")
+print("-------")
+display(data[0:300])
+print("-------")
+
+print("Last 300 letters of the data")
+print("-------")
+display(data[-300:])
+print("-------")    
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Data type: <class 'str'>
+: Number of letters: 3,335,477
+: First 300 letters of the data
+: -------
+: How are you? Btw thanks for the RT. You gonna be in DC anytime soon? Love to see you. Been way, way too long.\nWhen you meet someone special... you'll know. Your heart will beat more rapidly and you'll smile for no reason.\nthey've decided its more fun if I don't.\nSo Tired D; Played Lazer Tag & Ran A 
+: -------
+: Last 300 letters of the data
+: -------
+: ust had one a few weeks back....hopefully we will be back soon! wish you the best yo\nColombia is with an 'o'...“: We now ship to 4 countries in South America (fist pump). Please welcome Columbia to the Stunner Family”\n#GutsiestMovesYouCanMake Giving a cat a bath.\nCoffee after 5 was a TERRIBLE idea.\n
+: -------
+:END:
+
+So the data looks like it's just tweets, without any metadata and is separated using newlines.
+** Split To Sentences
+#+begin_src python :results none
+# UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+### GRADED_FUNCTION: split_to_sentences ###
+def split_to_sentences(data: str) -> list:
+    """
+    Split data by linebreak "\n"
+    
+    Args:
+        data: str
+    
+    Returns:
+        A list of sentences
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    sentences = data.split("\n")
+    ### END CODE HERE ###
+    
+    # Additional clearning (This part is already implemented)
+    # - Remove leading and trailing spaces from each sentence
+    # - Drop sentences if they are empty strings.
+    sentences = [s.strip() for s in sentences]
+    sentences = [s for s in sentences if len(s) > 0]
+    
+    return sentences
+#+end_src
+
+*** Test The Code
+
+#+begin_src python :results output :exports both
+x = """
+I have a pen.\nI have an apple. \nAh\nApple pen.\n
+"""
+print(x)
+
+expected = ['I have a pen.', 'I have an apple.', 'Ah', 'Apple pen.']
+actual = split_to_sentences(x)
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+#+RESULTS:
+: 
+: I have a pen.
+: I have an apple. 
+: Ah
+: Apple pen.
+: 
+** Tokenize Sentences
+The next step is to tokenize sentences (split a sentence into a list of words). 
+ - Convert all tokens into lower case so that words which are capitalized (for example, at the start of a sentence) in the original text are treated the same as the lowercase versions of the words.
+ - Append each tokenized list of words into a list of tokenized sentences.
+
+**Hints:**
+
+ - Use [[https://docs.python.org/3/library/stdtypes.html?highlight=split#str.lower"][str.lower]] to convert strings to lowercase.
+ - Please use [[https://www.nltk.org/api/nltk.tokenize.html#nltk.tokenize.punkt.PunktLanguageVars.word_tokenize"][nltk.word_tokenize]] to split sentences into tokens.
+ - If you used =str.split= insteaad of =nltk.word_tokenize=, there are additional edge cases to handle, such as the punctuation (comma, period) that follows a word.
+
+
+#+begin_src python :results none
+# UNQ_C2 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+### GRADED_FUNCTION: tokenize_sentences ###
+def tokenize_sentences(sentences: list) -> list:
+    """
+    Tokenize sentences into tokens (words)
+    
+    Args:
+        sentences: List of strings
+    
+    Returns:
+        List of lists of tokens
+    """
+    
+    # Initialize the list of lists of tokenized sentences
+    tokenized_sentences = []
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # Go through each sentence
+    for sentence in sentences:
+        
+        # Convert to lowercase letters
+        sentence = sentence.lower()
+        
+        # Convert into a list of words
+        tokenized = nltk.word_tokenize(sentence)
+        
+        # append the list of words to the list of lists
+        tokenized_sentences.append(tokenized)
+    
+    ### END CODE HERE ###
+    
+    return tokenized_sentences
+#+end_src
+*** Test the Code
+#+begin_src python :results none
+sentences = ["Sky is blue.", "Leaves are green.", "Roses are red."]
+
+expecteds = [['sky', 'is', 'blue', '.'],
+            ['leaves', 'are', 'green', '.'],
+            ['roses', 'are', 'red', '.']]
+
+actuals = tokenize_sentences(sentences)
+for expected, actual in zip(expecteds, actuals):
+    expect(actual).to(contain_exactly(*expected))
+#+end_src
+   
+** Combine Split Sentences and Tokenize
+#+begin_src python :results none
+# UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+### GRADED_FUNCTION: get_tokenized_data ###
+def get_tokenized_data(data: str) -> list:
+    """
+    Make a list of tokenized sentences
+    
+    Args:
+        data: String
+    
+    Returns:
+        List of lists of tokens
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # Get the sentences by splitting up the data
+    sentences = split_to_sentences(data)
+    
+    # Get the list of lists of tokens by tokenizing the sentences
+    tokenized_sentences = tokenize_sentences(sentences)
+    
+    ### END CODE HERE ###
+    
+    return tokenized_sentences
+#+end_src
+
+*** Test It
+#+begin_src python :results none
+x = "Sky is blue.\nLeaves are green\nRoses are red."
+actuals = get_tokenized_data(x)
+expecteds =  [['sky', 'is', 'blue', '.'],
+              ['leaves', 'are', 'green'],
+              ['roses', 'are', 'red', '.']]
+for actual, expected in zip(actuals, expecteds):
+    expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+** Split Train and Test Sets
+#+begin_src python :results none
+tokenized_data = get_tokenized_data(data)
+random.seed(87)
+random.shuffle(tokenized_data)
+
+train_size = int(len(tokenized_data) * 0.8)
+train_data = tokenized_data[0:train_size]
+test_data = tokenized_data[train_size:]
+#+end_src
+
+#+begin_src python :results output :exports both
+actual_data, expected_data = len(tokenized_data), 47961
+actual_training, expected_training = len(train_data), 38368
+actual_testing, expected_testing = len(test_data), 9593
+
+print((f"{actual_data:,} are split into {actual_training:,} training entries"
+       f" and {actual_testing:,} test set entries."))
+
+for label, actual, expected in zip(
+        "data training testing".split(),
+        (actual_data, actual_training, actual_testing),
+        (expected_data, expected_training, expected_testing)):
+    expect(actual).to(equal(expected)), (label, actual, expected)
+#+end_src
+
+#+RESULTS:
+: 47,961 are split into 38,368 training entries and 9,593 test set entries.
+
+#+begin_src python :results output :exports both
+print("First training sample:")
+actual = train_data[0]
+print(actual)
+expected = ["i", "personally", "would", "like", "as", "our", "official", "glove",
+            "of", "the", "team", "local", "company", "and", "quality",
+            "production"]
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+#+RESULTS:
+: First training sample:
+: ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the', 'team', 'local', 'company', 'and', 'quality', 'production']
+
+#+begin_src python :results output :exports both
+print("First test sample")
+actual = test_data[0]
+print(actual)
+expected = ["that", "picture", "i", "just", "seen", "whoa", "dere", "!", "!",
+            ">", ">", ">", ">", ">", ">", ">"]
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+#+RESULTS:
+: First test sample
+: ['that', 'picture', 'i', 'just', 'seen', 'whoa', 'dere', '!', '!', '>', '>', '>', '>', '>', '>', '>']
+
+** Object-Oriented
+#+begin_src python :tangle ../../neurotic/nlp/autocomplete/tokenize.py
+<<imports>>
+
+
+<<the-tokenizer>>
+
+    <<sentences>>
+
+    <<tokenized>>
+
+
+<<train-test-split>>
+
+    <<shuffled-data>>
+
+    <<training-data>>
+
+    <<testing-data>>
+
+    <<split>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+import random
+
+# pypi
+import attr
+import nltk
+#+end_src    
+*** The Tokenizer
+#+begin_src python :noweb-ref the-tokenizer
+@attr.s(auto_attribs=True)
+class Tokenizer:
+    """Tokenizes string sentences
+
+    Args:
+     source: string data to tokenize
+     end_of_sentence: what to split sentences on
+    """
+    source: str
+    end_of_sentence: str="\n"
+    _sentences: list=None
+    _tokenized: list=None
+    _training_data: list=None
+#+end_src
+**** Sentences
+#+begin_src python :noweb-ref sentences
+@property
+def sentences(self) -> list:
+    """The data split into sentences"""
+    if self._sentences is None:
+        self._sentences = self.source.split(self.end_of_sentence)
+        self._sentences = (sentence.strip() for sentence in self._sentences)
+        self._sentences = [sentence for sentence in self._sentences if sentence]
+    return self._sentences
+#+end_src
+**** Tokenized
+#+begin_src python :noweb-ref tokenized
+@property
+def tokenized(self) -> list:
+    """List of tokenized sentence"""
+    if self._tokenized is None:
+        self._tokenized = [nltk.word_tokenize(sentence.lower())
+                           for sentence in self.sentences]
+    return self._tokenized
+#+end_src
+*** Train-Test-Split
+#+begin_src python :noweb-ref train-test-split
+@attr.s(auto_attribs=True)
+class TrainTestSplit:
+    """splits up the training and testing sets
+
+    Args:
+     data: list of data to split
+     training_fraction: how much to put in the training set
+    """
+    data: list
+    training_fraction: float=0.8
+    _shuffled: list=None
+    _training: list=None
+    _testing: list=None
+    _split: int=None
+#+end_src
+**** Shuffled Data
+#+begin_src python :noweb-ref shuffled-data
+@property
+def shuffled(self) -> list:
+    """The data shuffled"""
+    if self._shuffled is None:
+        self._shuffled = random.sample(self.data, k=len(self.data))
+    return self._shuffled
+#+end_src
+**** Split
+#+begin_src python :noweb-ref split
+@property
+def split(self) -> int:
+    """The slice value for training and testing"""
+    if self._split is None:
+        self._split = int(len(self.data) * self.training_fraction)
+    return self._split
+#+end_src
+**** Training Data
+#+begin_src python :noweb-ref training-data
+@property
+def training(self) -> list:
+    """The Training Portion of the Set"""
+    if self._training is None:
+        self._training = self.shuffled[0:self.split]
+    return self._training
+#+end_src
+**** Testing Data
+#+begin_src python :noweb-ref testing-data
+@property
+def testing(self) -> list:
+    """The testing data"""
+    if self._testing is None:
+        self._testing = self.shuffled[self.split:]
+    return self._testing
+#+end_src     
+*** Test It Out
+**** Sentences    
+#+begin_src python :results none
+from neurotic.nlp.autocomplete import Tokenizer, TrainTestSplit
+
+x = """
+I have a pen.\nI have an apple. \nAh\nApple pen.\n
+"""
+expected = ['I have a pen.', 'I have an apple.', 'Ah', 'Apple pen.']
+tokenizer = Tokenizer(x)
+
+actual = tokenizer.sentences
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+**** Tokens
+#+begin_src python :results none
+source = "\n".join(["Sky is blue.", "Leaves are green.", "Roses are red."])
+
+expecteds = [['sky', 'is', 'blue', '.'],
+            ['leaves', 'are', 'green', '.'],
+            ['roses', 'are', 'red', '.']]
+
+tokenizer = Tokenizer(source)
+actuals = tokenizer.tokenized
+for expected, actual in zip(expecteds, actuals):
+    expect(actual).to(contain_exactly(*expected))
+#+end_src
+** Training And Test Sets
+#+begin_src python :results none
+random.seed(87)
+tokenizer = Tokenizer(data)
+#+end_src
+
+#+begin_src python :results none
+splitter = TrainTestSplit(tokenizer.tokenized)
+actual_data, expected_data = len(tokenizer.tokenized), 47961
+actual_training, expected_training = len(splitter.training), 38368
+actual_testing, expected_testing = len(splitter.testing), 9593
+
+print((f"{actual_data:,} are split into {actual_training:,} training entries"
+       f" and {actual_testing:,} test set entries."))
+
+for label, actual, expected in zip(
+        "data training testing".split(),
+        (actual_data, actual_training, actual_testing),
+        (expected_data, expected_training, expected_testing)):
+    expect(actual).to(equal(expected)), (label, actual, expected)
+#+end_src
+* End
+  The next post in this series is {{% lancelot title="Pre-Processing II" %}}auto-complete-pre-process-the-data-ii{{% /lancelot %}} in which we'll add counts to the tweets.
