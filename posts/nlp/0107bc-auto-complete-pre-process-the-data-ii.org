@@ -12,7 +12,7 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-628b96bb-9fe2-4219-af43-264f81238d87-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-db1ed314-77ca-45fb-b701-0e8d4d6e6d59-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
@@ -20,37 +20,46 @@
 #+END_SRC
 * Beginning
   This is the third post in a series that begins with {{% doc %}}auto-complete{{% /doc %}}. In the {{% lancelot title="previous entry" %}}auto-complete-pre-process-the-data-i{{% /lancelot %}} we did some basic preprocessing to transform the raw tweet data into a form closer to what we wanted. In this post we'll add some counts to the data so that we can use it to build our model.
-* End
-  Now that we have the data in the basic form we want we'll move on to building the {{% lancelot title="N-Gram Language Model" %}}auto-complete-the-n-gram-model{{% /lancelot %}}.
-* Raw
-#+begin_example
-# <a name='1'></a>
-# ### Exercise 04
-# 
-# You won't use all the tokens (words) appearing in the data for training.  Instead, you will use the more frequently used words.  
-# - You will focus on the words that appear at least N times in the data.
-# - First count how many times each word appears in the data.
-# 
-# You will need a double for-loop, one for sentences and the other for tokens within a sentence.
-# 
+** Imports
+#+begin_src python :results none
+# python
+import os
 
-# <details>    
-# <summary>
-#     <font size="3" color="darkgreen"><b>Hints</b></font>
-# </summary>
-# <p>
-# <ul>
-#     <li>If you decide to import and use defaultdict, remember to cast the dictionary back to a regular 'dict' before returning it. </li>
-# </ul>
-# </p>
-# 
+# pypi
+from dotenv import load_dotenv
+from expects import (
+    contain_exactly,
+    contain_only,
+    equal,
+    expect,
+    have_keys)
 
-# In[ ]:
+# this series
+from neurotic.nlp.autocomplete import Tokenizer, TrainTestSplit
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+*** The Data
+#+begin_src python :results none
+path = os.environ["TWITTER_AUTOCOMPLETE"]
+with open(path) as reader:
+    data = reader.read()
+#+end_src
 
-
+#+begin_src python :results none
+tokenizer = Tokenizer(data)
+splitter = TrainTestSplit(tokenizer.tokenized)
+train_data, test_data = splitter.training, splitter.testing
+#+end_src   
+* Middle
+** Count Words
+#+begin_src python :results none
 # UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 ### GRADED_FUNCTION: count_words ###
-def count_words(tokenized_sentences):
+def count_words(tokenized_sentences: list) -> dict:
     """
     Count the number of word appearence in the tokenized sentences
     
@@ -65,75 +74,63 @@ def count_words(tokenized_sentences):
     ### START CODE HERE (Replace instances of 'None' with your code) ###
     
     # Loop through each sentence
-    for sentence in None: # complete this line
+    for sentence in tokenized_sentences: # complete this line
         
         # Go through each token in the sentence
-        for token in None: # complete this line
+        for token in sentence: # complete this line
 
             # If the token is not in the dictionary yet, set the count to 1
-            if None: # complete this line
-                word_counts[token] = None
+            if token not in word_counts: # complete this line
+                word_counts[token] = 1
             
             # If the token is already in the dictionary, increment the count by 1
             else:
-                word_counts[token] += None
+                word_counts[token] += 1
 
     ### END CODE HERE ###
     
     return word_counts
+#+end_src
 
+** Test the Code
 
-# In[ ]:
-
-
-# test your code
+#+begin_src python :results none
 tokenized_sentences = [['sky', 'is', 'blue', '.'],
                        ['leaves', 'are', 'green', '.'],
                        ['roses', 'are', 'red', '.']]
-count_words(tokenized_sentences)
+actual = count_words(tokenized_sentences)
 
+expected =  {'sky': 1,
+             'is': 1,
+             'blue': 1,
+             '.': 3,
+             'leaves': 1,
+             'are': 2,
+             'green': 1,
+             'roses': 1,
+             'red': 1}
 
-# ##### Expected output
-# 
-# Note that the order may differ.
-# 
-# ```CPP
-# {'sky': 1,
-#  'is': 1,
-#  'blue': 1,
-#  '.': 3,
-#  'leaves': 1,
-#  'are': 2,
-#  'green': 1,
-#  'roses': 1,
-#  'red': 1}
-# ```
+expect(actual).to(have_keys(**expected))
+#+end_src
+** Out-Of-Vocabulary Words
+If your model is performing autocomplete, but encounters a word that it never saw during training, it won't have an input word to help it determine the next word to suggest. The model will not be able to predict the next word because there are no counts for the current word. 
+ - This 'new' word is called an 'unknown word', or <b>out of vocabulary (OOV)</b> words.
+ - The percentage of unknown words in the test set is called the <b> OOV </b> rate. 
 
-# ### Handling 'Out of Vocabulary' words
-# 
-# If your model is performing autocomplete, but encounters a word that it never saw during training, it won't have an input word to help it determine the next word to suggest. The model will not be able to predict the next word because there are no counts for the current word. 
-# - This 'new' word is called an 'unknown word', or <b>out of vocabulary (OOV)</b> words.
-# - The percentage of unknown words in the test set is called the <b> OOV </b> rate. 
-# 
-# To handle unknown words during prediction, use a special token to represent all unknown words 'unk'. 
-# - Modify the training data so that it has some 'unknown' words to train on.
-# - Words to convert into "unknown" words are those that do not occur very frequently in the training set.
-# - Create a list of the most frequent words in the training set, called the <b> closed vocabulary </b>. 
-# - Convert all the other words that are not part of the closed vocabulary to the token 'unk'. 
+ To handle unknown words during prediction, use a special token to represent all unknown words 'unk'. 
+ - Modify the training data so that it has some 'unknown' words to train on.
+ - Words to convert into "unknown" words are those that do not occur very frequently in the training set.
+ - Create a list of the most frequent words in the training set, called the <b> closed vocabulary </b>. 
+ - Convert all the other words that are not part of the closed vocabulary to the token 'unk'. 
 
-# <a name='ex-05'></a>
-# ### Exercise 05
-# 
-# You will now create a function that takes in a text document and a threshold `count_threshold`.
-# - Any word whose count is greater than or equal to the threshold `count_threshold` is kept in the closed vocabulary.
-# - Returns the word closed vocabulary list.  
+ Create a function that takes in a text document and a threshold `count_threshold`.
+ - Any word whose count is greater than or equal to the threshold `count_threshold` is kept in the closed vocabulary.
+ - Returns the word closed vocabulary list.  
 
-# In[ ]:
-
-
+#+begin_src python :results none
 # UNQ_C5 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 ### GRADED_FUNCTION: get_words_with_nplus_frequency ###
-def get_words_with_nplus_frequency(tokenized_sentences, count_threshold):
+def get_words_with_nplus_frequency(tokenized_sentences: list, count_threshold: int) -> list:
     """
     Find the words that appear N times or more
     
@@ -155,51 +152,45 @@ def get_words_with_nplus_frequency(tokenized_sentences, count_threshold):
     ### START CODE HERE (Replace instances of 'None' with your code) ###
 
     # for each word and its count
-    for word, cnt in None: # complete this line
+    for word, cnt in word_counts.items(): # complete this line
         
         # check that the word's count
         # is at least as great as the minimum count
-        if None:
+        if cnt >= count_threshold:
             
             # append the word to the list
-            None
+            closed_vocab.append(word)
     ### END CODE HERE ###
     
     return closed_vocab
-
-
-# In[ ]:
-
-
-# test your code
+#+end_src
+*** Test The Code
+#+begin_src python :results output :exports both
 tokenized_sentences = [['sky', 'is', 'blue', '.'],
                        ['leaves', 'are', 'green', '.'],
                        ['roses', 'are', 'red', '.']]
-tmp_closed_vocab = get_words_with_nplus_frequency(tokenized_sentences, count_threshold=2)
+actual = get_words_with_nplus_frequency(tokenized_sentences, count_threshold=2)
 print(f"Closed vocabulary:")
-print(tmp_closed_vocab)
+print(actual)
+expected = ['.', 'are']
+expect(actual).to(contain_exactly(*expected))
+#+end_src
 
+#+RESULTS:
+: Closed vocabulary:
+: ['.', 'are']
 
-# ##### Expected output
-# 
-# ```CPP
-# Closed vocabulary:
-# ['.', 'are']
-# ```
+** Parts Unknown
+ The words that appear `count_threshold` times or more are in the closed vocabulary. 
+ - All other words are regarded as `unknown`.
+ - Replace words not in the closed vocabulary with the token `<unk>`.
 
-# <a name='ex-06'></a>
-# ### Exercise 06
-# 
-# The words that appear `count_threshold` times or more are in the closed vocabulary. 
-# - All other words are regarded as `unknown`.
-# - Replace words not in the closed vocabulary with the token `<unk>`.
-
-# In[ ]:
-
-
+#+begin_src python :results none
 # UNQ_C6 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 ### GRADED_FUNCTION: replace_oov_words_by_unk ###
-def replace_oov_words_by_unk(tokenized_sentences, vocabulary, unknown_token="<unk>"):
+def replace_oov_words_by_unk(tokenized_sentences: list,
+                             vocabulary: list,
+                             unknown_token: str="<unk>") -> list:
     """
     Replace words not in the given vocabulary with '<unk>' token.
     
@@ -228,58 +219,51 @@ def replace_oov_words_by_unk(tokenized_sentences, vocabulary, unknown_token="<un
         ### START CODE HERE (Replace instances of 'None' with your code) ###
 
         # for each token in the sentence
-        for token in None: # complete this line
+        for token in sentence: # complete this line
             
             # Check if the token is in the closed vocabulary
-            if token in None: # complete this line
+            if token in vocabulary: # complete this line
                 # If so, append the word to the replaced_sentence
-                None
+                replaced_sentence.append(token)
             else:
                 # otherwise, append the unknown token instead
-                None
+                replaced_sentence.append(unknown_token)
         ### END CODE HERE ###
         
         # Append the list of tokens to the list of lists
         replaced_tokenized_sentences.append(replaced_sentence)
         
     return replaced_tokenized_sentences
-
-
-# In[ ]:
-
-
+#+end_src
+*** Test It
+#+begin_src python :results output :exports both
 tokenized_sentences = [["dogs", "run"], ["cats", "sleep"]]
 vocabulary = ["dogs", "sleep"]
 tmp_replaced_tokenized_sentences = replace_oov_words_by_unk(tokenized_sentences, vocabulary)
+
 print(f"Original sentence:")
 print(tokenized_sentences)
+expecteds = [['dogs', 'run'], ['cats', 'sleep']]
+for actual, expected in zip(tokenized_sentences, expecteds):
+    expect(actual).to(contain_exactly(*expected))
+
 print(f"tokenized_sentences with less frequent words converted to '<unk>':")
 print(tmp_replaced_tokenized_sentences)
+expecteds = [['dogs', '<unk>'], ['<unk>', 'sleep']]
+for actual,expected in zip(tmp_replaced_tokenized_sentences, expecteds):
+    expect(actual).to(contain_exactly(*expected))
+#+end_src
 
-
-# ### Expected answer
-# 
-# ```CPP
-# Original sentence:
-# [['dogs', 'run'], ['cats', 'sleep']]
-# tokenized_sentences with less frequent words converted to '<unk>':
-# [['dogs', '<unk>'], ['<unk>', 'sleep']]
-# ```
-
-# <a name='ex-07'></a>
-# ### Exercise 07
-# 
-# Now we are ready to process our data by combining the functions that you just implemented.
-# 
-# 1. Find tokens that appear at least count_threshold times in the training data.
-# 1. Replace tokens that appear less than count_threshold times by "<unk\>" both for training and test data.
-
-# In[ ]:
-
-
+#+RESULTS:
+: Original sentence:
+: [['dogs', 'run'], ['cats', 'sleep']]
+: tokenized_sentences with less frequent words converted to '<unk>':
+: [['dogs', '<unk>'], ['<unk>', 'sleep']]
+** Combine Them
+#+begin_src python :results none
 # UNQ_C7 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 ### GRADED_FUNCTION: preprocess_data ###
-def preprocess_data(train_data, test_data, count_threshold):
+def preprocess_data(train_data: list, test_data: list, count_threshold: int) -> tuple:
     """
     Preprocess data, i.e.,
         - Find tokens that appear at least N times in the training data.
@@ -298,22 +282,19 @@ def preprocess_data(train_data, test_data, count_threshold):
     ### START CODE HERE (Replace instances of 'None' with your code) ###
 
     # Get the closed vocabulary using the train data
-    vocabulary = None
+    vocabulary = get_words_with_nplus_frequency(train_data, count_threshold)
     
     # For the train data, replace less common words with "<unk>"
-    train_data_replaced = None
+    train_data_replaced = replace_oov_words_by_unk(train_data, vocabulary)
     
     # For the test data, replace less common words with "<unk>"
-    test_data_replaced = None
+    test_data_replaced =  replace_oov_words_by_unk(test_data, vocabulary)
     
     ### END CODE HERE ###
     return train_data_replaced, test_data_replaced, vocabulary
+#+end_src
 
-
-# In[ ]:
-
-
-# test your code
+#+begin_src python :results output :exports both
 tmp_train = [['sky', 'is', 'blue', '.'],
      ['leaves', 'are', 'green']]
 tmp_test = [['roses', 'are', 'red', '.']]
@@ -324,71 +305,229 @@ tmp_train_repl, tmp_test_repl, tmp_vocab = preprocess_data(tmp_train,
 
 print("tmp_train_repl")
 print(tmp_train_repl)
+expecteds = [['sky', 'is', 'blue', '.'], ['leaves', 'are', 'green']]
+for actual, expected in zip(tmp_train_repl, expecteds):
+    expect(actual).to(contain_exactly(*expected))
 print()
 print("tmp_test_repl")
 print(tmp_test_repl)
+
+expecteds = [['<unk>', 'are', '<unk>', '.']]
+
+for actual, expected in zip(tmp_test_repl, expecteds):
+    expect(actual).to(contain_exactly(*expected))
 print()
 print("tmp_vocab")
 print(tmp_vocab)
+expected = ['sky', 'is', 'blue', '.', 'leaves', 'are', 'green']
+expect(tmp_vocab).to(contain_exactly(*expected))
+#+end_src
 
+#+RESULTS:
+: tmp_train_repl
+: [['sky', 'is', 'blue', '.'], ['leaves', 'are', 'green']]
+: 
+: tmp_test_repl
+: [['<unk>', 'are', '<unk>', '.']]
+: 
+: tmp_vocab
+: ['sky', 'is', 'blue', '.', 'leaves', 'are', 'green']
 
-# ##### Expected outcome
-# 
-# ```CPP
-# tmp_train_repl
-# [['sky', 'is', 'blue', '.'], ['leaves', 'are', 'green']]
-# 
-# tmp_test_repl
-# [['<unk>', 'are', '<unk>', '.']]
-# 
-# tmp_vocab
-# ['sky', 'is', 'blue', '.', 'leaves', 'are', 'green']
-# ```
-
-# ### Preprocess the train and test data
-# Run the cell below to complete the preprocessing both for training and test sets.
-
-# In[ ]:
-
-
+** Preprocess the Real Data
+#+begin_src python :results none
 minimum_freq = 2
 train_data_processed, test_data_processed, vocabulary = preprocess_data(train_data, 
                                                                         test_data, 
                                                                         minimum_freq)
+#+end_src
 
-
-# In[ ]:
-
-
-print("First preprocessed training sample:")
-print(train_data_processed[0])
+#+begin_src python :results output :exports both
+print("last preprocessed testing sample:")
+actual = test_data_processed[-1]
+expected = ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the', 'team', 'local', 'company', 'and', 'quality', 'production']
+print(actual)
+expect(actual).to(contain_exactly(*expected))
 print()
-print("First preprocessed test sample:")
-print(test_data_processed[0])
+
+print("preprocessed training sample:")
+actual = train_data_processed[9592]
+expected = ['that', 'picture', 'i', 'just', 'seen', 'whoa', 'dere', '!', '!', '>', '>', '>', '>', '>', '>', '>']
+print(actual)
+expect(actual).to(contain_exactly(*expected))
 print()
+
 print("First 10 vocabulary:")
-print(vocabulary[0:10])
+actual = vocabulary[0:10]
+expected = ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the']
+print(actual)
+#expect(actual).to(contain_exactly(*expected))
 print()
-print("Size of vocabulary:", len(vocabulary))
+actual = len(vocabulary)
+print(f"Size of vocabulary: {actual:,}")
+expected = 14821
+#expect(actual).to(equal(expected))
+#+end_src
 
+#+RESULTS:
+: last preprocessed testing sample:
+: ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the', 'team', 'local', 'company', 'and', 'quality', 'production']
+: 
+: preprocessed training sample:
+: ['that', 'picture', 'i', 'just', 'seen', 'whoa', 'dere', '!', '!', '>', '>', '>', '>', '>', '>', '>']
+: 
+: First 10 vocabulary:
+: ['d', '&', 's', 'is', 'covering', 'the', 'event', 'with', 'thomas', ',']
+: 
+: Size of vocabulary: 14,679
 
-# ##### Expected output
-# 
-# ```CPP
-# First preprocessed training sample:
-# ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the', 'team', 'local', 'company', 'and', 'quality', 'production']
-# 
-# First preprocessed test sample:
-# ['that', 'picture', 'i', 'just', 'seen', 'whoa', 'dere', '!', '!', '>', '>', '>', '>', '>', '>', '>']
-# 
-# First 10 vocabulary:
-# ['i', 'personally', 'would', 'like', 'as', 'our', 'official', 'glove', 'of', 'the']
-# 
-# Size of vocabulary: 14821
-# ```
+**Note:** My shuffling is different from theirs, even though I'm setting the seed, so it seems to come out differently.
 
-# You are done with the preprocessing section of the assignment.
-# Objects `train_data_processed`, `test_data_processed`, and `vocabulary` will be used in the rest of the exercises.
+** Put It All Together
+#+begin_src python :tangle ../../neurotic/nlp/autocomplete/processor.py :exports none
+<<imports>>
 
-# <a name='2'></a>
-#+end_example
+<<count-processor>>
+
+    <<counts>>
+
+    <<vocabulary>>
+
+    <<train-unknown>>
+
+    <<test-unknown>>
+
+    <<parts-unknown>>
+#+end_src
+*** The Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import Counter
+from itertools import chain
+
+# from pypi
+import attr
+#+end_src
+*** The Processor
+#+begin_src python :noweb-ref count-processor
+@attr.s(auto_attribs=True)
+class CountProcessor:
+    """Processes the data to have unknowns
+
+    Args:
+     training: the tokenized training data (list of lists)
+     testing: the tokenized testing data
+     count_threshold: minimum number of times token needs to appear
+     unknown_token: string to use for words below threshold
+    """
+    training: list
+    testing: list
+    count_threshold: int=2
+    unknown_token: str="<unk>"
+    _counts: dict=None
+    _vocabulary: set=None
+    _train_unknown: list=None
+    _test_unknown: list=None
+#+end_src
+**** Counts
+#+begin_src python :noweb-ref counts
+@property
+def counts(self) -> Counter:
+    """Count of each word in the training data"""
+    if self._counts is None:
+        self._counts = Counter(chain.from_iterable(self.training))
+    return self._counts
+#+end_src
+**** The Vocabulary
+#+begin_src python :noweb-ref vocabulary
+@property
+def vocabulary(self) -> set:
+    """The tokens in training that appear at least ``count_threshold`` times"""
+    if self._vocabulary is None:
+        self._vocabulary = set((token for token, count in self.counts.items()
+                            if count >= self.count_threshold))
+    return self._vocabulary
+#+end_src
+**** Train Unknown
+#+begin_src python :noweb-ref train-unknown
+@property
+def train_unknown(self) -> list:
+    """Training data with words below threshold replaced"""
+    if self._train_unknown is None:
+        self._train_unknown = self.parts_unknown(self.training)
+    return self._train_unknown
+#+end_src
+**** Test Unknown
+#+begin_src python :noweb-ref test-unknown
+@property
+def test_unknown(self) -> list:
+    """Testing data with words below threshold replaced"""
+    if self._test_unknown is None:
+        self._test_unknown = self.parts_unknown(self.testing)
+    return self._test_unknown
+#+end_src
+**** Parts Unknown
+#+begin_src python :noweb-ref parts-unknown
+def parts_unknown(self, source: list) -> list:
+    """Replaces tokens in source that aren't in vocabulary
+
+    Args:
+     source: nested list of lists with tokens to check
+    
+    Returns: source with unknown words replaced by unknown_token
+    """
+    return [
+            [token if token in self.vocabulary else self.unknown_token
+             for token in tokens]
+        for tokens in source
+    ]    
+#+end_src            
+*** Test It Out
+#+begin_src python :results none
+from neurotic.nlp.autocomplete import CountProcessor
+
+tokenized_sentences = [['sky', 'is', 'blue', '.'],
+                       ['leaves', 'are', 'green', '.'],
+                       ['roses', 'are', 'red', '.']]
+
+testing = [[]]
+processor = CountProcessor(tokenized_sentences, testing)
+actual = processor.counts
+
+expected =  {'sky': 1,
+             'is': 1,
+             'blue': 1,
+             '.': 3,
+             'leaves': 1,
+             'are': 2,
+             'green': 1,
+             'roses': 1,
+             'red': 1}
+
+# note to future self: if you pass key=value to have_keys it checks both
+expect(actual).to(have_keys(**expected))
+
+actual = processor.vocabulary
+expected = ['.', 'are']
+expect(actual).to(contain_only(*expected))
+#+end_src
+
+#+begin_src python :results none
+tokenized_sentences = [["dogs", "run", "sleep"], ["cats", "sleep", "dogs"]]
+
+testing = [["cows", "dogs"], ["pigs", "sleep"]]
+processor = CountProcessor(training=tokenized_sentences, testing=testing)
+
+actuals = processor.train_unknown
+
+UNKNOWN = "<unk>"
+expecteds = [["dogs", UNKNOWN, "sleep"], [UNKNOWN, "sleep", "dogs"]]
+for actual,expected in zip(actuals, expecteds):
+    expect(actual).to(contain_exactly(*expected))
+
+actuals = processor.test_unknown
+expecteds = [[UNKNOWN, "dogs"], [UNKNOWN, "sleep"]]
+for actual,expected in zip(actuals, expecteds):
+    expect(actual).to(contain_exactly(*expected))
+#+end_src
+* End
+  Now that we have the data in the basic form we want we'll move on to building the {{% lancelot title="N-Gram Language Model" %}}auto-complete-the-n-gram-model{{% /lancelot %}}.

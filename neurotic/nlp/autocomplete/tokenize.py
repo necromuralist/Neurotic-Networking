@@ -13,6 +13,7 @@ class Tokenizer:
     Args:
      source: string data to tokenize
      end_of_sentence: what to split sentences on
+
     """
     source: str
     end_of_sentence: str="\n"
@@ -45,9 +46,11 @@ class TrainTestSplit:
     Args:
      data: list of data to split
      training_fraction: how much to put in the training set
+     seed: something to seed the random call
     """
     data: list
     training_fraction: float=0.8
+    seed: int=87
     _shuffled: list=None
     _training: list=None
     _testing: list=None
@@ -57,6 +60,7 @@ class TrainTestSplit:
     def shuffled(self) -> list:
         """The data shuffled"""
         if self._shuffled is None:
+            random.seed(self.seed)
             self._shuffled = random.sample(self.data, k=len(self.data))
         return self._shuffled
 
