@@ -1,0 +1,317 @@
+#+BEGIN_COMMENT
+.. title: N-Gram: Building the Language Model
+.. slug: n-gram-building-the-language-model
+.. date: 2020-12-02 19:12:55 UTC-08:00
+.. tags: nlp,n-grams
+.. category: NLP
+.. link: 
+.. description: Building the language model for N-Grams.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9ac2c430-acdf-4391-9522-5a5a8def7da8-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Building the Language Model
+** Imports
+#+begin_src python :results none
+# python
+from collections import defaultdict
+from functools import partial
+
+import random
+
+# pypi
+from tabulate import tabulate
+
+import numpy
+import pandas
+#+end_src
+** Set Up
+#+begin_src python :results none
+TABLE = partial(tabulate, tablefmt="orgtbl", headers="keys")
+#+end_src   
+* Middle
+** The Count Matrix
+To calculate the n-gram probability, you will need to count frequencies of n-grams and n-gram prefixes in the training dataset. In some of the code assignment exercises, you will store the n-gram frequencies in a dictionary. 
+
+In other parts of the assignment, you will build a count matrix that keeps counts of (n-1)-gram prefix followed by all possible last words in the vocabulary.
+
+The following code shows how to check, retrieve and update counts of n-grams in the word count dictionary.
+
+#+begin_src python :results output :exports both
+n_gram_counts = {
+    ('i', 'am', 'happy'): 2,
+    ('am', 'happy', 'because'): 1}
+
+# get count for an n-gram tuple
+print(f"count of n-gram {('i', 'am', 'happy')}: {n_gram_counts[('i', 'am', 'happy')]}")
+#+end_src
+
+#+RESULTS:
+: count of n-gram ('i', 'am', 'happy'): 2
+
+#+begin_src python :results output :exports both
+# check if n-gram is present in the dictionary
+n_gram = ('i', 'am', 'learning')
+status = "found" if n_gram in n_gram_counts else "missing"
+
+print(f"n-gram {n_gram} {status}")
+#+end_src
+
+#+RESULTS:
+: n-gram ('i', 'am', 'learning') missing
+
+#+begin_src python :results output :exports both
+# update the count in the word count dictionary
+n_gram_counts[n_gram] = 1
+status = "found" if ('i', 'am', 'learning') in n_gram_counts else "missing"
+print(f"n-gram {n_gram} {status}")
+#+end_src
+
+#+RESULTS:
+: n-gram ('i', 'am', 'learning') found
+
+The next code snippet shows how to merge two tuples in Python. That will be handy when creating the n-gram from the prefix and the last word.
+
+concatenate tuple for prefix and tuple with the last word to create the n_gram
+#+begin_src python :results output :exports both
+prefix = ('i', 'am', 'happy')
+word = 'because'
+
+# note here the syntax for creating a tuple for a single word
+n_gram = prefix + (word,)
+print(n_gram)
+#+end_src
+
+#+RESULTS:
+: ('i', 'am', 'happy', 'because')
+** Single-Pass Trigram Count Matrix
+   In the lecture, you've seen that the count matrix could be made in a single pass through the corpus. Here is one approach to do that.
+   
+#+begin_src python :results none
+def single_pass_trigram_count_matrix(corpus: list) -> tuple:
+    """
+    Creates the trigram count matrix from the input corpus in a single pass through the corpus.
+    
+    Args:
+        corpus: Pre-processed and tokenized corpus. 
+    
+    Returns:
+        bigrams: list of all bigram prefixes, row index
+        vocabulary: list of all found words, the column index
+        count_matrix: pandas dataframe with bigram prefixes as rows, 
+                      vocabulary words as columns 
+                      and the counts of the bigram/word combinations (i.e. trigrams) as values
+    """
+    bigrams = []
+    vocabulary = []
+    count_matrix_dict = defaultdict(dict)
+    
+    # go through the corpus once with a sliding window
+    for i in range(len(corpus) - 3 + 1):
+        # the sliding window starts at position i and contains 3 words
+        trigram = tuple(corpus[i : i + 3])
+        
+        bigram = trigram[0 : -1]
+        if not bigram in bigrams:
+            bigrams.append(bigram)        
+        
+        last_word = trigram[-1]
+        if not last_word in vocabulary:
+            vocabulary.append(last_word)
+        
+        if (bigram,last_word) not in count_matrix_dict:
+            count_matrix_dict[bigram,last_word] = 0
+            
+        count_matrix_dict[bigram,last_word] += 1
+    
+    # convert the count_matrix to numpy.array to fill in the blanks
+    count_matrix = numpy.zeros((len(bigrams), len(vocabulary)))
+    for trigram_key, trigam_count in count_matrix_dict.items():
+        count_matrix[bigrams.index(trigram_key[0]),
+                     vocabulary.index(trigram_key[1])] = trigam_count
+    
+    # numpy.array to pandas dataframe conversion
+    count_matrix = pandas.DataFrame(count_matrix, index=bigrams, columns=vocabulary)
+    return bigrams, vocabulary, count_matrix
+#+end_src
+
+#+begin_src python :results output :exports both
+corpus = ['i', 'am', 'happy', 'because', 'i', 'am', 'learning', '.']
+
+bigrams, vocabulary, count_matrix = single_pass_trigram_count_matrix(corpus)
+
+print(TABLE(count_matrix))
+#+end_src
+
+#+RESULTS:
+ |                      |   happy |   because |   i |   am |   learning |   . |
+ |----------------------+---------+-----------+-----+------+------------+-----|
+ | ('i', 'am')          |       1 |         0 |   0 |    0 |          1 |   0 |
+ | ('am', 'happy')      |       0 |         1 |   0 |    0 |          0 |   0 |
+ | ('happy', 'because') |       0 |         0 |   1 |    0 |          0 |   0 |
+ | ('because', 'i')     |       0 |         0 |   0 |    1 |          0 |   0 |
+ | ('am', 'learning')   |       0 |         0 |   0 |    0 |          0 |   1 |
+** The Probability Matrix
+The next step is to build a probability matrix from the count matrix.
+You can use an object dataframe from library pandas and its methods [[https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.sum.html?highlight=sum#pandas.DataFrame.sum][sum]] and [[https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.div.html][div]] to normalize the cell counts with the sum of the respective rows. 
+*** Create the Probability Matrix from the Count Matrix
+
+#+begin_src python :results none
+row_sums = count_matrix.sum(axis="columns")
+#+end_src
+*** Divide Each Row By Its Sum
+#+begin_src python :results output :exports both
+prob_matrix = count_matrix.div(row_sums, axis="rows")
+
+print(TABLE(prob_matrix))
+#+end_src    
+
+#+RESULTS:
+ |                      |   happy |   because |   i |   am |   learning |   . |
+ |----------------------+---------+-----------+-----+------+------------+-----|
+ | ('i', 'am')          |     0.5 |         0 |   0 |    0 |        0.5 |   0 |
+ | ('am', 'happy')      |     0   |         1 |   0 |    0 |        0   |   0 |
+ | ('happy', 'because') |     0   |         0 |   1 |    0 |        0   |   0 |
+ | ('because', 'i')     |     0   |         0 |   0 |    1 |        0   |   0 |
+ | ('am', 'learning')   |     0   |         0 |   0 |    0 |        0   |   1 |
+
+*** Find the Probability of a Trigram
+Since the columns of the probability matrix are the suffix-words and the index is made up of the bigram-prefix we'll need to unpack those to look up our probability.
+
+#+begin_src python :results output :exports both
+trigram = ('i', 'am', 'happy')
+
+bigram = trigram[:-1]
+print(f'prefix-bigram: {bigram}')
+
+#+end_src    
+
+#+RESULTS:
+: prefix-bigram: ('i', 'am')
+
+#+begin_src python :results output :exports both
+word = trigram[-1]
+print(f"last word of the trigram: {word}")
+#+end_src    
+
+#+RESULTS:
+: last word of the trigram: happy
+
+#+begin_src python :results output :exports both
+print(f"trigram probability: {prob_matrix[word][bigram]}")
+#+end_src
+
+#+RESULTS:
+: trigram probability: 0.5
+
+Which if you look at our corpus or count matrix, is the correct value ("i am" appears twice and one of those times it's "i am happy").
+** List all the words in the vocabulary starting with a given prefix
+   This is just a demonstration of checking the prefix of a string in python.
+   
+#+begin_src python :results output :exports both
+vocabulary = ['i', 'am', 'happy', 'because', 'learning', '.', 'have', 'you', 'seen','it', '?']
+starts_with = 'ha'
+
+print(f'words in vocabulary starting with prefix: {starts_with}\n')
+for word in (candidate for candidate in vocabulary
+             if candidate.startswith(starts_with)):
+    print(word)
+#+end_src   
+
+#+RESULTS:
+: words in vocabulary starting with prefix: ha
+: 
+: happy
+: have
+** Building Training, Validation, and Testing Sets
+#+begin_src python :results none
+def train_validation_test_split(data, train_percent, validation_percent):
+    """
+    Splits the input data to  train/validation/test according to the percentage provided
+    
+    Args:
+        data: Pre-processed and tokenized corpus, i.e. list of sentences.
+        train_percent: integer 0-100, defines the portion of input corpus allocated for training
+        validation_percent: integer 0-100, defines the portion of input corpus allocated for validation
+        
+        Note: train_percent + validation_percent need to be <=100
+              the reminder to 100 is allocated for the test set
+    
+    Returns:
+        train_data: list of sentences, the training part of the corpus
+        validation_data: list of sentences, the validation part of the corpus
+        test_data: list of sentences, the test part of the corpus
+    """
+    # fixed seed here for reproducibility
+    random.seed(87)
+    
+    # reshuffle all input sentences
+    random.shuffle(data)
+
+    train_size = int(len(data) * train_percent / 100)
+    train_data = data[0:train_size]
+    
+    validation_size = int(len(data) * validation_percent / 100)
+    validation_data = data[train_size:train_size + validation_size]
+    
+    test_data = data[train_size + validation_size:]
+    
+    return train_data, validation_data, test_data
+#+end_src
+*** Check the Sets
+#+begin_src python :results output :exports both
+data = list(range (0, 100))
+
+train_data, validation_data, test_data = train_validation_test_split(data, 80, 10)
+print("split 80/10/10:\n",f"train data:{train_data}\n", f"validation data:{validation_data}\n", 
+      f"test data:{test_data}\n")
+
+train_data, validation_data, test_data = train_validation_test_split(data, 98, 1)
+print("split 98/1/1:\n",f"train data:{train_data}\n", f"validation data:{validation_data}\n", 
+      f"test data:{test_data}\n")
+
+#+end_src    
+
+#+RESULTS:
+: split 80/10/10:
+:  train data:[28, 76, 5, 0, 62, 29, 54, 95, 88, 58, 4, 22, 92, 14, 50, 77, 47, 33, 75, 68, 56, 74, 43, 80, 83, 84, 73, 93, 66, 87, 9, 91, 64, 79, 20, 51, 17, 27, 12, 31, 67, 81, 7, 34, 45, 72, 38, 30, 16, 60, 40, 86, 48, 21, 70, 59, 6, 19, 2, 99, 37, 36, 52, 61, 97, 44, 26, 57, 89, 55, 53, 85, 3, 39, 10, 71, 23, 32, 25, 8]
+:  validation data:[78, 65, 63, 11, 49, 98, 1, 46, 15, 41]
+:  test data:[90, 96, 82, 42, 35, 13, 69, 24, 94, 18]
+: 
+: split 98/1/1:
+:  train data:[66, 23, 29, 28, 52, 87, 70, 13, 15, 2, 62, 43, 82, 50, 40, 32, 30, 79, 71, 89, 6, 10, 34, 78, 11, 49, 39, 42, 26, 46, 58, 96, 97, 8, 56, 86, 33, 93, 92, 91, 57, 65, 95, 20, 72, 3, 12, 9, 47, 37, 67, 1, 16, 74, 53, 99, 54, 68, 5, 18, 27, 17, 48, 36, 24, 45, 73, 19, 41, 59, 21, 98, 0, 31, 4, 85, 80, 64, 84, 88, 25, 44, 61, 22, 60, 94, 76, 38, 77, 81, 90, 69, 63, 7, 51, 14, 55, 83]
+:  validation data:[35]
+:  test data:[75]
+: 
+** Perplexity
+In order to implement the [[https://en.wikipedia.org/wiki/Perplexity][perplexity]] formula, you'll need to know how to implement m-th order root of a variable.
+
+ \begin{equation*}
+ PP(W)=\sqrt[M]{\prod_{i=1}^{m}{\frac{1}{P(w_i|w_{i-1})}}}
+ \end{equation*}
+
+Remember from calculus:
+
+ \begin{equation*}
+ \sqrt[M]{\frac{1}{x}} = x^{-\frac{1}{M}}
+ \end{equation*}
+ 
+Here is some code that will help you with the formula.
+
+#+begin_src python :results output :exports both
+p = 10 ** (-250)
+M = 100
+
+print(f"perplexity = {p ** (-1 / M):0.3f}")
+#+end_src
+
+#+RESULTS:
+: perplexity = 316.228

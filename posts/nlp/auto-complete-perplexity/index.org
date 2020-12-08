@@ -1,0 +1,258 @@
+#+BEGIN_COMMENT
+.. title: Auto-Complete: Perplexity
+.. slug: auto-complete-perplexity
+.. date: 2020-12-04 15:19:33 UTC-08:00
+.. tags: nlp,auto-complete,n-gram
+.. category: NLP
+.. link: 
+.. description: Assessing N-Gram model performance with perplexity.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-eda1cf93-61fc-4612-bc31-c439fece383e-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Perplexity
+  In the {{% lancelot title="previous post" %}}auto-complete-the-n-gram-model{{% /lancelot %}} we implemented the N-Gram Language Model for the auto-complete system that we began {{% lancelot title="here" %}}auto-complete{{% /lancelot %}}.
+
+In this section, you will generate the perplexity score to evaluate your model on the test set. 
+- You will also use back-off when needed. 
+- Perplexity is used as an evaluation metric of your language model. 
+- To calculate the  the perplexity score of the test set on an n-gram model, use: 
+
+\[
+PP(W) =\sqrt[N]{ \prod_{t=n+1}^N \frac{1}{P(w_t | w_{t-n} \cdots w_{t-1})} } \tag{4}
+\]
+
+- where /N/ is the length of the sentence.
+- /n/ is the number of words in the n-gram (e.g. 2 for a bigram).
+- In math, the numbering starts at one and not zero.
+
+In code, array indexing starts at zero, so the code will use ranges for /t/ according to this formula:
+
+\[
+PP(W) =\sqrt[N]{ \prod_{t=n}^{N-1} \frac{1}{P(w_t | w_{t-n} \cdots w_{t-1})} } \tag{4.1}
+\]
+
+The higher the probabilities are, the lower the perplexity will be. 
+- The more the n-grams tell us about the sentence, the lower the perplexity score will be. 
+** Imports
+#+begin_src python :results none
+# python
+import math
+
+# pypi
+from expects import expect, be_true
+
+import attr
+
+# this project
+from neurotic.nlp.autocomplete import NGrams,NGramProbability
+#+end_src
+* Middle
+** The Probability Function
+   This was already defined in the previous post, but the function following it assumes its existence so I'm temporarily re-defining it here.
+   
+#+begin_src python :results none
+def estimate_probability(word: str,
+                         previous_n_gram: tuple, 
+                         n_gram_counts: dict,
+                         n_plus1_gram_counts: dict,
+                         vocabulary_size: int,
+                         k: float=1.0) -> float:
+    """
+    Estimate the probabilities of a next word using the n-gram counts with k-smoothing
+    
+    Args:
+        word: next word
+        previous_n_gram: A sequence of words of length n
+        n_gram_counts: Dictionary of counts of n-grams
+        n_plus1_gram_counts: Dictionary of counts of (n+1)-grams
+        vocabulary_size: number of words in the vocabulary
+        k: positive constant, smoothing parameter
+    
+    Returns:
+        A probability
+    """
+    previous_n_gram = tuple(previous_n_gram)
+    previous_n_gram_count = n_gram_counts.get(previous_n_gram, 0)
+
+    n_plus1_gram = previous_n_gram + (word,)  
+    n_plus1_gram_count = n_plus1_gram_counts.get(n_plus1_gram, 0)       
+    return (n_plus1_gram_count + k)/(previous_n_gram_count + k * vocabulary_size)
+#+end_src   
+** Calculating the Perplexity
+#+begin_src python :results none   
+# UNQ_C10 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: calculate_perplexity
+def calculate_perplexity(sentence: list,
+                         n_gram_counts: dict,
+                         n_plus1_gram_counts: dict,
+                         vocabulary_size: int,
+                         k: float=1.0):
+    """
+    Calculate perplexity for a list of sentences
+    
+    Args:
+        sentence: List of strings
+        n_gram_counts: Dictionary of counts of (n+1)-grams
+        n_plus1_gram_counts: Dictionary of counts of (n+1)-grams
+        vocabulary_size: number of unique words in the vocabulary
+        k: Positive smoothing constant
+    
+    Returns:
+        Perplexity score
+    """
+    # length of previous words
+    n = len(list(n_gram_counts.keys())[0]) 
+    
+    # prepend <s> and append <e>
+    sentence = ["<s>"] * n + sentence + ["<e>"]
+    
+    # Cast the sentence from a list to a tuple
+    sentence = tuple(sentence)
+    
+    # length of sentence (after adding <s> and <e> tokens)
+    N = len(sentence)
+    
+    # The variable p will hold the product
+    # that is calculated inside the n-root
+    # Update this in the code below
+    product_pi = 1.0
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # Index t ranges from n to N - 1, inclusive on both ends
+    for t in range(n, N): # complete this line
+
+        # get the n-gram preceding the word at position t
+        n_gram = sentence[t - n: t]
+        
+        # get the word at position t
+        word = sentence[t]
+        
+        # Estimate the probability of the word given the n-gram
+        # using the n-gram counts, n-plus1-gram counts,
+        # vocabulary size, and smoothing constant
+        probability = estimate_probability(
+            word=word, previous_n_gram=n_gram,
+            vocabulary_size=vocabulary_size,
+            n_gram_counts=n_gram_counts,
+            n_plus1_gram_counts=n_plus1_gram_counts, k=k)
+        
+        # Update the product of the probabilities
+        # This 'product_pi' is a cumulative product 
+        # of the (1/P) factors that are calculated in the loop
+        product_pi *= 1/probability
+
+    # Take the Nth root of the product
+    perplexity = product_pi**(1/N)
+    
+    ### END CODE HERE ### 
+    return perplexity
+#+end_src
+
+*** Test It
+
+#+begin_src python :results output :exports both    
+sentences = [['i', 'like', 'a', 'cat'],
+                 ['this', 'dog', 'is', 'like', 'a', 'cat']]
+unique_words = list(set(sentences[0] + sentences[1]))
+
+unigram_counts = NGrams(sentences, 1).counts
+bigram_counts = NGrams(sentences, 2).counts
+
+
+perplexity_train1 = calculate_perplexity(sentences[0],
+                                         unigram_counts, bigram_counts,
+                                         len(unique_words), k=1.0)
+expected = 2.8040
+print(f"Perplexity for first train sample: {perplexity_train1:.4f}")
+
+expect(math.isclose(perplexity_train1, expected, abs_tol=1e-4)).to(be_true)
+test_sentence = ['i', 'like', 'a', 'dog']
+perplexity_test = calculate_perplexity(test_sentence,
+                                       unigram_counts, bigram_counts,
+                                       len(unique_words), k=1.0)
+print(f"Perplexity for test sample: {perplexity_test:.4f}")
+expected = 3.9654
+expect(math.isclose(perplexity_test, expected, abs_tol=1e-4)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: Perplexity for first train sample: 2.8040
+: Perplexity for test sample: 3.9654
+
+**Note:** If your sentence is really long, there will be underflow when multiplying many fractions.
+ - To handle longer sentences, modify your implementation to take the sum of the log of the probabilities.
+
+** Using the Class-Based Version
+#+begin_src python :results none
+@attr.s(auto_attribs=True)
+class Perplexity:
+    """Calculate perplexity
+    
+    Args:
+     data: the tokenized training input
+     n: the size of the n-grams
+     augment_vocabulary: whether to augment the vocabulary for toy examples
+    """
+    data: list
+    n: int
+    augment_vocabulary: bool=False
+    _probabilifier: NGramProbability=None
+
+    @property
+    def probabilifier(self) -> NGramProbability:
+        """Probability Calculator"""
+        if self._probabilifier is None:
+            self._probabilifier = NGramProbability(
+                self.data, self.n,
+                augment_vocabulary=self.augment_vocabulary)
+        return self._probabilifier
+
+    def perplexity(self, sentence: list) -> float:
+        """Calculates the perplexity for the sentence"""
+        sentence = tuple(["<s>"] * self.n + sentence + ["<e>"])
+        N = len(sentence)
+    
+        n_grams = (sentence[position - self.n: position]
+                   for position in range(self.n, N))
+        words = (sentence[position]
+                 for position in range(self.n, N))
+        words_n_grams = zip(words, n_grams)
+        probabilities = (self.probabilifier.probability(word, n_gram)
+                         for word, n_gram in words_n_grams)
+        product = math.prod((1/probability for probability in probabilities))
+        return product**(1/N)
+#+end_src
+
+#+begin_src python :results none
+sentences = [['i', 'like', 'a', 'cat'],
+                 ['this', 'dog', 'is', 'like', 'a', 'cat']]
+
+model = Perplexity(sentences, 1, augment_vocabulary=False)
+
+actual = model.perplexity(sentences[0])
+
+expected = 2.8040
+print(f"Perplexity for first train sample: {actual:.4f}")
+
+expect(math.isclose(actual, expected, abs_tol=1e-4)).to(be_true)
+test_sentence = ['i', 'like', 'a', 'dog']
+model
+perplexity_test = model.perplexity(test_sentence)
+
+print(f"Perplexity for test sample: {perplexity_test:.4f}")
+expected = 3.9654
+expect(math.isclose(perplexity_test, expected, abs_tol=1e-4)).to(be_true)
+
+#+end_src
+* End
+  In the next part we'll build our {{% lancelot title="completed auto-complete system" %}}auto-complete-building-the-auto-complete-system{{{% /lancelot %}}.

@@ -1,0 +1,385 @@
+#+BEGIN_COMMENT
+.. title: Auto-Complete: Building the Auto-Complete System
+.. slug: auto-complete-building-the-auto-complete-system
+.. date: 2020-12-04 15:21:47 UTC-08:00
+.. tags: nlp,auto-complete,n-gram
+.. category: NLP
+.. link: 
+.. description: Putting together the N-Gram auto-complete system.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b37f1556-8ff0-4702-81fb-cb43307a2e01-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Build the Auto-Complete System
+  In the {{% lancelot title="previous post" %}}auto-complete-perplexity{{% /lancelot %}} we tested the perplexity of our N-Gram Language model. In this, the final post in the series that we began {{% lancelot title="with this post" %}}auto-complete{{% /lancelot %}}, we'll implement the final system.
+** Imports
+#+begin_src python :results none
+# python
+from itertools import chain
+import math
+import os
+
+# pypi
+from dotenv import load_dotenv
+from expects import be_true, equal, expect
+# this project
+from neurotic.nlp.autocomplete import NGrams, Tokenizer, TrainTestSplit
+#+end_src
+** Set Up
+*** The Environment
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+#+end_src
+*** The Data
+#+begin_src python :results none
+path = os.environ["TWITTER_AUTOCOMPLETE"]
+with open(path) as reader:
+    data = reader.read()
+#+end_src
+
+* Middle
+** Probabilities Again
+   Once again the function we're defining here expects this probability function so I'm going to have to paste it in here.
+
+#+begin_src python :results none
+def estimate_probability(word: str,
+                         previous_n_gram: tuple, 
+                         n_gram_counts: dict,
+                         n_plus1_gram_counts: dict,
+                         vocabulary_size: int,
+                         k: float=1.0) -> float:
+    """
+    Estimate the probabilities of a next word using the n-gram counts with k-smoothing
+    
+    Args:
+        word: next word
+        previous_n_gram: A sequence of words of length n
+        n_gram_counts: Dictionary of counts of n-grams
+        n_plus1_gram_counts: Dictionary of counts of (n+1)-grams
+        vocabulary_size: number of words in the vocabulary
+        k: positive constant, smoothing parameter
+    
+    Returns:
+        A probability
+    """
+    previous_n_gram = tuple(previous_n_gram)
+    previous_n_gram_count = n_gram_counts.get(previous_n_gram, 0)
+
+    n_plus1_gram = previous_n_gram + (word,)  
+    n_plus1_gram_count = n_plus1_gram_counts.get(n_plus1_gram, 0)       
+    return (n_plus1_gram_count + k)/(previous_n_gram_count + k * vocabulary_size)
+#+end_src
+
+#+begin_src python :results none
+def estimate_probabilities(previous_n_gram, n_gram_counts, n_plus1_gram_counts, vocabulary, k=1.0):
+    """
+    Estimate the probabilities of next words using the n-gram counts with k-smoothing
+    
+    Args:
+        previous_n_gram: A sequence of words of length n
+        n_gram_counts: Dictionary of counts of (n+1)-grams
+        n_plus1_gram_counts: Dictionary of counts of (n+1)-grams
+        vocabulary: List of words
+        k: positive constant, smoothing parameter
+    
+    Returns:
+        A dictionary mapping from next words to the probability.
+    """
+    
+    # convert list to tuple to use it as a dictionary key
+    previous_n_gram = tuple(previous_n_gram)
+    
+    # add <e> <unk> to the vocabulary
+    # <s> is not needed since it should not appear as the next word
+    vocabulary = vocabulary + ["<e>", "<unk>"]
+    vocabulary_size = len(vocabulary)
+    
+    probabilities = {}
+    for word in vocabulary:
+        probability = estimate_probability(word, previous_n_gram, 
+                                           n_gram_counts, n_plus1_gram_counts, 
+                                           vocabulary_size, k=k)
+        probabilities[word] = probability
+
+    return probabilities
+#+end_src
+** Suggest-a-Word
+ Compute probabilities for all possible next words and suggest the most likely one.
+ - This function also take an optional argument `start_with`, which specifies the first few letters of the next words.
+
+*** Hints
+    - =estimate_probabilities= returns a dictionary where the key is a word and the value is the word's probability.
+    - Use =str1.startswith(str2)= to determine if a string starts with the letters of another string.  For example, ='learning'.startswith('lea')= returns True, whereas ='learning'.startswith('ear')= returns False. There are two additional parameters in =str.startswith()=, but you can use the default values for those parameters in this case.
+
+#+begin_src python :results none
+# UNQ_C11 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: suggest_a_word
+def suggest_a_word(previous_tokens, n_gram_counts, n_plus1_gram_counts, vocabulary, k=1.0, start_with=None):
+    """
+    Get suggestion for the next word
+    
+    Args:
+        previous_tokens: The sentence you input where each token is a word. Must have length > n 
+        n_gram_counts: Dictionary of counts of (n+1)-grams
+        n_plus1_gram_counts: Dictionary of counts of (n+1)-grams
+        vocabulary: List of words
+        k: positive constant, smoothing parameter
+        start_with: If not None, specifies the first few letters of the next word
+        
+    Returns:
+        A tuple of 
+          - string of the most likely next word
+          - corresponding probability
+    """
+    
+    # length of previous words
+    n = len(list(n_gram_counts.keys())[0]) 
+    
+    # From the words that the user already typed
+    # get the most recent 'n' words as the previous n-gram
+    previous_n_gram = previous_tokens[-n:]
+
+    # Estimate the probabilities that each word in the vocabulary
+    # is the next word,
+    # given the previous n-gram, the dictionary of n-gram counts,
+    # the dictionary of n plus 1 gram counts, and the smoothing constant
+    probabilities = estimate_probabilities(previous_n_gram,
+                                           n_gram_counts, n_plus1_gram_counts,
+                                           vocabulary, k=k)
+    
+    # Initialize suggested word to None
+    # This will be set to the word with highest probability
+    suggestion = None
+    
+    # Initialize the highest word probability to 0
+    # this will be set to the highest probability 
+    # of all words to be suggested
+    max_prob = 0
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # For each word and its probability in the probabilities dictionary:
+    for word, prob in probabilities.items(): # complete this line
+        
+        # If the optional start_with string is set
+        if start_with is not None: # complete this line
+            
+            # Check if the beginning of word does not match with the letters in 'start_with'
+            if not word.startswith(start_with): # complete this line
+
+                # if they don't match, skip this word (move onto the next word)
+                continue # complete this line
+        
+        # Check if this word's probability
+        # is greater than the current maximum probability
+        if prob > max_prob: # complete this line
+            
+            # If so, save this word as the best suggestion (so far)
+            suggestion = word
+            
+            # Save the new maximum probability
+            max_prob = prob
+
+    ### END CODE HERE
+    
+    return suggestion, max_prob
+#+end_src
+
+*** Test It Out
+#+begin_src python :results output :exports both
+sentences = [['i', 'like', 'a', 'cat'],
+             ['this', 'dog', 'is', 'like', 'a', 'cat']]
+unique_words = list(set(sentences[0] + sentences[1]))
+
+unigram_counts = NGrams(sentences, 1).counts
+bigram_counts = NGrams(sentences, 2).counts
+
+previous_tokens = ["i", "like"]
+word, probability = suggest_a_word(previous_tokens, unigram_counts, bigram_counts, unique_words, k=1.0)
+print(f"The previous words are 'i like',\n\tand the suggested word is `{word}` with a probability of {probability:.4f}")
+expected_word, expected_probability = "a", 0.2727
+expect(word).to(equal(expected_word))
+expect(math.isclose(probability, expected_probability, abs_tol=1e-4)).to(be_true)
+print()
+
+# test your code when setting the starts_with
+tmp_starts_with = 'c'
+word, probability = suggest_a_word(previous_tokens, unigram_counts, bigram_counts, unique_words, k=1.0, start_with=tmp_starts_with)
+print(f"The previous words are 'i like', the suggestion must start with `{tmp_starts_with}`\n\tand the suggested word is `{word}` with a probability of {probability:.4f}")
+
+expected_word, expected_probability = "cat", 0.0909
+expect(word).to(equal(expected_word))
+expect(math.isclose(probability, expected_probability, abs_tol=1e-4)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: The previous words are 'i like',
+: 	and the suggested word is `a` with a probability of 0.2727
+: 
+: The previous words are 'i like', the suggestion must start with `c`
+: 	and the suggested word is `cat` with a probability of 0.0909
+
+** Multiple Suggestions
+   
+The function defined below loops over various n-gram models to get multiple suggestions.
+
+
+#+begin_src python :results none
+def get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0, start_with=None):
+    model_counts = len(n_gram_counts_list)
+    suggestions = []
+    for i in range(model_counts-1):
+        n_gram_counts = n_gram_counts_list[i]
+        n_plus1_gram_counts = n_gram_counts_list[i+1]
+        
+        suggestion = suggest_a_word(previous_tokens, n_gram_counts,
+                                    n_plus1_gram_counts, vocabulary,
+                                    k=k, start_with=start_with)
+        suggestions.append(suggestion)
+    return suggestions
+#+end_src
+
+*** Test It
+
+#+begin_src python :results output :exports both    
+sentences = [['i', 'like', 'a', 'cat'],
+             ['this', 'dog', 'is', 'like', 'a', 'cat']]
+unique_words = list(set(sentences[0] + sentences[1]))
+
+unigram_counts = NGrams(sentences, 1).counts
+bigram_counts = NGrams(sentences, 2).counts
+trigram_counts = NGrams(sentences, 3).counts
+quadgram_counts = NGrams(sentences, 4).counts
+qintgram_counts = NGrams(sentences, 5).counts
+
+n_gram_counts_list = [unigram_counts, bigram_counts, trigram_counts, quadgram_counts, qintgram_counts]
+previous_tokens = ["i", "like"]
+tmp_suggest3 = get_suggestions(previous_tokens, n_gram_counts_list, unique_words, k=1.0)
+
+print(f"The previous words are 'i like', the suggestions are:")
+display(tmp_suggest3)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: The previous words are 'i like', the suggestions are:
+| a    | 0.2727272727272727 |
+| a    |                0.2 |
+| like | 0.1111111111111111 |
+| like | 0.1111111111111111 |
+:END:
+
+** Multiple Word Suggestions
+#+begin_src python :results none
+tokenizer = Tokenizer(data)
+splitter = TrainTestSplit(tokenizer.tokenized)
+train_data_processed = splitter.training
+#+end_src
+
+#+begin_src python :results none
+n_gram_counts_list = [NGrams(train_data_processed, n).counts for n in range(1, 6)]
+#+end_src   
+
+#+begin_src python :results output :exports both
+vocabulary = list(set(chain.from_iterable(train_data_processed)))
+previous_tokens = ["i", "am", "to"]
+tmp_suggest4 = get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0)
+
+print(f"The previous words are {previous_tokens}, the suggestions are:")
+display(tmp_suggest4)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: The previous words are ['i', 'am', 'to'], the suggestions are:
+| be     |   0.015552924847940564 |
+| please | 5.4935999560512006e-05 |
+| please |  5.494354550699157e-05 |
+| sucks  |  2.747403703500192e-05 |
+:END:
+
+#+begin_src python :results output :exports both
+previous_tokens = ["i", "want", "to", "go"]
+tmp_suggest5 = get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0)
+
+print(f"The previous words are {previous_tokens}, the suggestions are:")
+display(tmp_suggest5)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: The previous words are ['i', 'want', 'to', 'go'], the suggestions are:
+| to   |   0.006007762241480142 |
+| to   |  0.0019077728115120462 |
+| to   | 0.00030196552102778083 |
+| home | 0.00016478989288656962 |
+:END:
+
+#+begin_src python :results output :exports both
+previous_tokens = ["hey", "how", "are"]
+tmp_suggest6 = get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0)
+
+print(f"The previous words are {previous_tokens}, the suggestions are:")
+display(tmp_suggest6)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: The previous words are ['hey', 'how', 'are'], the suggestions are:
+| you   |  0.010055522861602231 |
+| you   | 0.0014810345300458024 |
+| you   | 5.494656446605676e-05 |
+| sucks | 2.747403703500192e-05 |
+:END:
+
+#+begin_src python :results output :exports both
+previous_tokens = ["hey", "how", "are", "you"]
+tmp_suggest7 = get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0)
+
+print(f"The previous words are {previous_tokens}, the suggestions are:")
+display(tmp_suggest7)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: The previous words are ['hey', 'how', 'are', 'you'], the suggestions are:
+| 're |  0.012929170630459223 |
+| ?   | 0.0011416145691764065 |
+| ?   | 0.0007132863295931524 |
+| <e> | 5.494656446605676e-05 |
+:END:
+
+
+#+begin_src python :results output :exports both
+previous_tokens = ["hey", "how", "are", "you"]
+tmp_suggest8 = get_suggestions(previous_tokens, n_gram_counts_list, vocabulary, k=1.0, start_with="d")
+
+print(f"The previous words are {previous_tokens}, the suggestions are:")
+display(tmp_suggest8)
+#+end_src   
+
+#+RESULTS:
+:RESULTS:
+: The previous words are ['hey', 'how', 'are', 'you'], the suggestions are:
+| do        |  0.004734930381388913 |
+| doing     |  0.000679532481652623 |
+| doing     | 0.0001646045375984198 |
+| deserving | 2.747328223302838e-05 |
+:END:
+
+* End
+  So, now we have our system. Here are all the prior posts in this series.
+
+  - {{% lancelot title="Overview" %}}auto-complete{{% /lancelot %}}
+  - {{% lancelot title="Pre-Processing I" %}}auto-complete-pre-process-the-data-i{{% /lancelot %}}
+  - {{% lancelot title="Pre-Processing II" %}}auto-complete-pre-process-the-data-ii{{% /lancelot %}}
+  - {{% lancelot title="The N-Gram Model" %}}auto-complete-the-n-gram-model{{% /lancelot %}}
+  - {{% lancelot title="Perplexity" %}}auto-complete-perplexity{{% /lancelot %}}
