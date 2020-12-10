@@ -1,0 +1,317 @@
+#+BEGIN_COMMENT
+.. title: Introducing the CBOW Model
+.. slug: introducing-the-cbow-model
+.. date: 2020-12-09 17:02:44 UTC-08:00
+.. tags: nlp,cbow,word-embeddings
+.. category: NLP
+.. link: 
+.. description: The Continuous Bag of Words Model.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2726f7b9-b4e1-4165-82cf-8649067e0cba-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* The Continuous Bag-Of-Words (CBOW) Model
+** Imports
+#+begin_src python :results none
+# from pypi
+from expects import (
+    be_true,
+    equal,
+    expect,
+)
+import numpy
+#+end_src
+* Activation Functions
+Let's start by implementing the activation functions, ReLU and softmax.
+** ReLU
+ReLU is used to calculate the values of the hidden layer, in the following formulas:
+
+\begin{align}
+ \mathbf{z_1} &= \mathbf{W_1}\mathbf{x} + \mathbf{b_1}  \tag{1} \\
+ \mathbf{h} &= \mathrm{ReLU}(\mathbf{z_1})  \tag{2} \\
+\end{align}
+
+
+Let's fix a value for \(\mathbf{z_1}\) as a working example.
+
+#+begin_src python :results output :exports both
+numpy.random.seed(10)
+
+# Define a 5X1 column vector using numpy
+z_1 = 10 * numpy.random.rand(5, 1) - 5
+
+# Print the vector
+print(z_1)
+#+end_src
+
+#+RESULTS:
+: [[ 2.71320643]
+:  [-4.79248051]
+:  [ 1.33648235]
+:  [ 2.48803883]
+:  [-0.01492988]]
+
+
+Notice that using numpy's =random.rand= function returns a numpy array filled with values taken from a uniform distribution over [0, 1). Numpy allows vectorization so each value is multiplied by 10 and then 5 is subtracted from them.
+
+To get the ReLU of this vector, you want all the negative values to become zeros.
+
+First create a copy of this vector.
+
+#+begin_src python :results none
+h = z_1.copy()
+#+end_src
+
+Now determine which of its values are negative.
+
+#+begin_src python :results output :exports both
+print(h < 0)
+#+end_src
+
+#+RESULTS:
+: [[False]
+:  [ True]
+:  [False]
+:  [False]
+:  [ True]]
+
+You can now simply set all of the values which are negative to 0.
+
+#+begin_src python :results none
+h[h < 0] = 0
+#+end_src
+
+And that's it: you have the ReLU of \(\mathbf{z_1}\).
+
+#+begin_src python :results output :exports both
+print(h)
+#+end_src
+
+#+RESULTS:
+: [[2.71320643]
+:  [0.        ]
+:  [1.33648235]
+:  [2.48803883]
+:  [0.        ]]
+
+**Now implement ReLU as a function.**
+
+#+begin_src python :results none
+def relu(z: numpy.ndarray) -> numpy.ndarray:
+    """Get the ReLU for the input array
+
+    Args:
+     z: an array of numbers
+
+    Returns:
+     ReLU of z
+    """
+    result = z.copy()
+    result[result < 0] = 0
+    return result
+#+end_src
+
+
+**And check that it's working.**
+#+begin_src python :results output :exports both
+z = numpy.array([[-1.25459881],
+              [ 4.50714306],
+              [ 2.31993942],
+              [ 0.98658484],
+              [-3.4398136 ]])
+
+# Apply ReLU to it
+actual = relu(z)
+expected = numpy.array([[0.        ],
+                        [4.50714306],
+                        [2.31993942],
+                        [0.98658484],
+                        [0.        ]])
+
+print(actual)
+
+expect(numpy.allclose(actual, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: [[0.        ]
+:  [4.50714306]
+:  [2.31993942]
+:  [0.98658484]
+:  [0.        ]]
+
+** SoftMax
+ The second activation function that you need is softmax. This function is used to calculate the values of the output layer of the neural network, using the following formulas:
+ 
+ \begin{align}
+  \mathbf{z_2} &= \mathbf{W_2}\mathbf{h} + \mathbf{b_2}   \tag{3} \\
+  \mathbf{\hat y} &= \mathrm{softmax}(\mathbf{z_2})   \tag{4} \\
+ \end{align}
+
+ To calculate softmax of a vector \(\mathbf{z}\), the /i/-th component of the resulting vector is given by:
+
+\[
+\textrm{softmax}(\textbf{z})_i = \frac{e^{z_i} }{\sum\limits_{j=1}^{V} e^{z_j} }  \tag{5}
+\]
+
+Let's work through an example.
+
+#+begin_src python :results output :exports both
+z = numpy.array([9, 8, 11, 10, 8.5])
+print(z)
+#+end_src
+
+#+RESULTS:
+: [ 9.   8.  11.  10.   8.5]
+
+
+You'll need to calculate the exponentials of each element, both for the numerator and for the denominator.
+
+#+begin_src python :results output :exports both
+e_z = numpy.exp(z)
+
+print(e_z)
+#+end_src
+
+#+RESULTS:
+: [ 8103.08392758  2980.95798704 59874.1417152  22026.46579481
+:   4914.7688403 ]
+
+The denominator is equal to the sum of these exponentials.
+
+#+begin_src python :results output :exports both
+sum_e_z = numpy.sum(e_z)
+print(f"{sum_e_z:,.2f}")
+#+end_src
+
+#+RESULTS:
+: 97,899.42
+
+And the value of the first element of \(\textrm{softmax}(\textbf{z})\) is given by:
+
+#+begin_src python :results output :exports both
+print(f"{e_z[0]/sum_e_z:0.4f}")
+#+end_src
+
+#+RESULTS:
+: 0.0828
+
+
+ This is for one element. You can use numpy's vectorized operations to calculate the values of all the elements of the \(\textrm{softmax}(\textbf{z})\) vector in one go.
+
+**Implement the softmax function.**
+
+#+begin_src python :results none
+def softmax(z: numpy.ndarray) -> numpy.ndarray:
+    """Calculate Softmax for the input
+
+    Args:
+     v: array of values
+
+    Returns:
+     array of probabilities
+    """
+    e_z = numpy.exp(z)
+    sum_e_z = numpy.sum(e_z)
+    return e_z / sum_e_z
+#+end_src
+
+
+**Now check that it works.**
+
+#+begin_src python :results output :exports both
+actual = softmax([9, 8, 11, 10, 8.5])
+print(actual)
+expected = numpy.array([0.08276948,
+                        0.03044919,
+                        0.61158833,
+                        0.22499077,
+                        0.05020223])
+
+expect(numpy.allclose(actual, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: [0.08276948 0.03044919 0.61158833 0.22499077 0.05020223]
+
+Notice that the sum of all these values is equal to 1.
+
+#+begin_src python :results none
+expect(numpy.sum(softmax([9, 8, 11, 10, 8.5]))).to(equal(1))
+#+end_src
+
+
+** Dimensions: 1-D arrays vs 2-D column vectors
+
+ Before moving on to implement forward propagation, backpropagation, and gradient descent in the next lecture notebook, let's have a look at the dimensions of the vectors you've been handling until now.
+
+ Create a vector of length /V/ filled with zeros.
+
+
+Define V. Remember this was the size of the vocabulary in the previous lecture notebook
+
+#+begin_src python :results none
+V = 5
+#+end_src
+
+
+Define vector of length V filled with zeros
+
+#+begin_src python :results output :exports both
+x_array = numpy.zeros(V)
+print(x_array)
+#+end_src
+
+#+RESULTS:
+: [0. 0. 0. 0. 0.]
+
+This is a 1-dimensional array, as revealed by the =.shape= property of the array.
+
+#+begin_src python :results output :exports both
+print(x_array.shape)
+#+end_src
+
+#+RESULTS:
+: (5,)
+
+To perform matrix multiplication in the next steps, you actually need your column vectors to be represented as a matrix with one column. In numpy, this matrix is represented as a 2-dimensional array.
+
+ The easiest way to convert a 1D vector to a 2D column matrix is to set its `.shape` property to the number of rows and one column, as shown in the next cell.
+
+#+begin_src python :results output :exports both
+# Copy vector
+x_column_vector = x_array.copy()
+
+# Reshape copy of vector
+x_column_vector.shape = (V, 1)  # alternatively ... = (x_array.shape[0], 1)
+
+# Print vector
+print(x_column_vector)
+#+end_src
+
+#+RESULTS:
+: [[0.]
+:  [0.]
+:  [0.]
+:  [0.]
+:  [0.]]
+
+# The shape of the resulting "vector" is:
+
+#+begin_src python :results output :exports both
+print(x_column_vector.shape)
+#+end_src
+
+#+RESULTS:
+: (5, 1)
+
+ So you now have a 5x1 matrix that you can use to perform standard matrix multiplication.
+   
