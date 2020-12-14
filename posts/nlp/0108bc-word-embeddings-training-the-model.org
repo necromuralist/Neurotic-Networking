@@ -1,0 +1,1036 @@
+#+BEGIN_COMMENT
+.. title: Word Embeddings: Training the Model
+.. slug: word-embeddings-training-the-model
+.. date: 2020-12-13 14:42:07 UTC-08:00
+.. tags: nlp,cbow,word embeddings
+.. category: NLP
+.. link: 
+.. description: Building and traning the CBOW Model.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-71ab15d8-4d22-4b36-8aef-888f99ccb851-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Building and Training the Model
+  In the {{% lancelot title="previous post" %}}word-embeddings-shakespeare-data{{% /lancelot %}} we did some preliminary set up and data pre-processing. Now we're going to build and train a Continuous Bag of Words (CBOW) model.
+** Imports
+#+begin_src python :results none
+# python
+from enum import Enum, unique
+from collections import Counter
+
+import math
+# pypi
+from expects import be_true, equal, expect
+import numpy
+
+# this project
+from neurotic.nlp.word_embeddings import DataCleaner, MetaData
+#+end_src
+
+** Set Up
+   Code from the previous post.
+   
+#+begin_src python :results none
+cleaner = DataCleaner()
+data = cleaner.processed
+meta = MetaData(data)
+#+end_src
+
+Something to help remember what the numpy =axis= argument is.
+
+#+begin_src python :results none
+@unique
+class Axis(Enum):
+    ROWS = 0
+    COLUMNS = 1
+#+end_src
+* Middle
+**  Initializing the model
+
+ You will now initialize two matrices and two vectors. 
+ - The first matrix (\(W_1\)) is of dimension \(N \times V\), where /V/ is the number of words in your vocabulary and /N/ is the dimension of your word vector.
+ - The second matrix (\(W_2\)) is of dimension \(V \times N\). 
+ - Vector \(b_1\) has dimensions \(N\times 1\)
+ - Vector \(b_2\) has dimensions  \(V\times 1\).
+ - \(b_1\) and \(b_2\) are the bias vectors of the linear layers from matrices \(W_1\) and \(W_2\).
+
+At this stage we are just initializing the parameters. 
+
+ Please use [[https://numpy.org/doc/stable/reference/random/generated/numpy.random.rand.html][numpy.random.rand]] to generate matrices that are initialized with random values from a uniform distribution, ranging between 0 and 1.
+
+#+begin_src python :results none
+# UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: initialize_model
+def initialize_model(N: int,V: int, random_seed: int=1) -> tuple:
+    """Initialize the matrices with random values
+
+    Args: 
+        N:  dimension of hidden vector 
+        V:  dimension of vocabulary
+        random_seed: random seed for consistent results in the unit tests
+     Returns: 
+        W1, W2, b1, b2: initialized weights and biases
+    """
+    
+    numpy.random.seed(random_seed)
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    # W1 has shape (N,V)
+    W1 = numpy.random.rand(N, V)
+    # W2 has shape (V,N)
+    W2 = numpy.random.rand(V, N)
+    # b1 has shape (N,1)
+    b1 = numpy.random.rand(N, 1)
+    # b2 has shape (V,1)
+    b2 = numpy.random.rand(V, 1)
+    ### END CODE HERE ###
+
+    return W1, W2, b1, b2
+#+end_src
+
+Test your function example.
+
+#+begin_src python :results output :exports both
+tmp_N = 4
+tmp_V = 10
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+expect(tmp_W1.shape).to(equal((tmp_N,tmp_V)))
+expect(tmp_W2.shape).to(equal((tmp_V,tmp_N)))
+expect(tmp_b1.shape).to(equal((tmp_N, 1)))
+expect(tmp_b2.shape).to(equal((tmp_V, 1)))
+print(f"tmp_W1.shape: {tmp_W1.shape}")
+print(f"tmp_W2.shape: {tmp_W2.shape}")
+print(f"tmp_b1.shape: {tmp_b1.shape}")
+print(f"tmp_b2.shape: {tmp_b2.shape}")
+#+end_src
+
+#+RESULTS:
+: tmp_W1.shape: (4, 10)
+: tmp_W2.shape: (10, 4)
+: tmp_b1.shape: (4, 1)
+: tmp_b2.shape: (10, 1)
+
+
+** Softmax
+ Before we can start training the model, we need to implement the softmax function as defined in equation 5:  
+
+\[
+\text{softmax}(z_i) = \frac{e^{z_i} }{\sum_{i=0}^{V-1} e^{z_i} }  \tag{5}
+\]
+
+ - Array indexing in code starts at 0.
+ - /V/ is the number of words in the vocabulary (which is also the number of rows of /z/).
+ - /i/ goes from 0 to |V| - 1.
+
+*** The Implementation
+
+ - Assume that the input /z/ to =softmax= is a 2D array
+ - Each training example is represented by a column of shape (V, 1) in this 2D array.
+ - There may be more than one column, in the 2D array, because you can put in a batch of examples to increase efficiency.  Let's call the batch size lowercase /m/, so the /z/ array has shape (V, m)
+ - When taking the sum from \(i=1 \cdots V-1\), take the sum for each column (each example) separately.
+
+ Please use
+ - [[https://numpy.org/doc/stable/reference/generated/numpy.exp.html][numpy.exp]]
+ - [[https://numpy.org/doc/stable/reference/generated/numpy.sum.html][numpy.sum]] (set the axis so that you take the sum of each column in z)
+
+
+#+begin_src python :results none
+# UNQ_C2 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: softmax
+def softmax(z: numpy.ndarray) -> numpy.ndarray:
+    """Calculate the softmax
+
+    Args: 
+        z: output scores from the hidden layer
+    Returns: 
+        yhat: prediction (estimate of y)
+    """
+    
+    ### START CODE HERE (Replace instances of 'None' with your own code) ###
+    
+    # Calculate yhat (softmax)
+    yhat = numpy.exp(z)/numpy.sum(numpy.exp(z), axis=Axis.ROWS.value)
+    
+    ### END CODE HERE ###
+    
+    return yhat
+#+end_src
+
+#+begin_src python :results output :exports both
+# Test the function
+tmp = numpy.array([[1,2,3],
+                   [1,1,1]
+                   ])
+tmp_sm = softmax(tmp)
+print(tmp_sm)
+expected =  numpy.array([[0.5, 0.73105858, 0.88079708],
+                         [0.5, 0.26894142, 0.11920292]])
+
+
+expect(numpy.allclose(tmp_sm, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: [[0.5        0.73105858 0.88079708]
+:  [0.5        0.26894142 0.11920292]]
+
+** Forward propagation
+
+
+We're going to implement the forward propagation /z/ according to equations (1) to (3).
+
+\begin{align}
+ h &= W_1 \  X + b_1  \tag{1} \\
+ a &= ReLU(h)  \tag{2} \\
+ z &= W_2 \  a + b_2   \tag{3} \\
+\end{align}
+
+For that, you will use as activation the Rectified Linear Unit (ReLU) given by:
+
+\[
+f(h)=\max (0,h) \tag{6}
+\]
+
+**Hints:**
+ - You can use [[https://numpy.org/doc/stable/reference/generated/numpy.maximum.html][numpy.maximum(x1,x2)]] to get the maximum of two values
+ - Use [[https://numpy.org/doc/stable/reference/generated/numpy.dot.html][numpy.dot(A,B)]] to matrix multiply A and B
+
+#+begin_src python :results none
+# UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: forward_prop
+def forward_prop(x: numpy.ndarray,
+                 W1: numpy.ndarray, W2: numpy.ndarray,
+                 b1: numpy.ndarray, b2: numpy.ndarray) -> tuple:
+    """Pass the data through the network
+
+    Args: 
+        x:  average one hot vector for the context 
+        W1, W2, b1, b2:  matrices and biases to be learned
+    Returns: 
+        z:  output score vector
+    """
+    
+    ### START CODE HERE (Replace instances of 'None' with your own code) ###
+    
+    # Calculate h
+    h = numpy.dot(W1, x) + b1
+    
+    # Apply the relu on h (store result in h)
+    h = numpy.maximum(h, 0)
+    
+    # Calculate z
+    z = numpy.dot(W2, h) + b2
+    
+    ### END CODE HERE ###
+
+    return z, h
+#+end_src
+
+*** Test the function
+
+#+begin_src python :results output :exports both
+tmp_N = 2
+tmp_V = 3
+tmp_x = numpy.array([[0,1,0]]).T
+
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(N=tmp_N,V=tmp_V, random_seed=1)
+
+print(f"x has shape {tmp_x.shape}")
+print(f"N is {tmp_N} and vocabulary size V is {tmp_V}")
+
+tmp_z, tmp_h = forward_prop(tmp_x, tmp_W1, tmp_W2, tmp_b1, tmp_b2)
+
+print("call forward_prop")
+print()
+
+print(f"z has shape {tmp_z.shape}")
+print("z has values:")
+print(tmp_z)
+
+print()
+
+print(f"h has shape {tmp_h.shape}")
+print("h has values:")
+print(tmp_h)
+
+expect(tmp_x.shape).to(equal((3, 1)))
+expect(tmp_z.shape).to(equal((3, 1)))
+expected = numpy.array(
+    [[0.55379268],
+     [1.58960774],
+     [1.50722933]]
+)
+expect(numpy.allclose(tmp_z, expected)).to(be_true)
+expect(tmp_h.shape).to(equal((2, 1)))
+expected = numpy.array(
+    [[0.92477674],
+     [1.02487333]]
+)
+
+expect(numpy.allclose(tmp_h, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+x has shape (3, 1)
+N is 2 and vocabulary size V is 3
+call forward_prop
+
+z has shape (3, 1)
+z has values:
+[[0.55379268]
+ [1.58960774]
+ [1.50722933]]
+
+h has shape (2, 1)
+h has values:
+[[0.92477674]
+ [1.02487333]]
+#+end_example
+** Pack Index with Frequency
+#+begin_src python :results none
+def index_with_frequency(context_words: list,
+                              word_to_index: dict) -> list:
+    """combines indexes and frequency counts-dict
+
+    Args:
+     context_words: words to get the indices for
+     word_to_index: mapping of word to index
+
+    Returns:
+     list of (word-index, word-count) tuples built from context_words
+    """
+    frequency_dict = Counter(context_words)
+    indices = [word_to_index[word] for word in context_words]
+    packed = []
+    for index in range(len(indices)):
+        word_index = indices[index]
+        frequency = frequency_dict[context_words[index]]
+        packed.append((word_index, frequency))
+    return packed
+#+end_src   
+** Vector Generator
+#+begin_src python :results none
+def vectors(data: numpy.ndarray, word_to_index: dict, half_window: int):
+    """Generates vectors infinitely
+
+    Args:
+     data: source of the vectors
+     word_to_index: mapping of word to index in the vocabulary
+     half_window: number of tokens on either side of the word to keep
+
+    Yields:
+     tuple of x, y 
+    """
+    location = half_window
+    vocabulary_size = len(word_to_index)
+    while True:
+        y = numpy.zeros(vocabulary_size)
+        x = numpy.zeros(vocabulary_size)
+        center_word = data[location]
+        y[word_to_index[center_word]] = 1
+        context_words = (data[(location - half_window): location]
+                         + data[(location + 1) : (location + half_window + 1)])
+
+        for word_index, frequency in index_with_frequency(context_words, word_to_index):
+            x[word_index] = frequency/len(context_words)
+        yield x, y
+        location += 1
+        if location >= len(data):
+            print("location in data is being set to 0")
+            location = 0
+    return
+#+end_src   
+** Batch Generator
+   This uses a not so common form of the [[https://docs.python.org/3/reference/compound_stmts.html#while][while]] loop. Whenever you run a loop and it reaches the end (so you didn't break it) then it will run the =else= clause.
+   
+#+begin_src python :results none
+def batch_generator(data: numpy.ndarray, word_to_index: dict,
+                    half_window: int, batch_size: int):
+    """Generate batches of vectors
+
+    Args:
+     data: the training data
+     word_to_index: map of word to vocabulary index
+     half_window: number of tokens to take from either side of word
+     batch_size: Number of vectors to put in each training batch
+
+    Yields:
+     tuple of X, Y batches
+    """
+    vocabulary_size = len(word_to_index)
+    batch_x = []
+    batch_y = []
+    for x, y in vectors(data,
+                        word_to_index,
+                        half_window):
+        while len(batch_x) < batch_size:
+            batch_x.append(x)
+            batch_y.append(y)
+        else:
+            yield numpy.array(batch_x).T, numpy.array(batch_y).T
+            batch = []
+    return
+#+end_src
+
+So every time =batch_x= reaches the =batch_size= it yields the tuple and then creates a new batch before continuing the outer for-loop.
+
+** Cost function
+   The cross-entropy loss function.
+   - [[Thttps://numpy.org/doc/stable/reference/generated/numpy.squeeze.html][numpy.squeeze]]
+   - [[https://numpy.org/doc/stable/reference/generated/numpy.multiply.html][numpy.multiply]]
+   - [[https://numpy.org/doc/stable/reference/generated/numpy.log.html][numpy.log]]
+
+#+begin_src python :results none
+def compute_cost(y: numpy.ndarray, y_hat: numpy.ndarray,
+                 batch_size: int) -> numpy.ndarray:
+    """Calculates the cross-entropy loss
+
+    Args:
+     y: array with the actual words labeled
+     y_hat: our model's guesses for the words
+     batch_size: the number of examples per training run
+    """
+    log_probabilities = (numpy.multiply(numpy.log(y_hat), y)
+                         + numpy.multiply(numpy.log(1 - y_hat), 1 - y))
+    cost = -numpy.sum(log_probabilities)/batch_size
+    cost = numpy.squeeze(cost)
+    return cost
+#+end_src
+*** Test the function
+#+begin_src python :results output :exports both
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+
+tmp_word2Ind, tmp_Ind2word = meta.word_to_index, meta.vocabulary
+tmp_V = len(meta.vocabulary)
+
+tmp_x, tmp_y = next(batch_generator(data, tmp_word2Ind, tmp_C, tmp_batch_size))
+        
+print(f"tmp_x.shape {tmp_x.shape}")
+print(f"tmp_y.shape {tmp_y.shape}")
+
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+
+print(f"tmp_W1.shape {tmp_W1.shape}")
+print(f"tmp_W2.shape {tmp_W2.shape}")
+print(f"tmp_b1.shape {tmp_b1.shape}")
+print(f"tmp_b2.shape {tmp_b2.shape}")
+
+tmp_z, tmp_h = forward_prop(tmp_x, tmp_W1, tmp_W2, tmp_b1, tmp_b2)
+print(f"tmp_z.shape: {tmp_z.shape}")
+print(f"tmp_h.shape: {tmp_h.shape}")
+
+tmp_yhat = softmax(tmp_z)
+print(f"tmp_yhat.shape: {tmp_yhat.shape}")
+
+tmp_cost = compute_cost(tmp_y, tmp_yhat, tmp_batch_size)
+print("call compute_cost")
+print(f"tmp_cost {tmp_cost:.4f}")
+
+expect(tmp_x.shape).to(equal((5778, 4)))
+expect(tmp_y.shape).to(equal((5778, 4)))
+expect(tmp_W1.shape).to(equal((50, 5778)))
+expect(tmp_W2.shape).to(equal((5778, 50)))
+expect(tmp_b1.shape).to(equal((50, 1)))
+expect(tmp_b2.shape).to(equal((5778, 1)))
+expect(tmp_z.shape).to(equal((5778, 4)))
+expect(tmp_h.shape).to(equal((50, 4)))
+expect(tmp_yhat.shape).to(equal((5778, 4)))
+expect(math.isclose(tmp_cost, 9.9560, abs_tol=1e-4)).to(be_true)
+#+end_src    
+
+#+RESULTS:
+#+begin_example
+tmp_x.shape (5778, 4)
+tmp_y.shape (5778, 4)
+tmp_W1.shape (50, 5778)
+tmp_W2.shape (5778, 50)
+tmp_b1.shape (50, 1)
+tmp_b2.shape (5778, 1)
+tmp_z.shape: (5778, 4)
+tmp_h.shape: (50, 4)
+tmp_yhat.shape: (5778, 4)
+call compute_cost
+tmp_cost 9.9560
+#+end_example
+
+
+** Training the Model - Backpropagation
+ Now that you have understood how the CBOW model works, you will train it.
+ You created a function for the forward propagation. Now you will implement a function that computes the gradients to backpropagate the errors.
+
+#+begin_src python :results none
+# UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: back_prop
+def back_prop(x: numpy.ndarray,
+              yhat: numpy.ndarray,
+              y: numpy.ndarray,
+              h: numpy.ndarray,
+              W1: numpy.ndarray,
+              W2: numpy.ndarray,
+              b1: numpy.ndarray,
+              b2: numpy.ndarray,
+              batch_size: int) -> tuple:
+    """Calculates the gradients
+
+    Args: 
+        x:  average one hot vector for the context 
+        yhat: prediction (estimate of y)
+        y:  target vector
+        h:  hidden vector (see eq. 1)
+        W1, W2, b1, b2:  matrices and biases  
+        batch_size: batch size 
+
+     Returns: 
+        grad_W1, grad_W2, grad_b1, grad_b2:  gradients of matrices and biases   
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # Compute l1 as W2^T (Yhat - Y)
+    # Re-use it whenever you see W2^T (Yhat - Y) used to compute a gradient
+    l1 = numpy.dot(W2.T, yhat - y)
+    # Apply relu to l1
+    l1 = numpy.maximum(l1, 0)
+    # Compute the gradient of W1
+    grad_W1 = numpy.dot(l1, x.T)/batch_size
+    # Compute the gradient of W2
+    grad_W2 = numpy.dot(yhat - y, h.T)/batch_size
+    # Compute the gradient of b1
+    grad_b1 = numpy.sum(l1, axis=Axis.COLUMNS.value, keepdims=True)/batch_size
+    # Compute the gradient of b2
+    grad_b2 = numpy.sum(yhat - y, axis=Axis.COLUMNS.value, keepdims=True)/batch_size
+    ### END CODE HERE ###
+    
+    return grad_W1, grad_W2, grad_b1, grad_b2
+#+end_src
+
+*** Test the function
+#+begin_src python :results output :exports both
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+tmp_word2Ind, tmp_Ind2word = meta.word_to_index, meta.vocabulary
+tmp_V = len(meta.vocabulary)
+
+# get a batch of data
+tmp_x, tmp_y = next(batch_generator(data, tmp_word2Ind, tmp_C, tmp_batch_size))
+
+print("get a batch of data")
+print(f"tmp_x.shape {tmp_x.shape}")
+print(f"tmp_y.shape {tmp_y.shape}")
+
+print()
+print("Initialize weights and biases")
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+
+print(f"tmp_W1.shape {tmp_W1.shape}")
+print(f"tmp_W2.shape {tmp_W2.shape}")
+print(f"tmp_b1.shape {tmp_b1.shape}")
+print(f"tmp_b2.shape {tmp_b2.shape}")
+
+print()
+print("Forwad prop to get z and h")
+tmp_z, tmp_h = forward_prop(tmp_x, tmp_W1, tmp_W2, tmp_b1, tmp_b2)
+print(f"tmp_z.shape: {tmp_z.shape}")
+print(f"tmp_h.shape: {tmp_h.shape}")
+
+print()
+print("Get yhat by calling softmax")
+tmp_yhat = softmax(tmp_z)
+print(f"tmp_yhat.shape: {tmp_yhat.shape}")
+
+tmp_m = (2*tmp_C)
+tmp_grad_W1, tmp_grad_W2, tmp_grad_b1, tmp_grad_b2 = back_prop(tmp_x, tmp_yhat, tmp_y, tmp_h, tmp_W1, tmp_W2, tmp_b1, tmp_b2, tmp_batch_size)
+
+print()
+print("call back_prop")
+print(f"tmp_grad_W1.shape {tmp_grad_W1.shape}")
+print(f"tmp_grad_W2.shape {tmp_grad_W2.shape}")
+print(f"tmp_grad_b1.shape {tmp_grad_b1.shape}")
+print(f"tmp_grad_b2.shape {tmp_grad_b2.shape}")
+
+
+expect(tmp_x.shape).to(equal((5778, 4)))
+expect(tmp_y.shape).to(equal((5778, 4)))
+expect(tmp_W1.shape).to(equal((50, 5778)))
+expect(tmp_W2.shape).to(equal((5778, 50)))
+expect(tmp_b1.shape).to(equal((50, 1)))
+expect(tmp_b2.shape).to(equal((5778, 1)))
+expect(tmp_z.shape).to(equal((5778, 4)))
+expect(tmp_h.shape).to(equal((50, 4)))
+expect(tmp_yhat.shape).to(equal((5778, 4)))
+expect(tmp_grad_W1.shape).to(equal((50, 5778)))
+expect(tmp_grad_W2.shape).to(equal((5778, 50)))
+expect(tmp_grad_b1.shape).to(equal((50, 1)))
+expect(tmp_grad_b2.shape).to(equal((5778, 1)))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+get a batch of data
+tmp_x.shape (5778, 4)
+tmp_y.shape (5778, 4)
+
+Initialize weights and biases
+tmp_W1.shape (50, 5778)
+tmp_W2.shape (5778, 50)
+tmp_b1.shape (50, 1)
+tmp_b2.shape (5778, 1)
+
+Forwad prop to get z and h
+tmp_z.shape: (5778, 4)
+tmp_h.shape: (50, 4)
+
+Get yhat by calling softmax
+tmp_yhat.shape: (5778, 4)
+
+call back_prop
+tmp_grad_W1.shape (50, 5778)
+tmp_grad_W2.shape (5778, 50)
+tmp_grad_b1.shape (50, 1)
+tmp_grad_b2.shape (5778, 1)
+#+end_example
+
+** Gradient Descent
+ Now that you have implemented a function to compute the gradients, you will implement batch gradient descent over your training set. 
+
+ **Hint:** For that, you will use =initialize_model= and the =back_prop= functions which you just created (and the =compute_cost= function). You can also use the provided =get_batches= helper function:
+
+Also: print the cost after each batch is processed (use batch size = 128).
+
+
+#+begin_src python :results none
+# UNQ_C5 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: gradient_descent
+def gradient_descent(data: numpy.ndarray, word2Ind: dict, N: int, V: int ,
+                     num_iters: int, alpha=0.03):    
+    """
+    This is the gradient_descent function
+    
+    Args: 
+        data:      text
+        word2Ind:  words to Indices
+        N:         dimension of hidden vector  
+        V:         dimension of vocabulary 
+        num_iters: number of iterations  
+
+    Returns: 
+        W1, W2, b1, b2:  updated matrices and biases   
+    """
+    W1, W2, b1, b2 = initialize_model(N,V, random_seed=282)
+    batch_size = 128
+    iters = 0
+    C = 2
+    for x, y in batch_generator(data, word2Ind, C, batch_size):
+        ### START CODE HERE (Replace instances of 'None' with your own code) ###
+        # Get z and h
+        z, h = forward_prop(x, W1, W2, b1, b2)
+        # Get yhat
+        yhat = softmax(z)
+        # Get cost
+        cost = compute_cost(y, yhat, batch_size)
+        if ( (iters+1) % 10 == 0):
+            print(f"iters: {iters + 1} cost: {cost:.6f}")
+        # Get gradients
+        grad_W1, grad_W2, grad_b1, grad_b2 = back_prop(x,
+                                                       yhat,
+                                                       y,
+                                                       h,
+                                                       W1,
+                                                       W2,
+                                                       b1,
+                                                       b2,
+                                                       batch_size)
+        
+        # Update weights and biases
+        W1 = W1 - alpha * grad_W1
+        W2 = W2 - alpha * grad_W2
+        b1 = b1 - alpha * grad_b1
+        b2 = b2 - alpha * grad_b2
+        
+        ### END CODE HERE ###
+        
+        iters += 1 
+        if iters == num_iters: 
+            break
+        if iters % 100 == 0:
+            alpha *= 0.66
+            
+    return W1, W2, b1, b2
+#+end_src
+
+*** Test Your Function
+
+#+begin_src python :results output :exports both
+C = 2
+N = 50
+V = len(meta.vocabulary)
+num_iters = 150
+print("Call gradient_descent")
+W1, W2, b1, b2 = gradient_descent(data, meta.word_to_index, N, V, num_iters)
+
+
+# ##### Expected Output
+# 
+# 
+# ```CPP
+# iters: 10 cost: 0.789141
+# iters: 20 cost: 0.105543
+# iters: 30 cost: 0.056008
+# iters: 40 cost: 0.038101
+# iters: 50 cost: 0.028868
+# iters: 60 cost: 0.023237
+# iters: 70 cost: 0.019444
+# iters: 80 cost: 0.016716
+# iters: 90 cost: 0.014660
+# iters: 100 cost: 0.013054
+# iters: 110 cost: 0.012133
+# iters: 120 cost: 0.011370
+# iters: 130 cost: 0.010698
+# iters: 140 cost: 0.010100
+# iters: 150 cost: 0.009566
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Call gradient_descent
+iters: 10 cost: 0.789141
+iters: 20 cost: 0.105543
+iters: 30 cost: 0.056008
+iters: 40 cost: 0.038101
+iters: 50 cost: 0.028868
+iters: 60 cost: 0.023237
+iters: 70 cost: 0.019444
+iters: 80 cost: 0.016716
+iters: 90 cost: 0.014660
+iters: 100 cost: 0.013054
+iters: 110 cost: 0.012133
+iters: 120 cost: 0.011370
+iters: 130 cost: 0.010698
+iters: 140 cost: 0.010100
+iters: 150 cost: 0.009566
+#+end_example
+
+* End
+** Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/cbow.py :exports none
+<<imports>>
+
+<<numpy-setup>>
+
+<<enum-setup>>
+
+
+<<cbow>>
+
+    <<random-generator>>
+
+    <<vocabulary-size>>
+
+    <<weights-1>>
+
+    <<weights-2>>
+
+    <<bias-1>>
+
+    <<bias-2>>
+
+    <<softmax>>
+
+    <<forward-propagation>>
+
+
+<<batches>>
+
+    <<batch-vocabulary-size>>
+
+    <<indices-frequencies>>
+
+    <<vectors>>
+
+    <<iterator>>
+
+    <<next-method>>    
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from enum import Enum, unique
+
+# pypi
+import attr
+import numpy
+
+# this project
+from .data_loader import MetaData
+#+end_src
+*** Enum Setup
+#+begin_src python :noweb-ref enum-setup
+@unique
+class Axis(Enum):
+    ROWS = 0
+    COLUMNS = 1
+#+end_src        
+*** The CBOW Model
+#+begin_src python :noweb-ref cbow
+@attr.s(auto_attribs=True)
+class CBOW:
+    """A continuous bag of words model builder
+
+    Args:
+     hidden: number of rows in the hidden layer
+     meta: MetaData
+     random_seed: int
+    """
+    hidden: int
+    meta: MetaData
+    random_seed: int=1
+    _vocabulary_size: int=None
+    _random_generator: numpy.random.PCG64=None
+    
+    # layer one
+    _input_weights: numpy.ndarray=None
+    _input_bias: numpy.ndarray=None
+
+    # hidden layer
+    _hidden_weights: numpy.ndarray=None
+    _hidden_bias: numpy.ndarray=None
+#+end_src
+*** The Vocabulary Size
+#+begin_src python :noweb-ref vocabulary-size
+@property
+def vocabulary_size(self) -> int:
+    """Number of tokens in the vocabulary"""
+    if self._vocabulary_size is None:
+        self._vocabulary_size = len(self.meta.vocabulary)
+    return self._vocabulary_size
+#+end_src        
+*** The Random Generator
+#+begin_src python :noweb-ref random-generator
+@property
+def random_generator(self) -> numpy.random.PCG64:
+    """The random number generator"""
+    if self._random_generator is None:
+        self._random_generator = numpy.random.default_rng(self.random_seed)
+    return self._random_generator
+#+end_src        
+*** First Layer Weights
+#+begin_src python :noweb-ref weights-1
+@property
+def input_weights(self) -> numpy.ndarray:
+    """Weights for the first layer"""
+    if self._input_weights is None:
+        self._input_weights = self.random_generator.standard_normal(
+            (self.hidden, self.vocabulary_size))
+    return self._input_weights
+#+end_src
+*** First Layer Bias
+#+begin_src python :noweb-ref bias-1
+@property
+def input_bias(self) -> numpy.ndarray:
+    """Bias for the input layer"""
+    if self._input_bias is None:
+        self._input_bias = self.random_generator.standard_normal(
+            (self.hidden, 1)
+        )
+    return self._input_bias
+#+end_src        
+*** Hidden Layer Weights
+#+begin_src python :noweb-ref weights-2
+@property
+def hidden_weights(self) -> numpy.ndarray:
+    """The weights for the hidden layer"""
+    if self._hidden_weights is None:
+        self._hidden_weights = self.random_generator.standard_normal(
+            (self.vocabulary_size, self.hidden))
+    return self._hidden_weights
+#+end_src
+*** Hidden Layer Bias
+#+begin_src python :noweb-ref bias-2
+@property
+def hidden_bias(self) -> numpy.ndarray:
+    """Bias for the hidden layer"""
+    if self._hidden_bias is None:
+        self._hidden_bias = self.random_generator.standard_normal(
+            (self.vocabulary_size, 1)
+        )
+    return self._hidden_bias
+#+end_src        
+*** Softmax
+#+begin_src python :noweb-ref softmax
+def softmax(self, scores: numpy.ndarray) -> numpy.ndarray:
+    """Calculate the softmax
+
+    Args: 
+        scores: output scores from the hidden layer
+    Returns: 
+        yhat: prediction (estimate of y)"""
+    return numpy.exp(scores)/numpy.sum(numpy.exp(scores), axis=Axis.ROWS.value)
+#+end_src
+*** Forward Propagation
+#+begin_src python :noweb-ref forward-propagation
+def forward(self, data: numpy.ndarray) -> tuple:
+    """makes a model prediction
+
+    Args:
+     data: x-values to train on
+
+    Returns:
+     output, first-layer output
+    """
+    first_layer_output = numpy.maximum(numpy.dot(self.input_weights, data)
+                                  + self.input_bias, 0)
+    predictions = (numpy.dot(self.hidden_weights, first_layer_output)
+                   + self.hidden_bias)
+    return predictions, first_layer_output
+#+end_src
+*** Batch Generator
+#+begin_src python :noweb-ref batches
+@attr.s(auto_attribs=True)
+class Batches:
+    """Generates batches of data
+
+    Args:
+     data: the source of the data to generate (training data)
+     word_to_index: dict mapping the word to the vocabulary index
+     half_window: number of tokens on either side of word to grab
+     batch_size: the number of entries per batch
+     verbose: whether to emit messages
+    """
+    data: numpy.ndarray
+    word_to_index: dict
+    half_window: int
+    batch_size: int
+    verbose: bool=False    
+    _vocabulary_size: int=None    
+#+end_src
+*** Vocabulary Size
+#+begin_src python :noweb-ref batch-vocabulary-size
+@property
+def vocabulary_size(self) -> int:
+    """Number of tokens in the vocabulary"""
+    if self._vocabulary_size is None:
+        self._vocabulary_size = len(self.word_to_index)
+    return self._vocabulary_size
+#+end_src
+*** Indices and Frequencies
+#+begin_src python :noweb-ref indices-frequencies
+def indices_and_frequencies(self, context_words: list) -> list:
+    """combines indexes and frequency counts-dict
+
+    Args:
+     context_words: words to get the indices for
+
+    Returns:
+     list of (word-index, word-count) tuples built from context_words
+    """
+    frequencies = Counter(context_words)
+    indices = [self.word_to_index[word] for word in context_words]
+    return [(indices[index], frequencies[context_words[index]])
+            for index in range(len(indices))]
+#+end_src        
+*** Vectors
+#+begin_src python :noweb-ref vectors
+def vectors(self):
+    """Generates vectors infinitely
+
+    Yields:
+     tuple of x, y 
+    """
+    location = self.half_window
+    while True:
+        y = numpy.zeros(self.vocabulary_size)
+        x = numpy.zeros(self.vocabulary_size)
+        center_word = self.data[location]
+        y[self.word_to_index[center_word]] = 1
+        context_words = (
+            self.data[(location - self.half_window): location]
+            + self.data[(location + 1) : (location + self.half_window + 1)])
+
+        for word_index, frequency in self.indices_and_frequencies(context_words):
+            x[word_index] = frequency/len(context_words)
+        yield x, y
+        location += 1
+        if location >= len(self.data):
+            if self.verbose:
+                print("location in data is being set to 0")
+            location = 0
+    return
+#+end_src        
+*** Iterator Method
+#+begin_src python :noweb-ref iterator
+def __iter__(self):
+    """makes this into an iterator"""
+    return self
+#+end_src
+*** Next Method
+#+begin_src python :noweb-ref next-method
+def __next__(self):
+    batch_x = []
+    batch_y = []
+    for x, y in self.vectors():
+        while len(batch_x) < batch_size:
+            batch_x.append(x)
+            batch_y.append(y)
+        else:
+            yield numpy.array(batch_x).T, numpy.array(batch_y).T
+            batch = []    
+    return
+#+end_src    
+** Testing It
+#+begin_src python :results none
+from neurotic.nlp.word_embeddings import Batches, CBOW
+
+N = 4
+model = CBOW(hidden=N, meta=meta)
+V = len(meta.vocabulary)
+
+expect(model.vocabulary_size).to(equal(V))
+expect(model.input_weights.shape).to(equal((N, V)))
+expect(model.hidden_weights.shape).to(equal((V, N)))
+expect(model.input_bias.shape).to(equal((N, 1)))
+expect(model.hidden_bias.shape).to(equal((V, 1)))
+
+tmp = numpy.array([[1,2,3],
+                   [1,1,1]
+                   ])
+tmp_sm = model.softmax(tmp)
+expected =  numpy.array([[0.5, 0.73105858, 0.88079708],
+                         [0.5, 0.26894142, 0.11920292]])
+
+
+expect(numpy.allclose(tmp_sm, expected)).to(be_true)
+#+end_src
+
+#+begin_src python :results none
+tmp_N = 2
+tmp_V = 3
+tmp_x = numpy.array([[0,1,0]]).T
+
+model = CBOW(hidden=tmp_N, meta=meta)
+model._vocabulary_size=3
+tmp_z, tmp_h = model.forward(tmp_x)
+
+expect(tmp_x.shape).to(equal((3, 1)))
+expect(tmp_z.shape).to(equal((3, 1)))
+expect(tmp_h.shape).to(equal((2, 1)))
+#+end_src
+*** The Batches
+#+begin_src python :results none
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=tmp_C, batch_size=tmp_batch_size)
+tmp_x, tmp_y = next(batches)
+#+end_src    

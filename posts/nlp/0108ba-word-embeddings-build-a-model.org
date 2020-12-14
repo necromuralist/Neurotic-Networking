@@ -7,149 +7,75 @@
 .. link: 
 .. description: Building Word Embeddings from scratch.
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-7fcffd05-a9cd-41d4-8a02-fa3f15ac9d50-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Beginning
+ Welcome to the fourth (and last) programming assignment of Course 2! 
+ 
+ In this assignment, you will practice how to compute word embeddings and use them for sentiment analysis.
+ - To implement sentiment analysis, you can go beyond counting the number of positive words and negative words. 
+ - You can find a way to represent each word numerically, by a vector. 
+ - The vector could then represent syntactic (i.e. parts of speech) and semantic (i.e. meaning) structures. 
+ 
+ In this assignment, you will explore a classic way of generating word embeddings or representations.
+ - You will implement a famous model called the continuous bag of words (CBOW) model. 
+ 
+ By completing this assignment you will:
+ 
+ - Train word vectors from scratch.
+ - Learn how to create batches of data.
+ - Understand how backpropagation works.
+ - Plot and visualize your learned word vectors.
+ 
+ Knowing how to train these models will give you a better understanding of word vectors, which are building blocks to many applications in natural language processing.
+* The Parts
+  - {{% lancelot title="Loading the Data" %}}word-embeddings-shakespeare-data{{% /lancelot %}}
+  - {{% lancelot title="Building and Training the CBOW Model" %}}word-embeddings-training-the-model{{% /lancelot %}}
+** The Continuous Bag Of Words Model (CBOW)
+
+Let's take a look at the following sentence: 
+**'I am happy because I am learning'**. 
+
+ - In continuous bag of words (CBOW) modeling, we try to predict the center word given a few context words (the words around the center word).
+ - For example, if you were to choose a context half-size of say /C = 2/, then you would try to predict the word **happy** given the context that includes 2 words before and 2 words after the center word:
+  + /C/ words before: =[I, am]=
+  + /C/ words after: =[because, I]=
+ - In other words:
+
+#+begin_example
+context = [I,am, because, I]
+target = happy
+#+end_example
+
+The model will be a three-layer one. The input layer (\(\bar x\)) is the average of all the one hot vectors of the context words. There will be one hidden layer, and the output layer (\(hat y\)) will be the softmax layer.
+
+The architecture you will be implementing is as follows:
+
+\begin{align}
+ h &= W_1 \  X + b_1  \tag{1} \\
+ a &= ReLU(h)  \tag{2} \\
+ z &= W_2 \  a + b_2   \tag{3} \\
+ \hat y &= softmax(z)   \tag{4} \\
+\end{align}
+
+
+
+
+# In[ ]:
+  
 * Raw
 #+begin_example
 # # Assignment 4: Word Embeddings 
 # 
-# Welcome to the fourth (and last) programming assignment of Course 2! 
-# 
-# In this assignment, you will practice how to compute word embeddings and use them for sentiment analysis.
-# - To implement sentiment analysis, you can go beyond counting the number of positive words and negative words. 
-# - You can find a way to represent each word numerically, by a vector. 
-# - The vector could then represent syntactic (i.e. parts of speech) and semantic (i.e. meaning) structures. 
-# 
-# In this assignment, you will explore a classic way of generating word embeddings or representations.
-# - You will implement a famous model called the continuous bag of words (CBOW) model. 
-# 
-# By completing this assignment you will:
-# 
-# - Train word vectors from scratch.
-# - Learn how to create batches of data.
-# - Understand how backpropagation works.
-# - Plot and visualize your learned word vectors.
-# 
-# Knowing how to train these models will give you a better understanding of word vectors, which are building blocks to many applications in natural language processing.
-
-# ## Outline
-# 
-# - [1 The Continuous bag of words model](#1)
-# - [2 Training the Model](#2)
-#     - [2.0 Initialize the model](#2)
-#         - [Exercise 01](#ex-01)
-#     - [2.1 Softmax Function](#2.1)
-#         - [Exercise 02](#ex-02)
-#     - [2.2 Forward Propagation](#2.2)
-#         - [Exercise 03](#ex-03)
-#     - [2.3 Cost Function](#2.3)
-#     - [2.4 Backproagation](#2.4)
-#         - [Exercise 04](#ex-04)
-#     - [2.5 Gradient Descent](#2.5)
-#         - [Exercise 05](#ex-05)
-# - [3 Visualizing the word vectors](#3)
-# 
-
-# <a name='1'></a>
-# # 1. The Continuous bag of words model
-# 
-# Let's take a look at the following sentence: 
-# >**'I am happy because I am learning'**. 
-# 
-# - In continuous bag of words (CBOW) modeling, we try to predict the center word given a few context words (the words around the center word).
-# - For example, if you were to choose a context half-size of say $C = 2$, then you would try to predict the word **happy** given the context that includes 2 words before and 2 words after the center word:
-# 
-# > $C$ words before: [I, am] 
-# 
-# > $C$ words after: [because, I] 
-# 
-# - In other words:
-# 
-# $$context = [I,am, because, I]$$
-# $$target = happy$$
-# 
-# The structure of your model will look like this:
-# 
-# <div style="width:image width px; font-size:100%; text-align:center;"><img src='word2.png' alt="alternate text" width="width" height="height" style="width:600px;height:250px;" /> Figure 1 </div>
-# 
-# Where $\bar x$ is the average of all the one hot vectors of the context words. 
-# 
-# <div style="width:image width px; font-size:100%; text-align:center;"><img src='mean_vec2.png' alt="alternate text" width="width" height="height" style="width:600px;height:250px;" /> Figure 2 </div>
-# 
-# Once you have encoded all the context words, you can use $\bar x$ as the input to your model. 
-# 
-# The architecture you will be implementing is as follows:
-# 
-# \begin{align}
-#  h &= W_1 \  X + b_1  \tag{1} \\
-#  a &= ReLU(h)  \tag{2} \\
-#  z &= W_2 \  a + b_2   \tag{3} \\
-#  \hat y &= softmax(z)   \tag{4} \\
-# \end{align}
-
-# In[ ]:
-
-
-# Import Python libraries and helper functions (in utils2) 
-import nltk
-from nltk.tokenize import word_tokenize
-import numpy as np
-from collections import Counter
-from utils2 import sigmoid, get_batches, compute_pca, get_dict
-
-
-# In[ ]:
-
-
-# Download sentence tokenizer
-nltk.data.path.append('.')
-
-
-# In[ ]:
-
-
-# Load, tokenize and process the data
-import re                                                           #  Load the Regex-modul
-with open('shakespeare.txt') as f:
-    data = f.read()                                                 #  Read in the data
-data = re.sub(r'[,!?;-]', '.',data)                                 #  Punktuations are replaced by .
-data = nltk.word_tokenize(data)                                     #  Tokenize string to words
-data = [ ch.lower() for ch in data if ch.isalpha() or ch == '.']    #  Lower case and drop non-alphabetical tokens
-print("Number of tokens:", len(data),'\n', data[:15])               #  print data sample
-
-
-# In[ ]:
-
-
-# Compute the frequency distribution of the words in the dataset (vocabulary)
-fdist = nltk.FreqDist(word for word in data)
-print("Size of vocabulary: ",len(fdist) )
-print("Most frequent tokens: ",fdist.most_common(20) ) # print the 20 most frequent words and their freq.
-
-
-# #### Mapping words to indices and indices to words
-# We provide a helper function to create a dictionary that maps words to indices and indices to words.
-
-# In[ ]:
-
-
-# get_dict creates two dictionaries, converting words to indices and viceversa.
-word2Ind, Ind2word = get_dict(data)
-V = len(word2Ind)
-print("Size of vocabulary: ", V)
-
-
-# In[ ]:
-
-
-# example of word to index mapping
-print("Index of the word 'king' :  ",word2Ind['king'] )
-print("Word which has index 2743:  ",Ind2word[2743] )
-
-
-# <a name='2'></a>
 # # 2 Training the Model
 # 
 # ###  Initializing the model
