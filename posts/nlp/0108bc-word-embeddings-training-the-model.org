@@ -11,8 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-71ab15d8-4d22-4b36-8aef-888f99ccb851-ssh.json
-
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-98b3df91-bc5c-46b6-b0ce-1845c7630f0b-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -22,16 +21,27 @@
 ** Imports
 #+begin_src python :results none
 # python
-from enum import Enum, unique
+from argparse import Namespace
 from collections import Counter
+from enum import Enum, unique
+from functools import partial
 
 import math
+import random
+
 # pypi
-from expects import be_true, equal, expect
+from expects import be_true, contain_exactly, equal, expect
+
+import holoviews
+import hvplot.pandas
 import numpy
+import pandas
 
 # this project
 from neurotic.nlp.word_embeddings import DataCleaner, MetaData
+
+# my other stuff
+from graeae import EmbedHoloviews, Timer
 #+end_src
 
 ** Set Up
@@ -41,6 +51,16 @@ from neurotic.nlp.word_embeddings import DataCleaner, MetaData
 cleaner = DataCleaner()
 data = cleaner.processed
 meta = MetaData(data)
+TIMER = Timer(speak=False)
+Embed = partial(EmbedHoloviews, folder_path="files/posts/nlp/word-embeddings-training-the-model")
+Plot = Namespace(
+    width=990,
+    height=780,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
 #+end_src
 
 Something to help remember what the numpy =axis= argument is.
@@ -319,7 +339,7 @@ def index_with_frequency(context_words: list,
 ** Vector Generator
 #+begin_src python :results none
 def vectors(data: numpy.ndarray, word_to_index: dict, half_window: int):
-    """Generates vectors infinitely
+    """Generates vectors of fraction of context words each word represents
 
     Args:
      data: source of the vectors
@@ -353,7 +373,7 @@ def vectors(data: numpy.ndarray, word_to_index: dict, half_window: int):
    
 #+begin_src python :results none
 def batch_generator(data: numpy.ndarray, word_to_index: dict,
-                    half_window: int, batch_size: int):
+                    half_window: int, batch_size: int, original: bool=True):
     """Generate batches of vectors
 
     Args:
@@ -361,6 +381,7 @@ def batch_generator(data: numpy.ndarray, word_to_index: dict,
      word_to_index: map of word to vocabulary index
      half_window: number of tokens to take from either side of word
      batch_size: Number of vectors to put in each training batch
+     original: run the original buggy code
 
     Yields:
      tuple of X, Y batches
@@ -371,12 +392,22 @@ def batch_generator(data: numpy.ndarray, word_to_index: dict,
     for x, y in vectors(data,
                         word_to_index,
                         half_window):
-        while len(batch_x) < batch_size:
-            batch_x.append(x)
-            batch_y.append(y)
+        if original:
+            while len(batch_x) < batch_size:
+                batch_x.append(x)
+                batch_y.append(y)
+        
+            else:
+                yield numpy.array(batch_x).T, numpy.array(batch_y).T
         else:
-            yield numpy.array(batch_x).T, numpy.array(batch_y).T
-            batch = []
+            if len(batch_x) < batch_size:
+                batch_x.append(x)
+                batch_y.append(y)
+        
+            else:
+                yield numpy.array(batch_x).T, numpy.array(batch_y).T
+                batch_x = []
+                batch_y = []
     return
 #+end_src
 
@@ -384,7 +415,7 @@ So every time =batch_x= reaches the =batch_size= it yields the tuple and then cr
 
 ** Cost function
    The cross-entropy loss function.
-   - [[Thttps://numpy.org/doc/stable/reference/generated/numpy.squeeze.html][numpy.squeeze]]
+   - [[https://numpy.org/doc/stable/reference/generated/numpy.squeeze.html][numpy.squeeze]]
    - [[https://numpy.org/doc/stable/reference/generated/numpy.multiply.html][numpy.multiply]]
    - [[https://numpy.org/doc/stable/reference/generated/numpy.log.html][numpy.log]]
 
@@ -677,29 +708,7 @@ V = len(meta.vocabulary)
 num_iters = 150
 print("Call gradient_descent")
 W1, W2, b1, b2 = gradient_descent(data, meta.word_to_index, N, V, num_iters)
-
-
-# ##### Expected Output
-# 
-# 
-# ```CPP
-# iters: 10 cost: 0.789141
-# iters: 20 cost: 0.105543
-# iters: 30 cost: 0.056008
-# iters: 40 cost: 0.038101
-# iters: 50 cost: 0.028868
-# iters: 60 cost: 0.023237
-# iters: 70 cost: 0.019444
-# iters: 80 cost: 0.016716
-# iters: 90 cost: 0.014660
-# iters: 100 cost: 0.013054
-# iters: 110 cost: 0.012133
-# iters: 120 cost: 0.011370
-# iters: 130 cost: 0.010698
-# iters: 140 cost: 0.010100
-# iters: 150 cost: 0.009566
 #+end_src
-
 #+RESULTS:
 #+begin_example
 Call gradient_descent
@@ -721,6 +730,7 @@ iters: 150 cost: 0.009566
 #+end_example
 
 * End
+  The next post is one on extracting and visualizing the embeddings using Principal Component Analysis.
 ** Bundling It Up
 #+begin_src python :tangle ../../neurotic/nlp/word_embeddings/cbow.py :exports none
 <<imports>>
@@ -728,6 +738,8 @@ iters: 150 cost: 0.009566
 <<numpy-setup>>
 
 <<enum-setup>>
+
+<<named-tuple>>
 
 
 <<cbow>>
@@ -748,6 +760,12 @@ iters: 150 cost: 0.009566
 
     <<forward-propagation>>
 
+    <<gradients>>
+
+    <<backward-propagation>>
+
+    <<the-call>>
+
 
 <<batches>>
 
@@ -757,29 +775,45 @@ iters: 150 cost: 0.009566
 
     <<vectors>>
 
+    <<vector-generator>>
+
     <<iterator>>
 
-    <<next-method>>    
+    <<next-method>>
+
+
+<<the-trainer>>
+
+    <<losses>>
+
+    <<gradient-descent>>
+
+    <<cross-entropy-loss>>
 #+end_src
+
 *** Imports
 #+begin_src python :noweb-ref imports
 # python
+from collections import Counter, namedtuple
 from enum import Enum, unique
 
 # pypi
 import attr
 import numpy
 
-# this project
-from .data_loader import MetaData
 #+end_src
+
 *** Enum Setup
 #+begin_src python :noweb-ref enum-setup
 @unique
 class Axis(Enum):
     ROWS = 0
     COLUMNS = 1
-#+end_src        
+#+end_src
+*** Named Tuble
+#+begin_src python :noweb-ref named-tuple
+Gradients = namedtuple("Gradients", ["input_weights", "hidden_weights", "input_bias", "hidden_bias"])
+#+end_src    
 *** The CBOW Model
 #+begin_src python :noweb-ref cbow
 @attr.s(auto_attribs=True)
@@ -788,13 +822,14 @@ class CBOW:
 
     Args:
      hidden: number of rows in the hidden layer
-     meta: MetaData
+     vocabulary_size: number of tokens in the vocabulary
+     learning_rate: learning rate for back-propagation updates
      random_seed: int
     """
     hidden: int
-    meta: MetaData
-    random_seed: int=1
-    _vocabulary_size: int=None
+    vocabulary_size: int
+    learning_rate: float=0.03
+    random_seed: int=1    
     _random_generator: numpy.random.PCG64=None
     
     # layer one
@@ -805,16 +840,7 @@ class CBOW:
     _hidden_weights: numpy.ndarray=None
     _hidden_bias: numpy.ndarray=None
 #+end_src
-*** The Vocabulary Size
-#+begin_src python :noweb-ref vocabulary-size
-@property
-def vocabulary_size(self) -> int:
-    """Number of tokens in the vocabulary"""
-    if self._vocabulary_size is None:
-        self._vocabulary_size = len(self.meta.vocabulary)
-    return self._vocabulary_size
-#+end_src        
-*** The Random Generator
+**** The Random Generator
 #+begin_src python :noweb-ref random-generator
 @property
 def random_generator(self) -> numpy.random.PCG64:
@@ -823,49 +849,51 @@ def random_generator(self) -> numpy.random.PCG64:
         self._random_generator = numpy.random.default_rng(self.random_seed)
     return self._random_generator
 #+end_src        
-*** First Layer Weights
+**** First Layer Weights
+     These are initialized using numpy's new generator. I originally using their standard-normal version by mistake and the model did horrible. Using the [[https://numpy.org/doc/stable/reference/random/generated/numpy.random.Generator.random.html#numpy.random.Generator.random][Generator.random]] gives you a uniform distribution which seems to be what you're supposed to use.
 #+begin_src python :noweb-ref weights-1
 @property
 def input_weights(self) -> numpy.ndarray:
     """Weights for the first layer"""
     if self._input_weights is None:
-        self._input_weights = self.random_generator.standard_normal(
+        self._input_weights = self.random_generator.random(
             (self.hidden, self.vocabulary_size))
     return self._input_weights
 #+end_src
-*** First Layer Bias
+**** First Layer Bias
 #+begin_src python :noweb-ref bias-1
 @property
 def input_bias(self) -> numpy.ndarray:
     """Bias for the input layer"""
     if self._input_bias is None:
-        self._input_bias = self.random_generator.standard_normal(
+        self._input_bias = self.random_generator.random(
             (self.hidden, 1)
         )
     return self._input_bias
 #+end_src        
-*** Hidden Layer Weights
+**** Hidden Layer Weights
 #+begin_src python :noweb-ref weights-2
 @property
 def hidden_weights(self) -> numpy.ndarray:
     """The weights for the hidden layer"""
     if self._hidden_weights is None:
-        self._hidden_weights = self.random_generator.standard_normal(
-            (self.vocabulary_size, self.hidden))
+        self._hidden_weights = self.random_generator.random(
+            (self.vocabulary_size, self.hidden)
+        )
     return self._hidden_weights
 #+end_src
-*** Hidden Layer Bias
+**** Hidden Layer Bias
 #+begin_src python :noweb-ref bias-2
 @property
 def hidden_bias(self) -> numpy.ndarray:
     """Bias for the hidden layer"""
     if self._hidden_bias is None:
-        self._hidden_bias = self.random_generator.standard_normal(
+        self._hidden_bias = self.random_generator.random(
             (self.vocabulary_size, 1)
         )
     return self._hidden_bias
 #+end_src        
-*** Softmax
+**** Softmax
 #+begin_src python :noweb-ref softmax
 def softmax(self, scores: numpy.ndarray) -> numpy.ndarray:
     """Calculate the softmax
@@ -876,7 +904,7 @@ def softmax(self, scores: numpy.ndarray) -> numpy.ndarray:
         yhat: prediction (estimate of y)"""
     return numpy.exp(scores)/numpy.sum(numpy.exp(scores), axis=Axis.ROWS.value)
 #+end_src
-*** Forward Propagation
+**** Forward Propagation
 #+begin_src python :noweb-ref forward-propagation
 def forward(self, data: numpy.ndarray) -> tuple:
     """makes a model prediction
@@ -889,10 +917,84 @@ def forward(self, data: numpy.ndarray) -> tuple:
     """
     first_layer_output = numpy.maximum(numpy.dot(self.input_weights, data)
                                   + self.input_bias, 0)
-    predictions = (numpy.dot(self.hidden_weights, first_layer_output)
+    second_layer_output = (numpy.dot(self.hidden_weights, first_layer_output)
                    + self.hidden_bias)
-    return predictions, first_layer_output
+    return second_layer_output, first_layer_output
 #+end_src
+**** Gradients
+#+begin_src python :noweb-ref gradients
+def gradients(self, data: numpy.ndarray,
+              predicted: numpy.ndarray,
+              actual: numpy.ndarray,
+              hidden_input: numpy.ndarray) -> Gradients:
+    """does the gradient calculation for back-propagation
+
+    This is broken out to be able to troubleshoot/compare it
+
+   Args:
+     data: the input x value
+     predicted: what our model predicted the labels for the data should be
+     actual: what the actual labels should have been
+     hidden_input: the input to the hidden layer
+    Returns:
+     Gradients for input_weight, hidden_weight, input_bias, hidden_bias
+    """
+    difference = predicted - actual
+    batch_size = difference.shape[1]
+    l1 = numpy.maximum(numpy.dot(self.hidden_weights.T, difference), 0)
+
+    input_weights_gradient = numpy.dot(l1, data.T)/batch_size
+    hidden_weights_gradient = numpy.dot(difference, hidden_input.T)/batch_size
+    input_bias_gradient = numpy.sum(l1,
+                                    axis=Axis.COLUMNS.value,
+                                    keepdims=True)/batch_size
+    hidden_bias_gradient = numpy.sum(difference,
+                                     axis=Axis.COLUMNS.value,
+                                     keepdims=True)/batch_size
+    return Gradients(input_weights=input_weights_gradient,
+                     hidden_weights=hidden_weights_gradient,
+                     input_bias=input_bias_gradient,
+                     hidden_bias=hidden_bias_gradient)
+#+end_src     
+**** Backward Propagation
+#+begin_src python :noweb-ref backward-propagation
+def backward(self, data: numpy.ndarray,
+             predicted: numpy.ndarray,
+             actual: numpy.ndarray,
+             hidden_input: numpy.ndarray) -> None:
+    """Does back-propagation to update the weights
+
+   Arg:s
+     data: the input x value
+     predicted: what our model predicted the labels for the data should be
+     actual: what the actual labels should have been
+     hidden_input: the input to the hidden layer
+    """
+    gradients = self.gradients(data=data,
+                               predicted=predicted,
+                               actual=actual,
+                               hidden_input=hidden_input)
+    # I don't have setters for the properties so use the private variables
+    self._input_weights -= self.learning_rate * gradients.input_weights
+    self._hidden_weights -= self.learning_rate * gradients.hidden_weights
+    self._input_bias -= self.learning_rate * gradients.input_bias
+    self._hidden_bias -= self.learning_rate * gradients.hidden_bias
+    return
+#+end_src
+**** Call
+#+begin_src python :noweb-ref the-call
+def __call__(self, data: numpy.ndarray) -> numpy.ndarray:
+    """makes a prediction on the data
+
+    Args:
+     data: input data for the prediction
+    
+    Returns:
+     softmax of model output
+    """
+    output, _ = self.forward(data)
+    return self.softmax(output)
+#+end_src     
 *** Batch Generator
 #+begin_src python :noweb-ref batches
 @attr.s(auto_attribs=True)
@@ -904,16 +1006,20 @@ class Batches:
      word_to_index: dict mapping the word to the vocabulary index
      half_window: number of tokens on either side of word to grab
      batch_size: the number of entries per batch
+     batches: number of batches to generate before quitting
      verbose: whether to emit messages
     """
     data: numpy.ndarray
     word_to_index: dict
     half_window: int
     batch_size: int
+    batches: int
+    repetitions: int=0
     verbose: bool=False    
-    _vocabulary_size: int=None    
+    _vocabulary_size: int=None
+    _vectors: object=None
 #+end_src
-*** Vocabulary Size
+**** Vocabulary Size
 #+begin_src python :noweb-ref batch-vocabulary-size
 @property
 def vocabulary_size(self) -> int:
@@ -922,10 +1028,19 @@ def vocabulary_size(self) -> int:
         self._vocabulary_size = len(self.word_to_index)
     return self._vocabulary_size
 #+end_src
-*** Indices and Frequencies
+**** Vectors
+#+begin_src python :noweb-ref vectors
+@property
+def vectors(self):
+    """our vector-generator started up"""
+    if self._vectors is None:
+        self._vectors = self.vector_generator()
+    return self._vectors
+#+end_src
+**** Indices and Frequencies
 #+begin_src python :noweb-ref indices-frequencies
 def indices_and_frequencies(self, context_words: list) -> list:
-    """combines indexes and frequency counts-dict
+    """combines word-indexes and frequency counts-dict
 
     Args:
      context_words: words to get the indices for
@@ -938,10 +1053,13 @@ def indices_and_frequencies(self, context_words: list) -> list:
     return [(indices[index], frequencies[context_words[index]])
             for index in range(len(indices))]
 #+end_src        
-*** Vectors
-#+begin_src python :noweb-ref vectors
-def vectors(self):
+**** Vectors
+#+begin_src python :noweb-ref vector-generator
+def vector_generator(self):
     """Generates vectors infinitely
+    
+    x: fraction of context words represented by word
+    y: array with 1 where center word is in the vocabulary and 0 elsewhere
 
     Yields:
      tuple of x, y 
@@ -966,33 +1084,113 @@ def vectors(self):
             location = 0
     return
 #+end_src        
-*** Iterator Method
+**** Iterator Method
 #+begin_src python :noweb-ref iterator
 def __iter__(self):
     """makes this into an iterator"""
     return self
 #+end_src
-*** Next Method
+**** Next Method
 #+begin_src python :noweb-ref next-method
-def __next__(self):
+def __next__(self) -> tuple:
+    """Creates the batches and returns them
+
+    Returns:
+     x, y batches
+    """
     batch_x = []
     batch_y = []
-    for x, y in self.vectors():
-        while len(batch_x) < batch_size:
+
+    if self.repetitions == self.batches:
+        raise StopIteration()
+    self.repetitions += 1    
+    for x, y in self.vectors:
+        if len(batch_x) < self.batch_size:
             batch_x.append(x)
             batch_y.append(y)
         else:
-            yield numpy.array(batch_x).T, numpy.array(batch_y).T
-            batch = []    
+            return numpy.array(batch_x).T, numpy.array(batch_y).T
     return
-#+end_src    
+#+end_src
+*** The Trainer
+#+begin_src python :noweb-ref the-trainer
+@attr.s(auto_attribs=True)
+class TheTrainer:
+    """Something to train the model
+
+    Args:
+     model: thing to train
+     batches: batch generator
+     learning_impairment: rate to slow the model's learning
+     impairment_point: how frequently to impair the learner
+     emit_point: how frequently to emit messages
+     verbose: whether to emit messages
+    """
+    model: CBOW
+    batches: Batches
+    learning_impairment: float=0.66
+    impairment_point: int=100
+    emit_point: int=10
+    verbose: bool=False
+    _losses: list=None
+#+end_src
+**** Losses
+#+begin_src python :noweb-ref losses
+@property
+def losses(self) -> list:
+    """Holder for the training losses"""
+    if self._losses is None:
+        self._losses = []
+    return self._losses
+#+end_src
+**** Gradient Descent
+#+begin_src python :noweb-ref gradient-descent
+def __call__(self):    
+    """Trains the model using gradient descent
+    """
+    for repetitions, x_y in enumerate(self.batches):
+        x, y = x_y
+        output, hidden_input = self.model.forward(x)
+        predictions = self.model.softmax(output)
+
+        self.losses.append(self.cross_entropy_loss(predicted=predictions, actual=y))
+        self.model.backward(data=x, predicted=predictions, actual=y,
+                            hidden_input=hidden_input)
+        if ((repetitions + 1) % self.impairment_point) == 0:
+            self.model.learning_rate *= self.learning_impairment
+            if self.verbose:
+                print(f"new learning rate: {self.model.learning_rate}")
+        if self.verbose and ((repetitions + 1) % self.emit_point == 0):
+            print(f"{repetitions + 1}: loss={self.losses[repetitions]}")
+    return 
+#+end_src
+
+**** Cross-Entropy-Loss
+#+begin_src python :noweb-ref cross-entropy-loss
+def cross_entropy_loss(self, predicted: numpy.ndarray,
+                       actual: numpy.ndarray) -> numpy.ndarray:
+    """Calculates the cross-entropy loss
+
+    Args:
+     predicted: array with the model's guesses
+     actual: array with the actual labels
+
+    Returns:
+     the cross-entropy loss
+    """
+    log_probabilities = (numpy.multiply(numpy.log(predicted), actual)
+                         + numpy.multiply(numpy.log(1 - predicted), 1 - actual))
+    cost = -numpy.sum(log_probabilities)/self.batches.batch_size
+    return numpy.squeeze(cost)
+#+end_src     
 ** Testing It
 #+begin_src python :results none
-from neurotic.nlp.word_embeddings import Batches, CBOW
+from neurotic.nlp.word_embeddings import Batches, CBOW, TheTrainer
 
 N = 4
-model = CBOW(hidden=N, meta=meta)
 V = len(meta.vocabulary)
+model = CBOW(hidden=N, vocabulary_size=V)
+
 
 expect(model.vocabulary_size).to(equal(V))
 expect(model.input_weights.shape).to(equal((N, V)))
@@ -1010,27 +1208,619 @@ expected =  numpy.array([[0.5, 0.73105858, 0.88079708],
 
 expect(numpy.allclose(tmp_sm, expected)).to(be_true)
 #+end_src
-
+*** Forward Propagation
+    
 #+begin_src python :results none
 tmp_N = 2
 tmp_V = 3
 tmp_x = numpy.array([[0,1,0]]).T
 
-model = CBOW(hidden=tmp_N, meta=meta)
-model._vocabulary_size=3
+model = CBOW(hidden=tmp_N, vocabulary_size=tmp_V)
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(N=tmp_N,V=tmp_V, random_seed=1)
+
+model._input_weights = tmp_W1
+model._hidden_weights = tmp_W2
+model._input_bias = tmp_b1
+model._hidden_bias = tmp_b2
+
 tmp_z, tmp_h = model.forward(tmp_x)
 
 expect(tmp_x.shape).to(equal((3, 1)))
 expect(tmp_z.shape).to(equal((3, 1)))
 expect(tmp_h.shape).to(equal((2, 1)))
+
+expected = numpy.array(
+    [[0.55379268],
+     [1.58960774],
+     [1.50722933]]
+)
+expect(numpy.allclose(tmp_z, expected)).to(be_true)
+
+expected = numpy.array(
+    [[0.92477674],
+     [1.02487333]]
+)
+
+expect(numpy.allclose(tmp_h, expected)).to(be_true)
 #+end_src
+*** Cross Entropy Loss
+
+#+begin_src python :results none
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  batches=15,
+                  half_window=tmp_C, batch_size=tmp_batch_size)
+
+tmp_V = len(meta.vocabulary)
+
+tmp_x, tmp_y = next(batch_generator(data, meta.word_to_index, tmp_C, tmp_batch_size))
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+
+model = CBOW(hidden=tmp_N, vocabulary_size=tmp_V)
+model._input_weights = tmp_W1
+model._hidden_weights = tmp_W2
+model._input_bias = tmp_b1
+model._hidden_bias = tmp_b2
+
+tmp_z, tmp_h = model.forward(tmp_x)
+
+tmp_yhat = model.softmax(tmp_z)
+
+train = TheTrainer(model=model, batches=batches, verbose=True)
+tmp_cost = train.cross_entropy_loss(actual=tmp_y, predicted=tmp_yhat)
+
+expect(tmp_x.shape).to(equal((5778, 4)))
+expect(tmp_y.shape).to(equal((5778, 4)))
+expect(tmp_W1.shape).to(equal((50, 5778)))
+expect(tmp_W2.shape).to(equal((5778, 50)))
+expect(tmp_b1.shape).to(equal((50, 1)))
+expect(tmp_b2.shape).to(equal((5778, 1)))
+expect(tmp_z.shape).to(equal((5778, 4)))
+expect(tmp_h.shape).to(equal((50, 4)))
+expect(tmp_yhat.shape).to(equal((5778, 4)))
+expect(math.isclose(tmp_cost, 9.9560, abs_tol=1e-4)).to(be_true)
+#+end_src
+*** Back Propagation
+#+begin_src python :results none
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+
+# get a batch of data
+tmp_x, tmp_y = next(batch_generator(data, meta.word_to_index, tmp_C, tmp_batch_size))
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+model = CBOW(hidden=tmp_N, vocabulary_size=tmp_V)
+model._input_weights = tmp_W1
+model._hidden_weights = tmp_W2
+model._input_bias = tmp_b1
+model._hidden_bias = tmp_b2
+tmp_z, tmp_h = model.forward(tmp_x)
+tmp_yhat = model.softmax(tmp_z)
+print(f"tmp_yhat.shape: {tmp_yhat.shape}")
+
+gradients = model.gradients(data=tmp_x, predicted=tmp_yhat, actual=tmp_y, hidden_input=tmp_h)
+tmp_grad_W1, tmp_grad_W2, tmp_grad_b1, tmp_grad_b2 = back_prop(tmp_x, tmp_yhat, tmp_y, tmp_h, tmp_W1, tmp_W2, tmp_b1, tmp_b2, tmp_batch_size)
+
+expect(numpy.allclose(gradients.input_weights, tmp_grad_W1)).to(be_true)
+expect(numpy.allclose(gradients.hidden_weights, tmp_grad_W2)).to(be_true)
+expect(numpy.allclose(gradients.input_bias, tmp_grad_b1)).to(be_true)
+expect(numpy.allclose(gradients.hidden_bias, tmp_grad_b2)).to(be_true)
+
+expect(tmp_x.shape).to(equal((5778, 4)))
+expect(tmp_y.shape).to(equal((5778, 4)))
+expect(tmp_W1.shape).to(equal((50, 5778)))
+expect(tmp_W2.shape).to(equal((5778, 50)))
+expect(tmp_b1.shape).to(equal((50, 1)))
+expect(tmp_b2.shape).to(equal((5778, 1)))
+expect(tmp_z.shape).to(equal((5778, 4)))
+expect(tmp_h.shape).to(equal((50, 4)))
+expect(tmp_yhat.shape).to(equal((5778, 4)))
+expect(tmp_grad_W1.shape).to(equal((50, 5778)))
+expect(tmp_grad_W2.shape).to(equal((5778, 50)))
+expect(tmp_grad_b1.shape).to(equal((50, 1)))
+expect(tmp_grad_b2.shape).to(equal((5778, 1)))
+#+end_src
+*** Putting Some Stuff Together
+#+begin_src python :results output :exports both
+tmp_C = 2
+tmp_N = 50
+tmp_batch_size = 4
+hidden_layers = 50
+
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  batches=15,
+                  half_window=tmp_C, batch_size=tmp_batch_size)
+tmp_x, tmp_y = next(batches)
+model = CBOW(hidden=hidden_layers, vocabulary_size=len(meta.vocabulary))
+prediction = model(tmp_x)
+
+train = TheTrainer(model=model, batches=batches, verbose=True)
+print(train.cross_entropy_loss(predicted=prediction, actual=tmp_y))
+print(compute_cost(tmp_y, prediction, tmp_batch_size))
+
+# using their initial weights
+tmp_W1, tmp_W2, tmp_b1, tmp_b2 = initialize_model(tmp_N,tmp_V)
+
+model = CBOW(hidden=tmp_N, vocabulary_size=tmp_V)
+expect(model.input_weights.shape).to(equal(tmp_W1.shape))
+expect(model.hidden_weights.shape).to(equal(tmp_W2.shape))
+expect(model.input_bias.shape).to(equal(tmp_b1.shape))
+expect(model.hidden_bias.shape).to(equal(tmp_b2.shape))
+
+model._input_weights = tmp_W1
+model._hidden_weights = tmp_W2
+model._input_bias = tmp_b1
+model._hidden_bias = tmp_b2
+
+tmp_x, tmp_y = next(batch_generator(data, meta.word_to_index, tmp_C, tmp_batch_size))
+prediction = model(tmp_x)
+
+train = TheTrainer(model=model, batches=batches, verbose=True)
+print(train.cross_entropy_loss(predicted=prediction, actual=tmp_y))
+print(compute_cost(tmp_y, prediction, tmp_batch_size))
+#+end_src
+
+#+RESULTS:
+: 11.871189103548419
+: 11.871189103548419
+: 9.956016099656951
+: 9.956016099656951
+
+I changed the weights to use the uniform distribution which seems to work better, but weirdly it still does a little worse initially. The random-seed seems to be different for the old numpy random and their new generator.
+
 *** The Batches
+    The original batch-generator had a couple of bugs in it. To avoid them pass in ~original=True~.
 #+begin_src python :results none
 tmp_C = 2
 tmp_N = 50
 tmp_batch_size = 4
 
 batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  batches=5,
                   half_window=tmp_C, batch_size=tmp_batch_size)
+
+
+old_generator = batch_generator(cleaner.processed, meta.word_to_index, tmp_C,
+                                tmp_batch_size, original=False)
+
+
+old_x, old_y = next(old_generator)
 tmp_x, tmp_y = next(batches)
-#+end_src    
+expect(numpy.allclose(tmp_x, old_x)).to(be_true)
+expect(numpy.allclose(tmp_y, old_y)).to(be_true)
+
+
+old_x, old_y = next(old_generator)
+tmp_x, tmp_y = next(batches)
+#expect(numpy.allclose(tmp_x, old_x)).to(be_true)
+#expect(numpy.allclose(tmp_y, old_y)).to(be_true)
+
+old_x, old_y = next(old_generator)
+tmp_x, tmp_y = next(batches)
+#+end_src
+*** Gradient Descent
+#+begin_src python :results output :exports both
+hidden_layers = 50
+half_window = 2
+batch_size = 128
+repetitions = 150
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=len(meta.vocabulary))
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+train = TheTrainer(model=model, batches=batches, verbose=True)
+train()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+10: loss=12.949165499168524
+20: loss=7.1739091478289225
+30: loss=13.431976455238479
+40: loss=4.0062314323745545
+50: loss=11.595407087927406
+60: loss=10.41983077447342
+70: loss=7.843047289924249
+80: loss=12.529314536141994
+90: loss=14.122707806423126
+new learning rate: 0.0198
+100: loss=10.80530164111974
+110: loss=4.624869443165228
+120: loss=5.552813055551899
+130: loss=8.483428176366933
+140: loss=9.047299388851195
+150: loss=4.841072955589429
+#+end_example
+*** Gradient Re-do
+    Something's wrong with the trainer's gradient descent so I'm going to try and update the original function to do it.
+
+#+begin_src python :results none
+def grady_the_ent(model: CBOW, data: numpy.ndarray,
+                     num_iters: int, batches: Batches, alpha=0.03):
+    """This is the gradient_descent function
+    
+    Args: 
+        data:      text
+        word2Ind:  words to Indices
+        N:         dimension of hidden vector  
+        V:         dimension of vocabulary 
+        num_iters: number of iterations  
+
+    Returns: 
+        W1, W2, b1, b2:  updated matrices and biases   
+    """
+    batch_size = 128
+    iters = 0
+    C = 2
+    for x, y in batches:
+        z, h = model.forward(x)
+        # Get yhat
+        yhat = model.softmax(z)
+        # Get cost
+        cost = compute_cost(y, yhat, batch_size)
+        if ((iters+1) % 10 == 0):
+            print(f"iters: {iters + 1} cost: {cost:.6f}")
+        grad_W1, grad_W2, grad_b1, grad_b2 = model.gradients(x,
+                                                             yhat,
+                                                             y,
+                                                             h)
+        
+        # Update weights and biases
+        model._input_weights -= alpha * grad_W1
+        model._hidden_weights -= alpha * grad_W2
+        model._input_bias -=  alpha * grad_b1
+        model._hidden_bias -=  alpha * grad_b2
+        
+        ### END CODE HERE ###
+        
+        iters += 1 
+        if iters == num_iters: 
+            break
+        if iters % 100 == 0:
+            alpha *= 0.66
+            
+    return
+#+end_src
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 150
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=vocabulary_size)
+# batch_generator(data, word2Ind, C, batch_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+grady_the_ent(model, cleaner.processed, repetitions, batches=batches)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+iters: 10 cost: 12.949165
+iters: 20 cost: 7.173909
+iters: 30 cost: 13.431976
+iters: 40 cost: 4.006231
+iters: 50 cost: 11.595407
+iters: 60 cost: 10.419831
+iters: 70 cost: 7.843047
+iters: 80 cost: 12.529315
+iters: 90 cost: 14.122708
+iters: 100 cost: 10.805302
+iters: 110 cost: 4.624869
+iters: 120 cost: 5.552813
+iters: 130 cost: 8.483428
+iters: 140 cost: 9.047299
+iters: 150 cost: 4.841073
+#+end_example
+
+So, something's wrong with the gradient descent.
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 150
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=vocabulary_size)
+batches = batch_generator(data, meta.word_to_index, C, batch_size)
+#batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+#                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+grady_the_ent(model, cleaner.processed, repetitions, batches=batches)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+iters: 10 cost: 0.407862
+iters: 20 cost: 0.090807
+iters: 30 cost: 0.050924
+iters: 40 cost: 0.035379
+iters: 50 cost: 0.027105
+iters: 60 cost: 0.021969
+iters: 70 cost: 0.018470
+iters: 80 cost: 0.015932
+iters: 90 cost: 0.014008
+iters: 100 cost: 0.012499
+iters: 110 cost: 0.011631
+iters: 120 cost: 0.010911
+iters: 130 cost: 0.010274
+iters: 140 cost: 0.009708
+iters: 150 cost: 0.009201
+#+end_example
+
+It looks like it's the batches.
+
+*** Troubleshooting the Batches
+    
+#+begin_src python :results none
+half_window = 2
+batch_size = 128
+repetitions = 150
+
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+start = random.randint(0, 100)
+context = cleaner.processed[start: start + half_window] + cleaner.processed[start + half_window + 1: start + half_window * 2]
+packed_1 = index_with_frequency(context, meta.word_to_index)
+packed_2 = batches.indices_and_frequencies(context)
+expect(packed_1).to(contain_exactly(*packed_2))
+#+end_src
+
+So the indices and frequencies is okay.
+
+#+begin_src python :results none
+half_window = 2
+
+v = vectors(cleaner.processed, meta.word_to_index, half_window)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+repetition = 0
+for old, new in zip(v, batches.vectors):
+    expect((old[0] == new[0]).all()).to(equal(True))
+    expect((old[1] == new[1]).all()).to(equal(True))
+    repetition += 1
+    if repetition == repetitions:
+        break
+#+end_src
+
+And the vectors look okay.
+
+#+begin_src python :results none
+old_generator = batch_generator(cleaner.processed, meta.word_to_index, tmp_C, tmp_batch_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=tmp_batch_size, batches=repetitions)
+repetitions = 150
+repetition = 0
+# batch = next(batches)
+for old in old_generator:
+    batch_x = []
+    batch_y = []
+    for x, y in batches.vectors:
+        while len(batch_x) < batches.batch_size:
+            batch_x.append(x)
+            batch_y.append(y)
+        else:
+            newx, newy = numpy.array(batch_x).T, numpy.array(batch_y).T
+            expect((old[0]==newx).all()).to(equal(True))
+            repetition += 1
+            if repetition == repetitions:
+                break
+    else:
+        continue
+    break
+#+end_src
+
+So, weirdly, rolling the =__next__== by hand seems to work.
+
+#+begin_src python :results output :exports both
+old_generator = batch_generator(cleaner.processed, meta.word_to_index, tmp_C, tmp_batch_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=tmp_batch_size, batches=repetitions)
+
+repetition, repetitions = 0, 150
+for old, new in zip(old_generator, batches):
+    try:
+        expect((old[0] == new[0]).all()).to(equal(True))
+        expect((old[1] == new[1]).all()).to(equal(True))
+    except AssertionError:
+        print(repetition)
+        break
+    repetition += 1
+    if repetition == repetitions:
+        break
+#+end_src
+
+#+RESULTS:
+: 1
+
+But not the batches.
+
+#+begin_src python :results output :exports both
+old_generator = batch_generator(cleaner.processed, meta.word_to_index, tmp_C, tmp_batch_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=tmp_batch_size, batches=repetitions)
+
+repetition, repetitions = 0, 150
+for old in old_generator:
+    new = next(batches)
+    expect(old[0].shape).to(equal(new[0].shape))
+    try:
+        expect((old[0] == new[0]).all()).to(equal(True))
+        expect((old[1] == new[1]).all()).to(equal(True))
+    except AssertionError:
+        print(repetition)
+        break
+    repetition += 1
+    if repetition == repetitions:
+        break
+#+end_src
+
+#+RESULTS:
+
+Actually, it looks like the old generator might be broken.
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 150
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=vocabulary_size)
+batches = batch_generator(data, meta.word_to_index, C, batch_size)
+#batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+#                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+grady_the_ent(model, cleaner.processed, repetitions, batches=batches)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+iters: 10 cost: 12.949165
+iters: 20 cost: 7.173909
+iters: 30 cost: 13.431976
+iters: 40 cost: 4.006231
+iters: 50 cost: 11.595407
+iters: 60 cost: 10.419831
+iters: 70 cost: 7.843047
+iters: 80 cost: 12.529315
+iters: 90 cost: 14.122708
+iters: 100 cost: 10.805302
+iters: 110 cost: 4.624869
+iters: 120 cost: 5.552813
+iters: 130 cost: 8.483428
+iters: 140 cost: 9.047299
+iters: 150 cost: 4.841073
+#+end_example
+
+The old generator wasn't creating new lists every time so it was just fitting the same batch of data every time... in fact it had a while loop instead of a conditional so it was just creating one batch with the same x and y lists repeated over and over so it should really be the worse performance, not the really good performance the original generator gave. I didn't re-run the ones above but this next set is being run after fixing my implementation.
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 300
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=vocabulary_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+trainer = TheTrainer(model, batches, emit_point=50)
+with TIMER:
+    trainer()
+#+end_src
+
+#+RESULTS:
+: 2020-12-16 14:15:54,530 graeae.timers.timer start: Started: 2020-12-16 14:15:54.530779
+: 2020-12-16 14:16:18,600 graeae.timers.timer end: Ended: 2020-12-16 14:16:18.600880
+: 2020-12-16 14:16:18,602 graeae.timers.timer end: Elapsed: 0:00:24.070101
+
+#+begin_src python :results output :exports both
+print(trainer.losses[0], trainer.losses[-1])
+#+end_src
+
+#+RESULTS:
+: 11.99601105791401 8.827228045367379
+
+Not a huge improvement, but it didn't run for a long time either.
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 1000
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layers, vocabulary_size=vocabulary_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+trainer = TheTrainer(model, batches, emit_point=100, verbose=True)
+with TIMER:
+    trainer()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2020-12-16 14:40:13,275 graeae.timers.timer start: Started: 2020-12-16 14:40:13.275964
+new learning rate: 0.0198
+100: loss=9.138356897918037
+new learning rate: 0.013068000000000001
+200: loss=9.077599951734605
+new learning rate: 0.008624880000000001
+300: loss=8.827228045367379
+new learning rate: 0.005692420800000001
+400: loss=8.556788482755191
+new learning rate: 0.003756997728000001
+500: loss=8.92744766914796
+new learning rate: 0.002479618500480001
+600: loss=9.052677036205138
+new learning rate: 0.0016365482103168007
+700: loss=8.914532962726918
+new learning rate: 0.0010801218188090885
+800: loss=8.885698480310062
+new learning rate: 0.0007128804004139984
+900: loss=9.042620463323736
+2020-12-16 14:41:33,457 graeae.timers.timer end: Ended: 2020-12-16 14:41:33.457065
+2020-12-16 14:41:33,458 graeae.timers.timer end: Elapsed: 0:01:20.181101
+new learning rate: 0.000470501064273239
+1000: loss=9.239992952104755
+#+end_example
+
+Hmm... doesn't seem to be improving.
+
+#+begin_src python :results none
+losses = pandas.Series(trainer.losses)
+line = holoviews.VLine(losses.idxmin()).opts(color=Plot.blue)
+time_series = losses.hvplot().opts(title="Loss per Repetition",
+                                   width=Plot.width, height=Plot.height,
+                                   color=Plot.tan)
+
+plot = time_series * line
+output = Embed(plot=plot, file_name="training_1000")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+ <object type="text/html" data="training_1000.html" style="width:100%" height=800>
+   <p>Figure Missing</p>
+ </object>
+#+end_export
+
+Since the losses are in a Series we can use its [[https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.idxmin.html][idxmin]] method to see when the losses bottomed out.
+
+#+begin_src python :results output :exports both
+print(losses.idxmin())
+#+end_src
+
+#+RESULTS:
+: 247
+
+#+begin_src python :results output :exports both
+print(losses.loc[247], losses.iloc[-1])
+#+end_src
+
+#+RESULTS:
+: 8.186490214727549 9.239992952104755
+
+So it did the best at 247 and then got a little worse as we went along.
+
+#+begin_src python :results output :exports both
+print(len(meta.word_to_index)/batch_size)
+#+end_src
+
+#+RESULTS:
+: 45.140625
+
+We exhausted our data after 45 batches so I guess it's overfitting after a while.
