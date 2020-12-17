@@ -1,0 +1,170 @@
+#+BEGIN_COMMENT
+.. title: Word Embeddings: Visualizing the Embeddings
+.. slug: word-embeddings-visualizing-the-embeddings
+.. date: 2020-12-16 15:44:25 UTC-08:00
+.. tags: nlp,cbow,word embeddings
+.. category: NLP
+.. link: 
+.. description: Extracting and visualizing the CBOW word-embeddings.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-45a727a3-5047-445a-ae82-955891f797ae-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Extracting and Visualizing the Embeddings
+  In the {{% lancelot title="previous post" %}}word-embeddings-training-the-model{{% /lancelot %}} we built a Continuous Bag of Words model to predict a word based on the fraction of words each word surrounding it made up within a window (e.g. the fraction of the four words surrounding the word that each word made up). Now we're going to use the weights of the model as word embeddings and see if we can visualize them.
+
+** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+from functools import partial
+
+# pypi
+from sklearn.decomposition import PCA
+
+import holoviews
+import hvplot.pandas
+import pandas
+
+# this project
+from neurotic.nlp.word_embeddings import (
+    Batches,
+    CBOW,
+    DataCleaner,
+    MetaData,
+    TheTrainer,
+    )
+# my other stuff
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+#+begin_src python :results none
+cleaner = DataCleaner()
+meta = MetaData(cleaner.processed)
+TIMER = Timer(speak=False)
+SLUG = "word-embeddings-visualizing-the-embeddings"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{SLUG}")
+Plot = Namespace(
+    width=990,
+    height=780,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src
+
+#+begin_src python :results output :exports both
+hidden_layer = 50
+half_window = 2
+batch_size = 128
+repetitions = 250
+vocabulary_size = len(meta.vocabulary)
+
+model = CBOW(hidden=hidden_layer, vocabulary_size=vocabulary_size)
+batches = Batches(data=cleaner.processed, word_to_index=meta.word_to_index,
+                  half_window=half_window, batch_size=batch_size, batches=repetitions)
+
+trainer = TheTrainer(model, batches, emit_point=50, verbose=True)
+with TIMER:
+    trainer()
+#+end_src
+
+#+RESULTS:
+: 2020-12-16 16:32:17,189 graeae.timers.timer start: Started: 2020-12-16 16:32:17.189213
+: 50: loss=9.88889093658385
+: new learning rate: 0.0198
+: 100: loss=9.138356897918037
+: 150: loss=9.149555378031549
+: new learning rate: 0.013068000000000001
+: 200: loss=9.077599951734605
+: 2020-12-16 16:32:37,403 graeae.timers.timer end: Ended: 2020-12-16 16:32:37.403860
+: 2020-12-16 16:32:37,405 graeae.timers.timer end: Elapsed: 0:00:20.214647
+: 250: loss=8.607763835003631
+
+#+begin_src python :results output :exports both
+print(trainer.best_loss)
+#+end_src
+
+#+RESULTS:
+: 8.186490214727549
+
+* Middle
+** Set It Up
+   We're going to use the method of averaging the weights of the two layers to form the embeddings.
+
+#+begin_src python :results none
+embeddings = (trainer.best_weights.input_weights.T
+              + trainer.best_weights.hidden_weights)/2
+#+end_src
+
+And now our words.
+
+#+begin_src python :results none
+words = ["king", "queen","lord","man", "woman","dog","wolf",
+         "rich","happy","sad"]
+#+end_src
+
+Now we need to translate the words into their indices so we can grab the rows in the mebedding that match.
+
+#+begin_src python :results output :exports both
+indices = [meta.word_to_index[word] for word in words]
+X = embeddings[indices, :]
+print(X.shape, indices) 
+#+end_src
+
+#+RESULTS:
+: (10, 50) [2745, 3951, 2961, 3023, 5675, 1452, 5674, 4191, 2316, 4278]
+
+There are 10 rows to match our ten words and 50 columns to match the number chosen for the hidden layer.
+** Visualizing
+    We're going to use [[https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html][sklearn's PCA]] for Principal Component Analysis. The =n_components= argument is the number of components it will keep - we'll keep 2.
+    
+#+begin_src python :results none
+pca = PCA(n_components=2)
+reduced = pca.fit(X).transform(X)
+pca_data = pandas.DataFrame(
+    reduced,
+    columns=["X", "Y"])
+
+pca_data["Word"] = words
+#+end_src
+
+#+begin_src python :results none
+points = pca_data.hvplot.scatter(x="X",
+                                 y="Y", color=Plot.red)
+labels = pca_data.hvplot.labels(x="X", y="Y", text="Word", text_baseline="top")
+plot = (points * labels).opts(
+    title="PCA Embeddings",
+    height=Plot.height,
+    width=Plot.width,
+    fontscale=Plot.fontscale,
+)
+outcome = Embed(plot=plot, file_name="embeddings_pca")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(outcome)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="embeddings_pca.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+Well, that's pretty horrible. Might need work.
+
+* End
+  This is the final post in the series looking at using a Continuous Bag of Words model to create word embeddings. Here are the other posts.
+
+  - {{% lancelot title="Introduction" %}}word-embeddings-build-a-model{{% /lancelot %}}
+  - {{% lancelot title="Loading the Data" %}}word-embeddings-shakespeare-data{{% /lancelot %}}
+  - {{% lancelot title="Building and Training the CBOW Model" %}}word-embeddings-training-the-model{{% /lancelot %}}

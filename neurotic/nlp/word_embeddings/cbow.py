@@ -16,6 +16,8 @@ class Axis(Enum):
 
 Gradients = namedtuple("Gradients", ["input_weights", "hidden_weights", "input_bias", "hidden_bias"])
 
+Weights = namedtuple("Weights", ["input_weights", "hidden_weights", "input_bias", "hidden_bias"])
+
 
 @attr.s(auto_attribs=True)
 class CBOW:
@@ -312,12 +314,22 @@ class TheTrainer:
     def __call__(self):    
         """Trains the model using gradient descent
         """
+        self.best_loss = float("inf")
         for repetitions, x_y in enumerate(self.batches):
             x, y = x_y
             output, hidden_input = self.model.forward(x)
             predictions = self.model.softmax(output)
     
-            self.losses.append(self.cross_entropy_loss(predicted=predictions, actual=y))
+            loss = self.cross_entropy_loss(predicted=predictions, actual=y)
+            if loss < self.best_loss:
+                self.best_loss = loss
+                self.best_weights = Weights(
+                    self.model.input_weights.copy(),
+                    self.model.hidden_weights.copy(),
+                    self.model.input_bias.copy(),
+                    self.model.hidden_bias.copy(),
+                )
+            self.losses.append(loss)
             self.model.backward(data=x, predicted=predictions, actual=y,
                                 hidden_input=hidden_input)
             if ((repetitions + 1) % self.impairment_point) == 0:

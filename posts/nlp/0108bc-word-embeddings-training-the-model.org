@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-98b3df91-bc5c-46b6-b0ce-1845c7630f0b-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-45a727a3-5047-445a-ae82-955891f797ae-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -22,7 +22,6 @@
 #+begin_src python :results none
 # python
 from argparse import Namespace
-from collections import Counter
 from enum import Enum, unique
 from functools import partial
 
@@ -730,7 +729,7 @@ iters: 150 cost: 0.009566
 #+end_example
 
 * End
-  The next post is one on extracting and visualizing the embeddings using Principal Component Analysis.
+  The {{% lancelot title="next post" %}}word-embeddings-visualizing-the-embeddings{{% /lancelot %}} is one on extracting and visualizing the embeddings using Principal Component Analysis.
 ** Bundling It Up
 #+begin_src python :tangle ../../neurotic/nlp/word_embeddings/cbow.py :exports none
 <<imports>>
@@ -810,9 +809,11 @@ class Axis(Enum):
     ROWS = 0
     COLUMNS = 1
 #+end_src
-*** Named Tuble
+*** Named Tuples
 #+begin_src python :noweb-ref named-tuple
 Gradients = namedtuple("Gradients", ["input_weights", "hidden_weights", "input_bias", "hidden_bias"])
+
+Weights = namedtuple("Weights", ["input_weights", "hidden_weights", "input_bias", "hidden_bias"])
 #+end_src    
 *** The CBOW Model
 #+begin_src python :noweb-ref cbow
@@ -1148,12 +1149,22 @@ def losses(self) -> list:
 def __call__(self):    
     """Trains the model using gradient descent
     """
+    self.best_loss = float("inf")
     for repetitions, x_y in enumerate(self.batches):
         x, y = x_y
         output, hidden_input = self.model.forward(x)
         predictions = self.model.softmax(output)
 
-        self.losses.append(self.cross_entropy_loss(predicted=predictions, actual=y))
+        loss = self.cross_entropy_loss(predicted=predictions, actual=y)
+        if loss < self.best_loss:
+            self.best_loss = loss
+            self.best_weights = Weights(
+                self.model.input_weights.copy(),
+                self.model.hidden_weights.copy(),
+                self.model.input_bias.copy(),
+                self.model.hidden_bias.copy(),
+            )
+        self.losses.append(loss)
         self.model.backward(data=x, predicted=predictions, actual=y,
                             hidden_input=hidden_input)
         if ((repetitions + 1) % self.impairment_point) == 0:
