@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Extracting Word Embeddings | Neurotic Networking</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/Neurotic-Networking/posts/nlp/extracting-word-embeddings/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<meta content="Cloistered Monkey" name="author">
+<link href="../training-the-cbow-model/" rel="prev" title="Training the CBOW Model" type="text/html">
+<link href="../word-embeddings-build-a-model/" rel="next" title="Word Embeddings: Build a Model" type="text/html">
+<meta content="Neurotic Networking" property="og:site_name">
+<meta content="Extracting Word Embeddings" property="og:title">
+<meta content="https://necromuralist.github.io/Neurotic-Networking/posts/nlp/extracting-word-embeddings/" property="og:url">
+<meta content="Table of Contents Introduction and Preliminaries Imports Preliminary Setup Extracting word embedding vectors Option 1: Extract embedding vectors from \(\mathbf{W_1}\) Option 2: Extract embedding" property="og:description">
+<meta content="article" property="og:type">
+<meta content="2020-12-11T16:42:38-08:00" property="article:published_time">
+<meta content="cbow" property="article:tag">
+<meta content="nlp" property="article:tag">
+<meta content="word embeddings" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="https://necromuralist.github.io/Neurotic-Networking/"><span id="blog-title">Neurotic Networking</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/Neurotic-Networking/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Extracting Word Embeddings</a></h1>
+<div class="metadata">
+<p class="byline author vcard p-author h-card"><span class="byline-name fn p-name" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2020-12-11T16:42:38-08:00" itemprop="datePublished" title="2020-12-11 16:42">2020-12-11 16:42</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orge71b171">Introduction and Preliminaries</a>
+<ul>
+<li><a href="#org55d2fc1">Imports</a></li>
+<li><a href="#org80517a9">Preliminary Setup</a></li>
+</ul>
+</li>
+<li><a href="#orgd9ac8a6">Extracting word embedding vectors</a>
+<ul>
+<li><a href="#org46b175d">Option 1: Extract embedding vectors from \(\mathbf{W_1}\)</a></li>
+<li><a href="#org2b8eea3">Option 2: Extract embedding vectors from \(\mathbf{W_2}\)</a></li>
+<li><a href="#orgcce76a3">Option 3: extract embedding vectors from \(\mathbf{W_1}\) and \(\mathbf{W_2}\)</a></li>
+</ul>
+</li>
+<li><a href="#org794e34f">End</a></li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orge71b171">
+<h2 id="orge71b171">Introduction and Preliminaries</h2>
+<div class="outline-text-2" id="text-orge71b171">
+<p>In the <a href="../training-the-cbow-model/">previous post</a> we trained the CBOW model, now in this post we'll look at how to extract word embedding vectors from a model.</p>
+</div>
+<div class="outline-3" id="outline-container-org55d2fc1">
+<h3 id="org55d2fc1">Imports</h3>
+<div class="outline-text-3" id="text-org55d2fc1">
+<div class="highlight">
+<pre><span></span><span class="c1"># from pypi</span>
+<span class="kn">from</span> <span class="nn">expects</span> <span class="kn">import</span> <span class="n">be_true</span><span class="p">,</span> <span class="n">expect</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org80517a9">
+<h3 id="org80517a9">Preliminary Setup</h3>
+<div class="outline-text-3" id="text-org80517a9">
+<p>Before moving on, you will be provided with some variables needed for further procedures, which should be familiar by now. Also a trained CBOW model will be simulated, the corresponding weights and biases are provided:</p>
+<p>Define the tokenized version of the corpus.</p>
+<div class="highlight">
+<pre><span></span><span class="n">words</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'happy'</span><span class="p">,</span> <span class="s1">'because'</span><span class="p">,</span> <span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'learning'</span><span class="p">]</span>
+</pre></div>
+<p>Define V. Remember this is the size of the vocabulary.</p>
+<div class="highlight">
+<pre><span></span><span class="n">vocabulary</span> <span class="o">=</span>  <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">words</span><span class="p">))</span>
+<span class="n">V</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">)</span>
+</pre></div>
+<p>Get the <code>word_to_index</code> and <code>index_to_word</code> dictionaries for the tokenized corpus.</p>
+<div class="highlight">
+<pre><span></span><span class="n">word_to_index</span> <span class="o">=</span> <span class="p">{</span><span class="n">word</span><span class="p">:</span> <span class="n">index</span> <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">)}</span>
+<span class="n">index_to_word</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">enumerate</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">))</span>
+</pre></div>
+<p>Define first matrix of weights</p>
+<div class="highlight">
+<pre><span></span><span class="n">W1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="p">[</span> <span class="mf">0.41687358</span><span class="p">,</span>  <span class="mf">0.08854191</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.23495225</span><span class="p">,</span>  <span class="mf">0.28320538</span><span class="p">,</span>  <span class="mf">0.41800106</span><span class="p">],</span>
+    <span class="p">[</span> <span class="mf">0.32735501</span><span class="p">,</span>  <span class="mf">0.22795148</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.23951958</span><span class="p">,</span>  <span class="mf">0.4117634</span> <span class="p">,</span> <span class="o">-</span><span class="mf">0.23924344</span><span class="p">],</span>
+    <span class="p">[</span> <span class="mf">0.26637602</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.23846886</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.37770863</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.11399446</span><span class="p">,</span>  <span class="mf">0.34008124</span><span class="p">]])</span>
+</pre></div>
+<p>Define second matrix of weights.</p>
+<div class="highlight">
+<pre><span></span><span class="n">W2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="o">-</span><span class="mf">0.22182064</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.43008631</span><span class="p">,</span>  <span class="mf">0.13310965</span><span class="p">],</span>
+                  <span class="p">[</span> <span class="mf">0.08476603</span><span class="p">,</span>  <span class="mf">0.08123194</span><span class="p">,</span>  <span class="mf">0.1772054</span> <span class="p">],</span>
+                  <span class="p">[</span> <span class="mf">0.1871551</span> <span class="p">,</span> <span class="o">-</span><span class="mf">0.06107263</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.1790735</span> <span class="p">],</span>
+                  <span class="p">[</span> <span class="mf">0.07055222</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.02015138</span><span class="p">,</span>  <span class="mf">0.36107434</span><span class="p">],</span>
+                  <span class="p">[</span> <span class="mf">0.33480474</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.39423389</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.43959196</span><span class="p">]])</span>
+</pre></div>
+<p>Define first vector of biases.</p>
+<div class="highlight">
+<pre><span></span><span class="n">b1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span> <span class="mf">0.09688219</span><span class="p">],</span>
+                  <span class="p">[</span> <span class="mf">0.29239497</span><span class="p">],</span>
+                  <span class="p">[</span><span class="o">-</span><span class="mf">0.27364426</span><span class="p">]])</span>
+</pre></div>
+<p>Define second vector of biases.</p>
+<div class="highlight">
+<pre><span></span><span class="n">b2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span> <span class="mf">0.0352008</span> <span class="p">],</span>
+                  <span class="p">[</span><span class="o">-</span><span class="mf">0.36393384</span><span class="p">],</span>
+                  <span class="p">[</span><span class="o">-</span><span class="mf">0.12775555</span><span class="p">],</span>
+                  <span class="p">[</span><span class="o">-</span><span class="mf">0.34802326</span><span class="p">],</span>
+                  <span class="p">[</span><span class="o">-</span><span class="mf">0.07017815</span><span class="p">]])</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orgd9ac8a6">
+<h2 id="orgd9ac8a6">Extracting word embedding vectors</h2>
+<div class="outline-text-2" id="text-orgd9ac8a6">
+<p>Once you have finished training the neural network, you have three options to get word embedding vectors for the words of your vocabulary, based on the weight matrices \(\mathbf{W_1}\) and/or \(\mathbf{W_2}\).</p>
+</div>
+<div class="outline-3" id="outline-container-org46b175d">
+<h3 id="org46b175d">Option 1: Extract embedding vectors from \(\mathbf{W_1}\)</h3>
+<div class="outline-text-3" id="text-org46b175d">
+<p>The first option is to take the columns of \(\mathbf{W_1}\) as the embedding vectors of the words of the vocabulary, using the same order of the words as for the input and output vectors.</p>
+<p><b>Note:</b> in this practice notebooks the values of the word embedding vectors are meaningless since we only trained for a single iteration with just one training example, but here's how you would proceed after the training process is complete.</p>
+<p>For example \(\mathbf{W_1}\) is this matrix:</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">W1</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+[[ 0.41687358  0.08854191 -0.23495225  0.28320538  0.41800106]
+ [ 0.32735501  0.22795148 -0.23951958  0.4117634  -0.23924344]
+ [ 0.26637602 -0.23846886 -0.37770863 -0.11399446  0.34008124]]
+</pre>
+<p>The first column, which is a 3-element vector, is the embedding vector of the first word of your vocabulary. The second column is the word embedding vector for the second word, and so on.</p>
+<p>These are the words corresponding to the columns.</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">vocabulary</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+- am
+- because
+- happy
+- i
+- learning
+</pre>
+<p>And the word embedding vectors corresponding to each word are:</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">word_to_index</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">word_embedding_vector</span> <span class="o">=</span> <span class="n">W1</span><span class="p">[:,</span> <span class="n">index</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s1">:    </span><span class="se">\t</span><span class="si">{</span><span class="n">word_embedding_vector</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+am:     [0.41687358 0.32735501 0.26637602]
+because:        [ 0.08854191  0.22795148 -0.23846886]
+happy:          [-0.23495225 -0.23951958 -0.37770863]
+i:      [ 0.28320538  0.4117634  -0.11399446]
+learning:       [ 0.41800106 -0.23924344  0.34008124]
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-org2b8eea3">
+<h3 id="org2b8eea3">Option 2: Extract embedding vectors from \(\mathbf{W_2}\)</h3>
+<div class="outline-text-3" id="text-org2b8eea3">
+<p>The second option is to transpose \(\mathbf{W_2}\) and take the columns of this transposed matrix as the word embedding vectors just like you did for \(\mathbf{W_1}\).</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">W2</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+[[-0.22182064  0.08476603  0.1871551   0.07055222  0.33480474]
+ [-0.43008631  0.08123194 -0.06107263 -0.02015138 -0.39423389]
+ [ 0.13310965  0.1772054  -0.1790735   0.36107434 -0.43959196]]
+</pre>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">word_to_index</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">word_embedding_vector</span> <span class="o">=</span> <span class="n">W2</span><span class="o">.</span><span class="n">T</span><span class="p">[:,</span> <span class="n">index</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s1">:    </span><span class="se">\t</span><span class="si">{</span><span class="n">word_embedding_vector</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+am:     [-0.22182064 -0.43008631  0.13310965]
+because:        [0.08476603 0.08123194 0.1772054 ]
+happy:          [ 0.1871551  -0.06107263 -0.1790735 ]
+i:      [ 0.07055222 -0.02015138  0.36107434]
+learning:       [ 0.33480474 -0.39423389 -0.43959196]
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgcce76a3">
+<h3 id="orgcce76a3">Option 3: extract embedding vectors from \(\mathbf{W_1}\) and \(\mathbf{W_2}\)</h3>
+<div class="outline-text-3" id="text-orgcce76a3">
+<p>The third option, which is the one you will use in this week's assignment, uses the average of \(\mathbf{W_1}\) and \(\mathbf{W_2^\intercal}\).</p>
+<p><b>Calculate the average of \(\mathbf{W_1}\) and \(\mathbf{W_2^\intercal}\), and store the result in <code>W3</code>.</b></p>
+<div class="highlight">
+<pre><span></span><span class="n">W3</span> <span class="o">=</span> <span class="p">(</span><span class="n">W1</span> <span class="o">+</span> <span class="n">W2</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">W3</span><span class="p">)</span>
+
+<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="p">[</span> <span class="mf">0.09752647</span><span class="p">,</span>  <span class="mf">0.08665397</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.02389858</span><span class="p">,</span>  <span class="mf">0.1768788</span> <span class="p">,</span>  <span class="mf">0.3764029</span> <span class="p">],</span>
+    <span class="p">[</span><span class="o">-</span><span class="mf">0.05136565</span><span class="p">,</span>  <span class="mf">0.15459171</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.15029611</span><span class="p">,</span>  <span class="mf">0.19580601</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.31673866</span><span class="p">],</span>
+    <span class="p">[</span> <span class="mf">0.19974284</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.03063173</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.27839106</span><span class="p">,</span>  <span class="mf">0.12353994</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.04975536</span><span class="p">]])</span>
+<span class="n">expect</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">W3</span><span class="p">,</span> <span class="n">expected</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">be_true</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+[[ 0.09752647  0.08665397 -0.02389858  0.1768788   0.3764029 ]
+ [-0.05136565  0.15459171 -0.15029611  0.19580601 -0.31673866]
+ [ 0.19974284 -0.03063173 -0.27839106  0.12353994 -0.04975536]]
+</pre>
+<p>Extracting the word embedding vectors works just like the two previous options, by taking the columns of the matrix you've just created.</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">word_to_index</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">word_embedding_vector</span> <span class="o">=</span> <span class="n">W3</span><span class="p">[:,</span> <span class="n">index</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s1">:    </span><span class="se">\t</span><span class="si">{</span><span class="n">word_embedding_vector</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+am:     [ 0.09752647 -0.05136565  0.19974284]
+because:        [ 0.08665397  0.15459171 -0.03063173]
+happy:          [-0.02389858 -0.15029611 -0.27839106]
+i:      [0.1768788  0.19580601 0.12353994]
+learning:       [ 0.3764029  -0.31673866 -0.04975536]
+</pre>
+<p>Now you know 3 different options to get the word embedding vectors from a model.</p>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org794e34f">
+<h2 id="org794e34f">End</h2>
+<div class="outline-text-2" id="text-org794e34f">
+<p>Now we've gone through the process of training a CBOW model in order to create word embeddings. The steps were:</p>
+<ul class="org-ul">
+<li><a href="../word-embeddings-data-preparation/">preparing the data</a></li>
+<li><a href="../introducing-the-cbow-model/">creating the CBOW model</a></li>
+<li><a href="../training-the-cbow-model/">training the model</a></li>
+<li>Extracting the word embedding vectors from the model.</li>
+</ul>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/cbow/" rel="tag">cbow</a></li>
+<li><a class="tag p-category" href="../../../categories/nlp/" rel="tag">nlp</a></li>
+<li><a class="tag p-category" href="../../../categories/word-embeddings/" rel="tag">word embeddings</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../training-the-cbow-model/" rel="prev" title="Training the CBOW Model">Previous post</a></li>
+<li class="next"><a href="../word-embeddings-build-a-model/" rel="next" title="Word Embeddings: Build a Model">Next post</a></li>
+</ul>
+</nav>
+</aside>
+<script async id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" type="text/javascript"></script>
+<script type="text/x-mathjax-config">
+
+        MathJax.Hub.Config({tex2jax: {inlineMath: [['$latex ','$'], ['\\(','\\)']],},
+
+        });
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script>
+<script>
+
+    MathJax = {
+        tex: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script></article>
+<!--End of body content-->
+<footer id="footer"><a href="http://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://i.creativecommons.org/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element) {
+            return element.getElementsByTagName('img')[0].alt;
+    }});
+</script>
+</body>
+</html>

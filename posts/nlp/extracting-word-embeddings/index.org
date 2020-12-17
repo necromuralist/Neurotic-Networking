@@ -1,0 +1,211 @@
+#+BEGIN_COMMENT
+.. title: Extracting Word Embeddings
+.. slug: extracting-word-embeddings
+.. date: 2020-12-11 16:42:38 UTC-08:00
+.. tags: nlp,cbow,word embeddings
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-54d65878-c6d9-40fd-9d18-0cb23c8b0ba0-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Introduction and Preliminaries
+  In the {{% lancelot title="previous post" %}}training-the-cbow-model{{% /lancelot %}} we trained the CBOW model, now in this post we'll look at how to extract word embedding vectors from a model.
+
+** Imports
+#+begin_src python :results none
+# from pypi
+from expects import be_true, expect
+import numpy
+#+end_src
+** Preliminary Setup
+Before moving on, you will be provided with some variables needed for further procedures, which should be familiar by now. Also a trained CBOW model will be simulated, the corresponding weights and biases are provided: 
+
+Define the tokenized version of the corpus.
+
+#+begin_src python :results none
+words = ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
+#+end_src
+
+
+Define V. Remember this is the size of the vocabulary.
+
+#+begin_src python :results none
+vocabulary =  sorted(set(words))
+V = len(vocabulary)
+#+end_src
+
+Get the =word_to_index= and =index_to_word= dictionaries for the tokenized corpus.
+
+#+begin_src python :results none
+word_to_index = {word: index for index, word in enumerate(vocabulary)}
+index_to_word = dict(enumerate(vocabulary))
+#+end_src
+
+
+Define first matrix of weights
+
+#+begin_src python :results none
+W1 = numpy.array([
+    [ 0.41687358,  0.08854191, -0.23495225,  0.28320538,  0.41800106],
+    [ 0.32735501,  0.22795148, -0.23951958,  0.4117634 , -0.23924344],
+    [ 0.26637602, -0.23846886, -0.37770863, -0.11399446,  0.34008124]])
+#+end_src               
+
+Define second matrix of weights.
+
+#+begin_src python :results none
+W2 = numpy.array([[-0.22182064, -0.43008631,  0.13310965],
+                  [ 0.08476603,  0.08123194,  0.1772054 ],
+                  [ 0.1871551 , -0.06107263, -0.1790735 ],
+                  [ 0.07055222, -0.02015138,  0.36107434],
+                  [ 0.33480474, -0.39423389, -0.43959196]])
+#+end_src
+
+Define first vector of biases.
+
+#+begin_src python :results none
+b1 = numpy.array([[ 0.09688219],
+                  [ 0.29239497],
+                  [-0.27364426]])
+#+end_src
+
+Define second vector of biases.
+
+#+begin_src python :results none
+b2 = numpy.array([[ 0.0352008 ],
+                  [-0.36393384],
+                  [-0.12775555],
+                  [-0.34802326],
+                  [-0.07017815]])
+#+end_src
+* Extracting word embedding vectors
+
+ Once you have finished training the neural network, you have three options to get word embedding vectors for the words of your vocabulary, based on the weight matrices \(\mathbf{W_1}\) and/or \(\mathbf{W_2}\).
+
+** Option 1: Extract embedding vectors from \(\mathbf{W_1}\)
+
+The first option is to take the columns of \(\mathbf{W_1}\) as the embedding vectors of the words of the vocabulary, using the same order of the words as for the input and output vectors.
+
+**Note:** in this practice notebooks the values of the word embedding vectors are meaningless since we only trained for a single iteration with just one training example, but here's how you would proceed after the training process is complete.
+
+For example \(\mathbf{W_1}\) is this matrix:
+
+#+begin_src python :results output :exports both
+print(W1)
+#+end_src
+
+#+RESULTS:
+: [[ 0.41687358  0.08854191 -0.23495225  0.28320538  0.41800106]
+:  [ 0.32735501  0.22795148 -0.23951958  0.4117634  -0.23924344]
+:  [ 0.26637602 -0.23846886 -0.37770863 -0.11399446  0.34008124]]
+
+ The first column, which is a 3-element vector, is the embedding vector of the first word of your vocabulary. The second column is the word embedding vector for the second word, and so on.
+
+These are the words corresponding to the columns.
+
+#+begin_src python :results output :exports both
+for word in vocabulary:
+    print(f" - {word}")
+#+end_src
+
+#+RESULTS:
+:  - am
+:  - because
+:  - happy
+:  - i
+:  - learning
+
+And the word embedding vectors corresponding to each word are:
+
+#+begin_src python :results output :exports both
+for word, index in word_to_index.items():
+    word_embedding_vector = W1[:, index]
+    print(f'{word}:    \t{word_embedding_vector}')
+#+end_src
+
+#+RESULTS:
+: am:    	[0.41687358 0.32735501 0.26637602]
+: because:    	[ 0.08854191  0.22795148 -0.23846886]
+: happy:    	[-0.23495225 -0.23951958 -0.37770863]
+: i:    	[ 0.28320538  0.4117634  -0.11399446]
+: learning:    	[ 0.41800106 -0.23924344  0.34008124]
+
+** Option 2: Extract embedding vectors from \(\mathbf{W_2}\)
+
+ The second option is to transpose \(\mathbf{W_2}\) and take the columns of this transposed matrix as the word embedding vectors just like you did for \(\mathbf{W_1}\).
+
+#+begin_src python :results output :exports both
+print(W2.T)
+#+end_src
+
+#+RESULTS:
+: [[-0.22182064  0.08476603  0.1871551   0.07055222  0.33480474]
+:  [-0.43008631  0.08123194 -0.06107263 -0.02015138 -0.39423389]
+:  [ 0.13310965  0.1772054  -0.1790735   0.36107434 -0.43959196]]
+
+#+begin_src python :results output :exports both
+for word, index in word_to_index.items():
+    word_embedding_vector = W2.T[:, index]
+    print(f'{word}:    \t{word_embedding_vector}')
+#+end_src
+
+#+RESULTS:
+: am:    	[-0.22182064 -0.43008631  0.13310965]
+: because:    	[0.08476603 0.08123194 0.1772054 ]
+: happy:    	[ 0.1871551  -0.06107263 -0.1790735 ]
+: i:    	[ 0.07055222 -0.02015138  0.36107434]
+: learning:    	[ 0.33480474 -0.39423389 -0.43959196]
+** Option 3: extract embedding vectors from \(\mathbf{W_1}\) and \(\mathbf{W_2}\)
+
+The third option, which is the one you will use in this week's assignment, uses the average of \(\mathbf{W_1}\) and \(\mathbf{W_2^\intercal}\).
+
+**Calculate the average of \(\mathbf{W_1}\) and \(\mathbf{W_2^\intercal}\), and store the result in =W3=.**
+
+#+begin_src python :results output :exports both
+W3 = (W1 + W2.T)/2
+print(W3)
+
+expected = numpy.array([
+    [ 0.09752647,  0.08665397, -0.02389858,  0.1768788 ,  0.3764029 ],
+    [-0.05136565,  0.15459171, -0.15029611,  0.19580601, -0.31673866],
+    [ 0.19974284, -0.03063173, -0.27839106,  0.12353994, -0.04975536]])
+expect(numpy.allclose(W3, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: [[ 0.09752647  0.08665397 -0.02389858  0.1768788   0.3764029 ]
+:  [-0.05136565  0.15459171 -0.15029611  0.19580601 -0.31673866]
+:  [ 0.19974284 -0.03063173 -0.27839106  0.12353994 -0.04975536]]
+
+ Extracting the word embedding vectors works just like the two previous options, by taking the columns of the matrix you've just created.
+
+#+begin_src python :results output :exports both 
+for word, index in word_to_index.items():
+    word_embedding_vector = W3[:, index]
+    print(f'{word}:    \t{word_embedding_vector}')
+#+end_src
+
+#+RESULTS:
+: am:    	[ 0.09752647 -0.05136565  0.19974284]
+: because:    	[ 0.08665397  0.15459171 -0.03063173]
+: happy:    	[-0.02389858 -0.15029611 -0.27839106]
+: i:    	[0.1768788  0.19580601 0.12353994]
+: learning:    	[ 0.3764029  -0.31673866 -0.04975536]
+
+Now you know 3 different options to get the word embedding vectors from a model.
+* End
+  Now we've gone through the process of training a CBOW model in order to create word embeddings. The steps were:
+  - {{% lancelot title="preparing the data" %}}word-embeddings-data-preparation{{% /lancelot %}}
+  - {{% lancelot title="creating the CBOW model" %}}introducing-the-cbow-model{{% /lancelot %}}
+  - {{% lancelot title="training the model" %}}training-the-cbow-model{{% /lancelot %}}
+  - Extracting the word embedding vectors from the model.

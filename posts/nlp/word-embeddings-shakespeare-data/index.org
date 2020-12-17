@@ -1,0 +1,259 @@
+#+BEGIN_COMMENT
+.. title: Word Embeddings: Shakespeare Data
+.. slug: word-embeddings-shakespeare-data
+.. date: 2020-12-13 12:44:32 UTC-08:00
+.. tags: word-embeddings-build-a-model
+.. category: NLP
+.. link: 
+.. description: Setting up the Shakespeare data.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e9fd563e-0c2c-4c68-8114-3da404e925f6-ssh.json
+
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is the first part of as series on building word embeddings using a Continuous Bag of Words. There's an {{% lancelot title="overview post" %}}word-embeddings-build-a-model{{% /lancelot %}} that has links to all the posts in the series.
+** Imports
+#+begin_src python :results none
+# python
+import os
+import random
+import re
+
+# pypi
+from expects import equal, expect
+#+end_src
+* Middle
+We're going to be using the same dataset that we used in building the {{% lancelot title="autocorrect system" %}}autocorrect-the-system{{% /lancelot %}}.
+
+** A Little Cleaning
+#+begin_src python :tangle ../../neurotic/nlp/word_embeddings/data_loader.py :exports none
+<<imports>>
+
+<<data-cleaner>>
+
+    <<data-path>>
+
+    <<the-data>>
+
+    <<punctuation-expression>>
+
+    <<un-punctuated>>
+
+    <<tokens>>
+
+    <<processed>>
+
+<<data-counts>>
+
+    <<distribution>>
+
+    <<vocabulary>>
+
+    <<word-to-index>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from pathlib import Path
+
+import os
+import re
+
+# pypi
+from dotenv import load_dotenv
+
+import attr
+import nltk
+#+end_src
+
+*** The Cleaner
+#+begin_src python :noweb-ref data-cleaner
+@attr.s(auto_attribs=True)
+class DataCleaner:
+    """A cleaner for the word-embeddings data
+
+    Args:
+     key: environment key with path to the data file
+     env_path: path to the .env file
+    """
+    key: str="SHAKESPEARE"
+    env_path: str="posts/nlp/.env"
+    stop: str="."
+    _data_path: str=None
+    _data: str=None
+    _unpunctuated: str=None
+    _punctuation: re.Pattern=None
+    _tokens: list=None
+    _processed: list=None
+#+end_src
+**** The Path To the Data
+#+begin_src python :noweb-ref data-path
+@property
+def data_path(self) -> Path:
+    """The path to the data file"""
+    if self._data_path is None:
+        load_dotenv(self.env_path)
+        self._data_path = Path(os.environ[self.key]).expanduser()
+    return self._data_path
+#+end_src     
+**** The Data
+#+begin_src python :noweb-ref the-data
+@property
+def data(self) -> str:
+    """The data-file read in as a string"""
+    if self._data is None:
+        with self.data_path.open() as reader:
+            self._data = reader.read()
+    return self._data
+#+end_src
+**** The Punctuation Expression
+#+begin_src python :noweb-ref punctuation-expression
+@property
+def punctuation(self) -> re.Pattern:
+    """The regular expression to find punctuation"""
+    if self._punctuation is None:
+        self._punctuation = re.compile("[,!?;-]")
+    return self._punctuation
+#+end_src     
+**** The Un-Punctuated
+#+begin_src python :noweb-ref un-punctuated
+@property
+def unpunctuated(self) -> str:
+    """The data with punctuation replaced by stop"""
+    if self._unpunctuated is None:
+        self._unpunctuated = self.punctuation.sub(self.stop, self.data)
+    return self._unpunctuated
+#+end_src
+**** The Tokens
+     We're going to use NLTK's [[https://www.nltk.org/api/nltk.tokenize.html?highlight=word_tokenize#nltk.tokenize.punkt.PunktLanguageVars.word_tokenize][word_tokenize]] function to tokenize the string.
+#+begin_src python :noweb-ref tokens
+@property
+def tokens(self) -> list:
+    """The tokenized data"""
+    if self._tokens is None:
+        self._tokens = nltk.word_tokenize(self.unpunctuated)
+    return self._tokens
+#+end_src     
+**** The Processed Tokens
+     The final processed data will be all lowercased words and periods only.
+#+begin_src python :noweb-ref processed
+@property
+def processed(self) -> list:
+    """The final processed tokens"""
+    if self._processed is None:
+        self._processed = [token.lower() for token in self.tokens
+                           if token.isalpha() or token==self.stop]
+    return self._processed
+#+end_src     
+*** The Counter
+#+begin_src python :noweb-ref data-counts
+@attr.s(auto_attribs=True)
+class MetaData:
+    """Compile some basic data about the data
+
+    Args:
+     data: the cleaned and tokenized data
+    """
+    data: list
+    _distribution: nltk.probability.FreqDist=None
+    _vocabulary: tuple=None
+    _word_to_index: dict=None
+#+end_src
+**** The Frequency Distribution
+     According to the doc-string, the [[https://www.nltk.org/api/nltk.html?highlight=freqdist#nltk.probability.FreqDist][FreqDist]] is meant to hold outcomes from experiments. It looks like a [[https://docs.python.org/3/library/collections.html#collections.Counter][Counter]] with extra methods added.
+#+begin_src python :noweb-ref distribution
+@property
+def distribution(self) -> nltk.probability.FreqDist:
+    """The Token Frequency Distribution"""
+    if self._distribution is None:
+        self._distribution = nltk.FreqDist(self.data)
+    return self._distribution
+#+end_src
+**** The Vocabulary
+#+begin_src python :noweb-ref vocabulary
+@property
+def vocabulary(self) -> tuple:
+    """The sorted unique tokens in the data"""
+    if self._vocabulary is None:
+        self._vocabulary = tuple(sorted(set(self.data)))
+    return self._vocabulary
+#+end_src
+**** The Word-To-Index Mapping
+#+begin_src python :noweb-ref word-to-index
+@property
+def word_to_index(self) -> dict:
+    """Maps words to their index in the vocabulary"""
+    if self._word_to_index is None:
+        self._word_to_index = {word: index
+                               for index, word in enumerate(self.vocabulary)}
+    return self._word_to_index
+#+end_src
+** The Cleaned
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings import DataCleaner
+cleaner = DataCleaner()
+print(cleaner.unpunctuated[:50])
+print(cleaner.tokens[:10])
+print(cleaner.processed[:10])
+print(f"Tokens: {len(cleaner.processed):,}")
+#+end_src   
+
+#+RESULTS:
+: O for a Muse of fire. that would ascend
+: The bright
+: ['O', 'for', 'a', 'Muse', 'of', 'fire', '.', 'that', 'would', 'ascend']
+: ['o', 'for', 'a', 'muse', 'of', 'fire', '.', 'that', 'would', 'ascend']
+: Tokens: 60,996
+** The Data Data
+#+begin_src python :results output :exports both
+from neurotic.nlp.word_embeddings import MetaData
+counter = MetaData(cleaner.processed)
+
+print(f"Size of vocabulary: {len(counter.distribution):,}")
+for token in counter.distribution.most_common(20):
+    print(f" - {token}")
+words = len(counter.distribution)
+expect(len(counter.vocabulary)).to(equal(words))
+expect(len(counter.word_to_index)).to(equal(words))
+print(f"Size of the Vocabulary: {len(counter.vocabulary):,}")
+
+index = random.randrange(words)
+word = counter.vocabulary[index]
+expect(index).to(equal(counter.word_to_index[word]))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Size of vocabulary: 5,778
+ - ('.', 9630)
+ - ('the', 1521)
+ - ('and', 1394)
+ - ('i', 1257)
+ - ('to', 1159)
+ - ('of', 1093)
+ - ('my', 857)
+ - ('that', 781)
+ - ('in', 770)
+ - ('a', 752)
+ - ('you', 748)
+ - ('is', 630)
+ - ('not', 559)
+ - ('for', 467)
+ - ('it', 460)
+ - ('with', 441)
+ - ('his', 434)
+ - ('but', 417)
+ - ('me', 417)
+ - ('your', 397)
+Size of the Vocabulary: 5,778
+#+end_example
+
+* End
+ Now that we have the data setup its time to {{% lancelot title="build and train the model" %}}word-embeddings-training-the-model{{% /lancelot %}}.
