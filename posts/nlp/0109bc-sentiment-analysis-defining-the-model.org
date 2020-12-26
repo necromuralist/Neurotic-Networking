@@ -7,200 +7,231 @@
 .. link: 
 .. description: Defining the Deep Learning Model
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2e28ec70-08fc-4104-9f65-5037f4d362ac.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
 * Beginning
   This continues a series on {{% lancelot title="sentiment analysis with deep learning" %}}sentiment-analysis-deep-learning-model{{% /lancelot %}}. In the {{% lancelot title="previous post" %}}sentiment-analysis-pre-processing-the-data{{% /lancelot %}} we loaded and processed our data set. In this post we'll see about actually defining the Neural Network.
-* Ending
-  Now that we have our Deep Learning model, we'll move on to {{% lancelot title="training it" %}}sentiment-analysis-training-the-model{{% /lancelot %}}.
-* Raw
-#+begin_example
-# # Part 3:  Defining classes
-# 
-# In this part, you will write your own library of layers. It will be very similar
-# to the one used in Trax and also in Keras and PyTorch. Writing your own small
-# framework will help you understand how they all work and use them effectively
-# in the future.
-# 
-# Your framework will be based on the following `Layer` class from utils.py.
-# 
-# ```CPP
-# class Layer(object):
-#     """ Base class for layers.
-#     """
-#       
-#     # Constructor
-#     def __init__(self):
-#         # set weights to None
-#         self.weights = None
-# 
-#     # The forward propagation should be implemented
-#     # by subclasses of this Layer class
-#     def forward(self, x):
-#         raise NotImplementedError
-# 
-#     # This function initializes the weights
-#     # based on the input signature and random key,
-#     # should be implemented by subclasses of this Layer class
-#     def init_weights_and_state(self, input_signature, random_key):
-#         pass
-# 
-#     # This initializes and returns the weights, do not override.
-#     def init(self, input_signature, random_key):
-#         self.init_weights_and_state(input_signature, random_key)
-#         return self.weights
-#  
-#     # __call__ allows an object of this class
-#     # to be called like it's a function.
-#     def __call__(self, x):
-#         # When this layer object is called, 
-#         # it calls its forward propagation function
-#         return self.forward(x)
-# ```
 
-# <a name="3.1"></a>
-# ## 3.1  ReLU class
-# You will now implement the ReLU activation function in a class below. The ReLU function looks as follows: 
-# <img src = "relu.jpg" style="width:300px;height:150px;"/>
-# 
-# $$ \mathrm{ReLU}(x) = \mathrm{max}(0,x) $$
-# 
+  In this part we will write your own library of layers. It will be very similar to the one used in Trax and also in Keras and PyTorch. The intention is that in writing our own small framework will help us understand how they all work and use them more effectively in the future.
+** Imports
+#+begin_src python :results none
+# from pypi
+from expects import be_true, expect
+from trax import fastmath
 
-# <a name="ex03"></a>
-# ### Exercise 03
-# **Instructions:** Implement the ReLU activation function below. Your function should take in a matrix or vector and it should transform all the negative numbers into 0 while keeping all the positive numbers intact. 
+import attr
+import numpy
+import trax
+#+end_src
+** Set Up
+   Some aliases to get closer to what the notebook has.
+   
+#+begin_src python :results none
+numpy_fastmath = fastmath.numpy
+random = fastmath.random
+#+end_src
 
-# <details>    
-# <summary>
-#     <font size="3" color="darkgreen"><b>Hints</b></font>
-# </summary>
-# <p>
-# <ul>
-#     <li>Please use numpy.maximum(A,k) to find the maximum between each element in A and a scalar k</li>
-# </ul>
-# </p>
-# 
+JAX can't find the GPU for some reason, so instead of using it (the default) I'll use tensorflow.
 
-# In[ ]:
+#+begin_src python :results none
+trax.fastmath.use_backend("tensorflow-numpy")
+#+end_src
+* Middle
+** The Base Layer Class
+   This will be the base class that the others will inherit from.
+   
+#+begin_src python :results none
+@attr.s(auto_attribs=True)
+class Layer:
+    """Base class for layers
+    """
+    def forward(self, x: numpy.ndarray):
+        """The forward propagation method
+
+        Raises:
+         NotImplementedError - method is called but child hasn't implemented it
+        """
+        raise NotImplementedError
+  
+    def init_weights_and_state(self, input_signature, random_key):
+        """method to initialize the weights
+        based on the input signature and random key,
+        be implemented by subclasses of this Layer class
+        """
+        raise NotImplementedError
+
+    def init(self, input_signature, random_key) -> numpy.ndarray:
+        """initializes and returns the weights
+        
+        Note:
+         This is just an alias for the ``init_weights_and_state``
+        method for some reason
+
+        Args: 
+         input_signature: who knows?
+         random_key: once again, who knows?
+
+        Returns:
+         the weights
+        """
+        self.init_weights_and_state(input_signature, random_key)
+        return self.weights
+    
+    def __call__(self, x) -> numpy.ndarray:
+        """This is an alias for the ``forward`` method
+
+        Args:
+         x: input array
+
+        Returns:
+         whatever the ``forward`` method does
+        """
+        return self.forward(x)
+#+end_src
+** The ReLU class
+Here's the ReLU function: 
+
+\[
+\mathrm{ReLU}(x) = \mathrm{max}(0,x)
+\]
 
 
+We'll implement the ReLU activation function below. The function will take in a matrix or vector and it transform all the negative numbers into 0 while keeping all the positive numbers intact. 
+
+
+Please use numpy.maximum(A,k) to find the maximum between each element in A and a scalar k.
+
+
+#+begin_src python :results none
 # UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: Relu
 class Relu(Layer):
     """Relu activation function implementation"""
-    def forward(self, x):
-        '''
-        Input: 
-            - x (a numpy array): the input
-        Output:
-            - activation (numpy array): all positive or 0 version of x
-        '''
+    def forward(self, x: numpy.ndarray) -> numpy.ndarray:
+        """"Performs the activation
+        
+        Args: 
+            - x: the input
+        
+        Returns:
+            - activation: all positive or 0 version of x
+        """
         ### START CODE HERE (Replace instances of 'None' with your code) ###
         
-        activation = None
+        activation = numpy.maximum(x, 0)
 
         ### END CODE HERE ###
         
         return activation
+#+end_src
+*** Test It
 
-
-# In[ ]:
-
-
-# Test your relu function
-x = np.array([[-2.0, -1.0, 0.0], [0.0, 1.0, 2.0]], dtype=float)
+#+begin_src python :results output :exports both
+x = numpy.array([[-2.0, -1.0, 0.0], [0.0, 1.0, 2.0]], dtype=float)
 relu_layer = Relu()
 print("Test data is:")
 print(x)
-print("Output of Relu is:")
-print(relu_layer(x))
+print("\nOutput of Relu is:")
+actual = relu_layer(x)
 
+print(actual)
 
-# ##### Expected Outout
-# ```CPP
-# Test data is:
-# [[-2. -1.  0.]
-#  [ 0.  1.  2.]]
-# Output of Relu is:
-# [[0. 0. 0.]
-#  [0. 1. 2.]]
-# ```
+expected = numpy.array([[0., 0., 0.],
+                        [0., 1., 2.]])
 
-# <a name="3.2"></a>
-# ## 3.2  Dense class 
-# 
-# ### Exercise
-# 
-# Implement the forward function of the Dense class. 
-# - The forward function multiplies the input to the layer (`x`) by the weight matrix (`W`)
-# 
-# $$\mathrm{forward}(\mathbf{x},\mathbf{W}) = \mathbf{xW} $$
-# 
-# - You can use `numpy.dot` to perform the matrix multiplication.
-# 
-# Note that for more efficient code execution, you will use the trax version of `math`, which includes a trax version of `numpy` and also `random`.
-# 
-# Implement the weight initializer `new_weights` function
-# - Weights are initialized with a random key.
-# - The second parameter is a tuple for the desired shape of the weights (num_rows, num_cols)
-# - The num of rows for weights should equal the number of columns in x, because for forward propagation, you will multiply x times weights.
-# 
-# Please use `trax.fastmath.random.normal(key, shape, dtype=tf.float32)` to generate random values for the weight matrix. The key difference between this function
-# and the standard `numpy` randomness is the explicit use of random keys, which
-# need to be passed. While it can look tedious at the first sight to pass the random key everywhere, you will learn in Course 4 why this is very helpful when
-# implementing some advanced models.
-# - `key` can be generated by calling `random.get_prng(seed=)` and passing in a number for the `seed`.
-# - `shape` is a tuple with the desired shape of the weight matrix.
-#     - The number of rows in the weight matrix should equal the number of columns in the variable `x`.  Since `x` may have 2 dimensions if it reprsents a single training example (row, col), or three dimensions (batch_size, row, col), get the last dimension from the tuple that holds the dimensions of x.
-#     - The number of columns in the weight matrix is the number of units chosen for that dense layer.  Look at the `__init__` function to see which variable stores the number of units.
-# - `dtype` is the data type of the values in the generated matrix; keep the default of `tf.float32`. In this case, don't explicitly set the dtype (just let it use the default value).
-# 
-# Set the standard deviation of the random values to 0.1
-# - The values generated have a mean of 0 and standard deviation of 1.
-# - Set the default standard deviation `stdev` to be 0.1 by multiplying the standard deviation to each of the values in the weight matrix.
+expect(numpy.allclose(actual, expected)).to(be_true)
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: Test data is:
+: [[-2. -1.  0.]
+:  [ 0.  1.  2.]]
+: 
+: Output of Relu is:
+: [[0. 0. 0.]
+:  [0. 1. 2.]]
 
+** The Dense class 
 
-# use the fastmath module within trax
-from trax import fastmath
+ Implement the forward function of the Dense class. 
+ - The forward function multiplies the input to the layer (=x=) by the weight matrix (=W=).
 
-# use the numpy module from trax
-np = fastmath.numpy
+\[
+\mathrm{forward}(\mathbf{x},\mathbf{W}) = \mathbf{xW}
+\]
 
-# use the fastmath.random module from trax
-random = fastmath.random
+ - You can use =numpy.dot= to perform the matrix multiplication.
 
+ Note that for more efficient code execution, you will use the trax version of =math=, which includes a trax version of =numpy= and also =random=.
 
-# In[ ]:
+ Implement the weight initializer =new_weights= function
+ - Weights are initialized with a random key.
+ - The second parameter is a tuple for the desired shape of the weights (num_rows, num_cols)
+ - The num of rows for weights should equal the number of columns in x, because for forward propagation, you will multiply x times weights.
 
+ Please use =trax.fastmath.random.normal(key, shape, dtype=tf.float32)= to generate random values for the weight matrix. The key difference between this function and the standard =numpy= randomness is the explicit use of random keys, which need to be passed in. While it can look tedious at the first sight to pass the random key everywhere, you will learn in Course 4 why this is very helpful when
+implementing some advanced models.
+ - =key= can be generated by calling =random.get_prng(seed)= and passing in a number for the =seed=.
+ - =shape= is a tuple with the desired shape of the weight matrix.
+     + The number of rows in the weight matrix should equal the number of columns in the variable =x=.  Since =x= may have 2 dimensions if it represents a single training example (row, col), or three dimensions (batch_size, row, col), get the last dimension from the tuple that holds the dimensions of x.
+     + The number of columns in the weight matrix is the number of units chosen for that dense layer.  Look at the =__init__= function to see which variable stores the number of units.
+ - =dtype= is the data type of the values in the generated matrix; keep the default of =tf.float32=. In this case, don't explicitly set the dtype (just let it use the default value).
 
-# See how the fastmath.trax.random.normal function works
+ Set the standard deviation of the random values to 0.1
+ - The values generated have a mean of 0 and standard deviation of 1.
+ - Set the default standard deviation =stdev= to be 0.1 by multiplying the standard deviation to each of the values in the weight matrix.
+
+See how the fastmath.trax.random.normal function works.
+
+#+begin_src python :results output :exports both
 tmp_key = random.get_prng(seed=1)
 print("The random seed generated by random.get_prng")
 display(tmp_key)
+#+end_src
 
+#+RESULTS:
+:RESULTS:
+: The random seed generated by random.get_prng
+: DeviceArray([0, 1], dtype=uint32)
+:END:
+
+#+begin_src python :results output :exports both
 print("choose a matrix with 2 rows and 3 columns")
 tmp_shape=(2,3)
-display(tmp_shape)
+print(tmp_shape)
+#+end_src
 
-# Generate a weight matrix
-# Note that you'll get an error if you try to set dtype to tf.float32, where tf is tensorflow
-# Just avoid setting the dtype and allow it to use the default data type
-tmp_weight = trax.fastmath.random.normal(key=tmp_key, shape=tmp_shape)
+#+RESULTS:
+: choose a matrix with 2 rows and 3 columns
+: (2, 3)
+
+Generate a weight matrix
+ Note that you'll get an error if you try to set dtype to tf.float32, where tf is tensorflow
+ Just avoid setting the dtype and allow it to use the default data type
+
+#+begin_src python :results output :exports both
+tmp_weight = random.normal(key=tmp_key, shape=tmp_shape)
 
 print("Weight matrix generated with a normal distribution with mean 0 and stdev of 1")
 display(tmp_weight)
+#+end_src
 
+#+RESULTS:
+:RESULTS:
+: Weight matrix generated with a normal distribution with mean 0 and stdev of 1
+: DeviceArray([[ 0.957307  , -0.9699291 ,  1.0070664 ],
+:              [ 0.36619022,  0.17294823,  0.29092228]], dtype=float32)
+:END:
 
-# <a name="ex04"></a>
-# ### Exercise 04
-# 
-# Implement the `Dense` class.
-
-# In[ ]:
-
-
+#+begin_src python :results none
 # UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: Dense
 
@@ -222,7 +253,7 @@ class Dense(Layer):
 ### START CODE HERE (Replace instances of 'None' with your code) ###
 
         # Matrix multiply x and the weight matrix
-        dense = None 
+        dense = numpy.dot(x, self.weights)
         
 ### END CODE HERE ###
         return dense
@@ -232,42 +263,61 @@ class Dense(Layer):
         
 ### START CODE HERE (Replace instances of 'None' with your code) ###
         # The input_signature has a .shape attribute that gives the shape as a tuple
-        input_shape = None
+        input_shape = input_signature.shape
 
         # Generate the weight matrix from a normal distribution, 
         # and standard deviation of 'stdev'        
-        w = None
+        w = (random.normal(key=random_key, shape=(input_shape[-1], self._n_units))
+             ,* self._init_stdev)
         
 ### END CODE HERE ###     
         self.weights = w
         return self.weights
-
-
-# In[ ]:
-
+#+end_src
 
 # Testing your Dense layer 
+#+begin_src python :results output :exports both
 dense_layer = Dense(n_units=10)  #sets  number of units in dense layer
 random_key = random.get_prng(seed=0)  # sets random seed
-z = np.array([[2.0, 7.0, 25.0]]) # input array 
+z = numpy.array([[2.0, 7.0, 25.0]]) # input array 
 
 dense_layer.init(z, random_key)
 print("Weights are\n ",dense_layer.weights) #Returns randomly generated weights
-print("Foward function output is ", dense_layer(z)) # Returns multiplied values of units and weights
+output = dense_layer(z)
+print("Foward function output is ", output) # Returns multiplied values of units and weights
 
+expected_weights = numpy.array([
+    [-0.02837108,  0.09368162, -0.10050076,  0.14165013,  0.10543301,  0.09108126,
+     -0.04265672,  0.0986188,  -0.05575325,  0.00153249],
+    [-0.20785688,  0.0554837,   0.09142365,  0.05744595,  0.07227863,  0.01210617,
+     -0.03237354,  0.16234995,  0.02450038, -0.13809784],
+    [-0.06111237,  0.01403724,  0.08410042, -0.1094358,  -0.10775021, -0.11396459,
+     -0.05933381, -0.01557652, -0.03832145, -0.11144515]])
 
-# ##### Expected Outout
-# ```CPP
-# Weights are
-#   [[-0.02837108  0.09368162 -0.10050076  0.14165013  0.10543301  0.09108126
-#   -0.04265672  0.0986188  -0.05575325  0.00153249]
-#  [-0.20785688  0.0554837   0.09142365  0.05744595  0.07227863  0.01210617
-#   -0.03237354  0.16234995  0.02450038 -0.13809784]
-#  [-0.06111237  0.01403724  0.08410042 -0.1094358  -0.10775021 -0.11396459
-#   -0.05933381 -0.01557652 -0.03832145 -0.11144515]]
-# Foward function output is  [[-3.0395496   0.9266802   2.5414743  -2.050473   -1.9769388  -2.582209
-#   -1.7952735   0.94427425 -0.8980402  -3.7497487 ]]
-# ```
+expected_output = numpy.array(
+    [[-3.0395496,   0.9266802,   2.5414743,  -2.050473,   -1.9769388,  -2.582209,
+      -1.7952735,   0.94427425, -0.8980402,  -3.7497487]])
+
+expect(numpy.allclose(dense_layer.weights, expected_weights)).to(be_true)
+expect(numpy.allclose(output, expected_output)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: Weights are
+:   [[-0.02837108  0.09368162 -0.10050076  0.14165013  0.10543301  0.09108126
+:   -0.04265672  0.0986188  -0.05575325  0.00153249]
+:  [-0.20785688  0.0554837   0.09142365  0.05744595  0.07227863  0.01210617
+:   -0.03237354  0.16234995  0.02450038 -0.13809784]
+:  [-0.06111237  0.01403724  0.08410042 -0.1094358  -0.10775021 -0.11396459
+:   -0.05933381 -0.01557652 -0.03832145 -0.11144515]]
+: Foward function output is  [[-3.03954965  0.92668021  2.54147445 -2.05047299 -1.97693891 -2.58220917
+:   -1.79527355  0.94427423 -0.89804017 -3.74974866]]
+
+  
+* Ending
+  Now that we have our Deep Learning model, we'll move on to {{% lancelot title="training it" %}}sentiment-analysis-training-the-model{{% /lancelot %}}.
+* Raw
+#+begin_example
 
 # <a name="3.3"></a>
 # ## 3.3  Model
