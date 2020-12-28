@@ -45,6 +45,8 @@ class TensorBuilder:
     _negative: list=None
     _positive_training: list=None
     _negative_training: list=None
+    _positive_validation: list=None
+    _negative_validation: list=None
     _process: TwitterProcessor=None
     _vocabulary: dict=None
     _x_train: list=None
@@ -76,6 +78,20 @@ class TensorBuilder:
         if self._negative_training is None:
             self._negative_training = self.negative[:self.split]
         return self._negative_training
+
+    @property
+    def positive_validation(self) -> list:
+        """The positive validation data"""
+        if self._positive_validation is None:
+            self._positive_validation = self.positive[self.split:]
+        return self._positive_validation
+
+    @property
+    def negative_validation(self) -> list:
+        """The negative validation data"""
+        if self._negative_validation is None:
+            self._negative_validation = self.negative[self.split:]
+        return self._negative_validation
 
     @property
     def process(self) -> TwitterProcessor:
@@ -123,12 +139,16 @@ class TensorGenerator:
     """Generates batches of vectorized-tweets
 
     Args:
-     convertor: a TensorBuilder
-     batch_size: the size for each generated batch
+     converter: TensorBuilder object
+     positive_data: list of positive data
+     negative_data: list of negative data
+     batch_size: the size for each generated batch     
      shuffle: whether to shuffle the generated data
      infinite: whether to generate data forever
     """
     converter: TensorBuilder
+    positive_data: list
+    negative_data: list
     batch_size: int
     shuffle: bool=True
     infinite: bool = True
@@ -141,7 +161,7 @@ class TensorGenerator:
     def positive_indices(self) -> list:
         """The indices to use to grab the positive tweets"""
         if self._positive_indices is None:
-            k = len(self.converter.positive_training)
+            k = len(self.positive_data)
             if self.shuffle:
                 self._positive_indices = random.sample(range(k), k=k)
             else:
@@ -152,7 +172,7 @@ class TensorGenerator:
     def negative_indices(self) -> list:
         """Indices for the negative tweets"""
         if self._negative_indices is None:
-            k = len(self.converter.negative_training)
+            k = len(self.negative_data)
             if self.shuffle:
                 self._negative_indices = random.sample(range(k), k=k)
             else:
@@ -215,8 +235,8 @@ class TensorGenerator:
         negatives = (next(self.negatives) for negative in range(half_batch))
     
         # get the tweets
-        positives = (self.converter.positive_training[index] for index in positives)
-        negatives = (self.converter.negative_training[index] for index in negatives)
+        positives = (self.positive_data[index] for index in positives)
+        negatives = (self.negative_data[index] for index in negatives)
     
         # get the token ids
         positives = [self.converter.to_tensor(tweet) for tweet in positives]

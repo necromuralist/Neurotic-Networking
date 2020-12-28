@@ -9,108 +9,141 @@
 .. type: text
 
 #+END_COMMENT
-* Beginning
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3ae8b366-9a4e-4032-ad72-1bccdc801ff7-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Training the Model
   In the {{% lancelot title="previous post" %}}sentiment-analysis-defining-the-model{{% /lancelot %}} we defined our Deep Learning model for Sentiment Analysis. Now we'll turn to training it on our data.
-* End
-  Now that we have a trained model, in the {{% lancelot title="next post" %}}sentiment-analysis-testing-the-model{{% /lancelot %}} we'll test how well it did.
-* Raw
-#+begin_example
-# # Part 4:  Training
-# 
-# To train a model on a task, Trax defines an abstraction [`trax.supervised.training.TrainTask`](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask) which packages the train data, loss and optimizer (among other things) together into an object.
-# 
-# Similarly to evaluate a model, Trax defines an abstraction [`trax.supervised.training.EvalTask`](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask) which packages the eval data and metrics (among other things) into another object.
-# 
-# The final piece tying things together is the [`trax.supervised.training.Loop`](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop) abstraction that is a very simple and flexible way to put everything together and train the model, all the while evaluating it and saving checkpoints.
-# Using `Loop` will save you a lot of code compared to always writing the training loop by hand, like you did in courses 1 and 2. More importantly, you are less likely to have a bug in that code that would ruin your training.
 
-# In[ ]:
+  To train a model on a task, Trax defines an abstraction [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask][=trax.supervised.training.TrainTask=]] which packages the training data, loss and optimizer (among other things) together into an object.
 
+ Similarly to training a model, Trax defines an abstraction [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask][=trax.supervised.training.EvalTask=]] which packages the eval data and metrics (among other things) into another object.
 
+ The final piece tying things together is the [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop][=trax.supervised.training.Loop=]] abstraction that is a very simpl eand flexible way to put everything together and train the model, all the while evaluating it and saving checkpoints.
+ Using =Loop= will save you a lot of code compared to always writing the training loop by hand, like you did in courses 1 and 2. More importantly, you are less likely to have a bug in that code that would ruin your training.
+** Imports
+#+begin_src python :results none
+# from python
+from functools import partial
+from pathlib import Path
 
-# View documentation for trax.supervised.training.TrainTask
-help(trax.supervised.training.TrainTask)
+import random
 
-
-# In[ ]:
-
-
-# View documentation for trax.supervised.training.EvalTask
-help(trax.supervised.training.EvalTask)
-
-
-# In[ ]:
-
-
-# View documentation for trax.supervised.training.Loop
-help(trax.supervised.training.Loop)
-
-
-# In[ ]:
-
-
-# View optimizers that you could choose from
-help(trax.optimizers)
-
-
-# Notice some available optimizers include:
-# ```CPP
-#     adafactor
-#     adam
-#     momentum
-#     rms_prop
-#     sm3
-# ```
-
-# <a name="4.1"></a>
-# ## 4.1  Training the model
-# 
-# Now you are going to train your model. 
-# 
-# Let's define the `TrainTask`, `EvalTask` and `Loop` in preparation to train the model.
-
-# In[ ]:
-
-
+# from pypi
 from trax.supervised import training
 
-batch_size = 16
-rnd.seed(271)
+import nltk
+import trax
+import trax.layers as trax_layers
+import trax.fastmath.numpy as numpy
+
+# this project
+from neurotic.nlp.twitter.tensor_generator import TensorBuilder, TensorGenerator
+#+end_src
+
+This next part (re-downloading the dataset) is just because I have to keep setting up new containers to get trax to work...
+
+#+begin_src python :results none
+nltk.download("twitter_samples", download_dir="/home/neurotic/data/datasets/nltk_data/")
+#+end_src   
+
+* Middle
+** The Dataset
+#+begin_src python :results none
+BATCH_SIZE = 16
+
+converter = TensorBuilder()
+
+
+train_generator = partial(TensorGenerator, converter,
+                                     positive_data=converter.positive_training,
+                                     negative_data=converter.negative_training,
+                                     batch_size=BATCH_SIZE)
+training_generator = train_generator()
+
+valid_generator = partial(TensorGenerator,
+                          converter,
+                          positive_data=converter.positive_validation,
+                          negative_data=converter.negative_validation,
+                          batch_size=BATCH_SIZE)
+validation_generator = valid_generator()
+
+size_of_vocabulary = len(converter.vocabulary)
+#+end_src
+** Here's the Model
+   This was defined in the clast post. It seems like too much trouble not to just copy it over.
+#+begin_src python :results none
+def classifier(vocab_size: int=size_of_vocabulary,
+               embedding_dim: int=256,
+               output_dim: int=2) -> trax_layers.Serial:
+    """Creates the classifier model
+
+    Args:
+     vocab_size: number of tokens in the training vocabulary
+     embedding_dim: output dimension for the Embedding layer
+     output_dim: dimension for the Dense layer
+
+    Returns:
+     the composed layer-model
+    """
+    embed_layer = trax_layers.Embedding(
+        vocab_size=vocab_size, # Size of the vocabulary
+        d_feature=embedding_dim)  # Embedding dimension
+    
+    mean_layer = trax_layers.Mean(axis=1)
+    
+    dense_output_layer = trax_layers.Dense(n_units = output_dim)
+
+    log_softmax_layer = trax_layers.LogSoftmax()
+    
+    model = trax_layers.Serial(
+      embed_layer,
+      mean_layer,
+      dense_output_layer,
+      log_softmax_layer
+    )
+    return model
+#+end_src
+ Now to train the model. 
+
+First define the =TrainTask=, =EvalTask= and =Loop= in preparation to training the model.
+
+#+begin_src python :results none
+random.seed(271)
+
+# train_generator(batch_size=batch_size, shuffle=True),
 
 train_task = training.TrainTask(
-    labeled_data=train_generator(batch_size=batch_size, shuffle=True),
-    loss_layer=tl.CrossEntropyLoss(),
+    labeled_data=training_generator,
+    loss_layer=trax_layers.CrossEntropyLoss(),
     optimizer=trax.optimizers.Adam(0.01),
     n_steps_per_checkpoint=10,
 )
 
 eval_task = training.EvalTask(
-    labeled_data=val_generator(batch_size=batch_size, shuffle=True),
-    metrics=[tl.CrossEntropyLoss(), tl.Accuracy()],
+    labeled_data=validation_generator,
+    metrics=[trax_layers.CrossEntropyLoss(), trax_layers.Accuracy()],
 )
 
 model = classifier()
+#+end_src
 
+ This defines a model trained using [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss][tl.CrossEntropyLoss]] optimized with the [[https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html#trax.optimizers.adam.Adam][trax.optimizers.Adam]] optimizer, all the while tracking the accuracy using [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.Accuracy][tl.Accuracy]] metric. We also track =tl.CrossEntropyLoss= on the validation set.
 
-# This defines a model trained using [`tl.CrossEntropyLoss`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss) optimized with the [`trax.optimizers.Adam`](https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html#trax.optimizers.adam.Adam) optimizer, all the while tracking the accuracy using [`tl.Accuracy`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.Accuracy) metric. We also track `tl.CrossEntropyLoss` on the validation set.
+Now let's make an output directory and train the model.
 
-# Now let's make an output directory and train the model.
+#+begin_src python :results none
+output_path = Path("~/models/").expanduser()
+if not output_path.is_dir():
+    output_path.mkdir()
+#+end_src
 
-# In[ ]:
-
-
-output_dir = '~/model/'
-output_dir_expand = os.path.expanduser(output_dir)
-print(output_dir_expand)
-
-
-# <a name="ex06"></a>
-# ### Exercise 06
-# **Instructions:** Implement `train_model` to train the model (`classifier` that you wrote earlier) for the given number of training steps (`n_steps`) using `TrainTask`, `EvalTask` and `Loop`.
-
-# In[ ]:
-
-
+#+begin_src python :results none
 # UNQ_C6 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: train_model
 def train_model(classifier, train_task, eval_task, n_steps, output_dir):
@@ -126,268 +159,364 @@ def train_model(classifier, train_task, eval_task, n_steps, output_dir):
     '''
 ### START CODE HERE (Replace instances of 'None' with your code) ###
     training_loop = training.Loop(
-                                None, # The learning model
-                                None, # The training task
-                                eval_task = None, # The evaluation task
-                                output_dir = None) # The output directory
+                                model=classifier, # The learning model
+                                tasks=train_task, # The training task
+                                eval_tasks = eval_task, # The evaluation task
+                                output_dir = output_dir) # The output directory
 
-    training_loop.run(n_steps = None)
+    training_loop.run(n_steps = n_steps)
 ### END CODE HERE ###
 
     # Return the training_loop, since it has the model.
     return training_loop
+#+end_src
 
+#+begin_src python :results output :exports both
+training_loop = train_model(model, train_task, eval_task, 100, output_path)
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+#+begin_example
 
+Step    110: Ran 10 train steps in 6.06 secs
+Step    110: train CrossEntropyLoss |  0.00527583
+Step    110: eval  CrossEntropyLoss |  0.00304692
+Step    110: eval          Accuracy |  1.00000000
 
-training_loop = train_model(model, train_task, eval_task, 100, output_dir_expand)
+Step    120: Ran 10 train steps in 2.06 secs
+Step    120: train CrossEntropyLoss |  0.02130376
+Step    120: eval  CrossEntropyLoss |  0.00000677
+Step    120: eval          Accuracy |  1.00000000
 
+Step    130: Ran 10 train steps in 0.75 secs
+Step    130: train CrossEntropyLoss |  0.01026674
+Step    130: eval  CrossEntropyLoss |  0.00424393
+Step    130: eval          Accuracy |  1.00000000
 
-# ##### Expected output (Approximately)
-# ```CPP
-# Step      1: train CrossEntropyLoss |  0.88939196
-# Step      1: eval  CrossEntropyLoss |  0.68833977
-# Step      1: eval          Accuracy |  0.50000000
-# Step     10: train CrossEntropyLoss |  0.61036736
-# Step     10: eval  CrossEntropyLoss |  0.52182281
-# Step     10: eval          Accuracy |  0.68750000
-# Step     20: train CrossEntropyLoss |  0.34137666
-# Step     20: eval  CrossEntropyLoss |  0.20654774
-# Step     20: eval          Accuracy |  1.00000000
-# Step     30: train CrossEntropyLoss |  0.20208922
-# Step     30: eval  CrossEntropyLoss |  0.21594886
-# Step     30: eval          Accuracy |  0.93750000
-# Step     40: train CrossEntropyLoss |  0.19611198
-# Step     40: eval  CrossEntropyLoss |  0.17582777
-# Step     40: eval          Accuracy |  1.00000000
-# Step     50: train CrossEntropyLoss |  0.11203773
-# Step     50: eval  CrossEntropyLoss |  0.07589275
-# Step     50: eval          Accuracy |  1.00000000
-# Step     60: train CrossEntropyLoss |  0.09375446
-# Step     60: eval  CrossEntropyLoss |  0.09290724
-# Step     60: eval          Accuracy |  1.00000000
-# Step     70: train CrossEntropyLoss |  0.08785903
-# Step     70: eval  CrossEntropyLoss |  0.09610598
-# Step     70: eval          Accuracy |  1.00000000
-# Step     80: train CrossEntropyLoss |  0.08858261
-# Step     80: eval  CrossEntropyLoss |  0.02319432
-# Step     80: eval          Accuracy |  1.00000000
-# Step     90: train CrossEntropyLoss |  0.05699894
-# Step     90: eval  CrossEntropyLoss |  0.01778970
-# Step     90: eval          Accuracy |  1.00000000
-# Step    100: train CrossEntropyLoss |  0.03663783
-# Step    100: eval  CrossEntropyLoss |  0.00210550
-# Step    100: eval          Accuracy |  1.00000000
-# ```
+Step    140: Ran 10 train steps in 1.33 secs
+Step    140: train CrossEntropyLoss |  0.00172522
+Step    140: eval  CrossEntropyLoss |  0.00004072
+Step    140: eval          Accuracy |  1.00000000
 
-# <a name="4.2"></a>
-# ## 4.2  Practice Making a prediction
-# 
-# Now that you have trained a model, you can access it as `training_loop.model` object. We will actually use `training_loop.eval_model` and in the next weeks you will learn why we sometimes use a different model for evaluation, e.g., one without dropout. For now, make predictions with your model.
-# 
-# Use the training data just to see how the prediction process works.  
-# - Later, you will use validation data to evaluate your model's performance.
-# 
+Step    150: Ran 10 train steps in 0.77 secs
+Step    150: train CrossEntropyLoss |  0.00002847
+Step    150: eval  CrossEntropyLoss |  0.00000232
+Step    150: eval          Accuracy |  1.00000000
 
-# In[ ]:
+Step    160: Ran 10 train steps in 0.78 secs
+Step    160: train CrossEntropyLoss |  0.00002123
+Step    160: eval  CrossEntropyLoss |  0.00104654
+Step    160: eval          Accuracy |  1.00000000
 
+Step    170: Ran 10 train steps in 0.79 secs
+Step    170: train CrossEntropyLoss |  0.00001706
+Step    170: eval  CrossEntropyLoss |  0.00000080
+Step    170: eval          Accuracy |  1.00000000
 
-# Create a generator object
-tmp_train_generator = train_generator(16)
+Step    180: Ran 10 train steps in 0.83 secs
+Step    180: train CrossEntropyLoss |  0.00001554
+Step    180: eval  CrossEntropyLoss |  0.00000989
+Step    180: eval          Accuracy |  1.00000000
 
-# get one batch
+Step    190: Ran 10 train steps in 0.85 secs
+Step    190: train CrossEntropyLoss |  0.00639312
+Step    190: eval  CrossEntropyLoss |  0.00255337
+Step    190: eval          Accuracy |  1.00000000
+
+Step    200: Ran 10 train steps in 0.85 secs
+Step    200: train CrossEntropyLoss |  0.00124322
+Step    200: eval  CrossEntropyLoss |  0.02190475
+Step    200: eval          Accuracy |  1.00000000
+#+end_example
+
+** Practice In Making Predictions
+ Now that you have trained a model, you can access it as =training_loop.model= object. We will actually use =training_loop.eval_model= and in the next weeks you will learn why we sometimes use a different model for evaluation, e.g., one without dropout. For now, make predictions with your model.
+
+ Use the training data just to see how the prediction process works.  
+ - Later, you will use validation data to evaluate your model's performance.
+
+Create a generator object.
+
+#+begin_src python :results none
+tmp_train_generator = train_generator(batch_size=16)
+#+end_src
+
+Get one batch.
+
+#+begin_src python :results none
 tmp_batch = next(tmp_train_generator)
+#+end_src
 
-# Position 0 has the model inputs (tweets as tensors)
-# position 1 has the targets (the actual labels)
+Position 0 has the model inputs (tweets as tensors).
+Position 1 has the targets (the actual labels).
+
+#+begin_src python :results output :exports both
 tmp_inputs, tmp_targets, tmp_example_weights = tmp_batch
 
 print(f"The batch is a tuple of length {len(tmp_batch)} because position 0 contains the tweets, and position 1 contains the targets.") 
 print(f"The shape of the tweet tensors is {tmp_inputs.shape} (num of examples, length of tweet tensors)")
 print(f"The shape of the labels is {tmp_targets.shape}, which is the batch size.")
 print(f"The shape of the example_weights is {tmp_example_weights.shape}, which is the same as inputs/targets size.")
+#+end_src
 
+#+RESULTS:
+: The batch is a tuple of length 3 because position 0 contains the tweets, and position 1 contains the targets.
+: The shape of the tweet tensors is (16, 14) (num of examples, length of tweet tensors)
+: The shape of the labels is (16,), which is the batch size.
+: The shape of the example_weights is (16,), which is the same as inputs/targets size.
 
-# In[ ]:
+Feed the tweet tensors into the model to get a prediction.
 
-
-# feed the tweet tensors into the model to get a prediction
+#+begin_src python :results output :exports both
 tmp_pred = training_loop.eval_model(tmp_inputs)
 print(f"The prediction shape is {tmp_pred.shape}, num of tensor_tweets as rows")
 print("Column 0 is the probability of a negative sentiment (class 0)")
 print("Column 1 is the probability of a positive sentiment (class 1)")
 print()
 print("View the prediction array")
-tmp_pred
+print(tmp_pred)
+#+end_src
 
+#+RESULTS:
+#+begin_example
+The prediction shape is (16, 2), num of tensor_tweets as rows
+Column 0 is the probability of a negative sentiment (class 0)
+Column 1 is the probability of a positive sentiment (class 1)
 
-# To turn these probabilities into categories (negative or positive sentiment prediction), for each row:
-# - Compare the probabilities in each column.
-# - If column 1 has a value greater than column 0, classify that as a positive tweet.
-# - Otherwise if column 1 is less than or equal to column 0, classify that example as a negative tweet.
+View the prediction array
+[[-1.2960873e+01 -2.3841858e-06]
+ [-5.6474457e+00 -3.5326481e-03]
+ [-5.3460855e+00 -4.7781467e-03]
+ [-7.6736917e+00 -4.6515465e-04]
+ [-5.2682662e+00 -5.1658154e-03]
+ [-1.0566207e+01 -2.5749207e-05]
+ [-5.6388092e+00 -3.5634041e-03]
+ [-3.9540453e+00 -1.9363165e-02]
+ [ 0.0000000e+00 -2.0700916e+01]
+ [ 0.0000000e+00 -2.2949795e+01]
+ [ 0.0000000e+00 -2.3168846e+01]
+ [ 0.0000000e+00 -2.4553205e+01]
+ [-9.5367432e-07 -1.3878939e+01]
+ [ 0.0000000e+00 -1.6655178e+01]
+ [ 0.0000000e+00 -1.5975946e+01]
+ [ 0.0000000e+00 -2.0577690e+01]]
+#+end_example
 
-# In[ ]:
+ To turn these probabilities into categories (negative or positive sentiment prediction), for each row:
+ - Compare the probabilities in each column.
+ - If column 1 has a value greater than column 0, classify that as a positive tweet.
+ - Otherwise if column 1 is less than or equal to column 0, classify that example as a negative tweet.
 
+Turn probabilites into category predictions.
 
-# turn probabilites into category predictions
+#+begin_src python :results output :exports both
 tmp_is_positive = tmp_pred[:,1] > tmp_pred[:,0]
 for i, p in enumerate(tmp_is_positive):
     print(f"Neg log prob {tmp_pred[i,0]:.4f}\tPos log prob {tmp_pred[i,1]:.4f}\t is positive? {p}\t actual {tmp_targets[i]}")
+#+end_src
 
+#+RESULTS:
+#+begin_example
+Neg log prob -12.9609	Pos log prob -0.0000	 is positive? True	 actual 1
+Neg log prob -5.6474	Pos log prob -0.0035	 is positive? True	 actual 1
+Neg log prob -5.3461	Pos log prob -0.0048	 is positive? True	 actual 1
+Neg log prob -7.6737	Pos log prob -0.0005	 is positive? True	 actual 1
+Neg log prob -5.2683	Pos log prob -0.0052	 is positive? True	 actual 1
+Neg log prob -10.5662	Pos log prob -0.0000	 is positive? True	 actual 1
+Neg log prob -5.6388	Pos log prob -0.0036	 is positive? True	 actual 1
+Neg log prob -3.9540	Pos log prob -0.0194	 is positive? True	 actual 1
+Neg log prob 0.0000	Pos log prob -20.7009	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -22.9498	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -23.1688	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -24.5532	 is positive? False	 actual 0
+Neg log prob -0.0000	Pos log prob -13.8789	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -16.6552	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -15.9759	 is positive? False	 actual 0
+Neg log prob 0.0000	Pos log prob -20.5777	 is positive? False	 actual 0
+#+end_example
 
-# Notice that since you are making a prediction using a training batch, it's more likely that the model's predictions match the actual targets (labels).  
-# - Every prediction that the tweet is positive is also matching the actual target of 1 (positive sentiment).
-# - Similarly, all predictions that the sentiment is not positive matches the actual target of 0 (negative sentiment)
+ Notice that since you are making a prediction using a training batch, it's more likely that the model's predictions match the actual targets (labels).  
+ - Every prediction that the tweet is positive is also matching the actual target of 1 (positive sentiment).
+ - Similarly, all predictions that the sentiment is not positive matches the actual target of 0 (negative sentiment)
 
-# One more useful thing to know is how to compare if the prediction is matching the actual target (label).  
-# - The result of calculation `is_positive` is a boolean.
-# - The target is a type trax.fastmath.numpy.int32
-# - If you expect to be doing division, you may prefer to work with decimal numbers with the data type type trax.fastmath.numpy.int32
+ One more useful thing to know is how to compare if the prediction is matching the actual target (label).  
+ - The result of calculation =is_positive= is a boolean.
+ - The target is a type trax.fastmath.numpy.int32
+ - If you expect to be doing division, you may prefer to work with decimal numbers with the data type type trax.fastmath.numpy.int32
 
-# In[ ]:
+View the array of booleans.
 
-
-# View the array of booleans
+#+begin_src python :results output :exports both
 print("Array of booleans")
 display(tmp_is_positive)
+#+end_src
 
-# convert boolean to type int32
-# True is converted to 1
-# False is converted to 0
-tmp_is_positive_int = tmp_is_positive.astype(np.int32)
+#+RESULTS:
+:RESULTS:
+: Array of booleans
+: DeviceArray([ True,  True,  True,  True,  True,  True,  True,  True,
+:              False, False, False, False, False, False, False, False],            dtype=bool)
+:END:
 
+Convert booleans to type int32.
+ - True is converted to 1
+ -  False is converted to 0
 
-# View the array of integers
+#+begin_src python :results none   
+tmp_is_positive_int = tmp_is_positive.astype(trax.fastmath.numpy.int32)
+#+end_src
+
+View the array of integers.
+
+#+begin_src python :results output :exports both
 print("Array of integers")
 display(tmp_is_positive_int)
+#+end_src
 
-# convert boolean to type float32
-tmp_is_positive_float = tmp_is_positive.astype(np.float32)
+#+RESULTS:
+:RESULTS:
+: Array of integers
+: DeviceArray([1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], dtype=int32)
+:END:
 
-# View the array of floats
+Convert boolean to type float32.
+
+#+begin_src python :results none
+tmp_is_positive_float = tmp_is_positive.astype(numpy.float32)
+#+end_src
+
+View the array of floats.
+
+#+begin_src python :results output :exports both
 print("Array of floats")
 display(tmp_is_positive_float)
+#+end_src
 
+#+RESULTS:
+:RESULTS:
+: Array of floats
+: DeviceArray([1., 1., 1., 1., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 0.,
+:              0.], dtype=float32)
+:END:
 
-# In[ ]:
+#+begin_src python :results output :exports both
+print(tmp_pred.shape)
+#+end_src
 
+#+RESULTS:
+: (16, 2)
 
-tmp_pred.shape
+ Note that Python usually does type conversion for you when you compare a boolean to an integer.
+ - True compared to 1 is True, otherwise any other integer is False.
+ - False compared to 0 is True, otherwise any ohter integer is False.
 
-
-# Note that Python usually does type conversion for you when you compare a boolean to an integer
-# - True compared to 1 is True, otherwise any other integer is False.
-# - False compared to 0 is True, otherwise any ohter integer is False.
-
-# In[ ]:
-
-
+#+begin_src python :results output :exports both
 print(f"True == 1: {True == 1}")
 print(f"True == 2: {True == 2}")
 print(f"False == 0: {False == 0}")
 print(f"False == 2: {False == 2}")
+#+end_src
 
+#+RESULTS:
+: True == 1: True
+: True == 2: False
+: False == 0: True
+: False == 2: False
 
-# However, we recommend that you keep track of the data type of your variables to avoid unexpected outcomes.  So it helps to convert the booleans into integers
-# - Compare 1 to 1 rather than comparing True to 1.
+ However, we recommend that you keep track of the data type of your variables to avoid unexpected outcomes.  So it helps to convert the booleans into integers.
+*** Compare 1 to 1 rather than comparing True to 1.
 
-# Hopefully you are now familiar with what kinds of inputs and outputs the model uses when making a prediction.
-# - This will help you implement a function that estimates the accuracy of the model's predictions.
+ Hopefully you are now familiar with what kinds of inputs and outputs the model uses when making a prediction.
+ - This will help you implement a function that estimates the accuracy of the model's predictions.
+**  Evaluation  
+*** 5.1  Computing the accuracy of a batch
 
-# <a name="5"></a>
-# # Part 5:  Evaluation  
-# 
-# <a name="5.1"></a>
-# ## 5.1  Computing the accuracy on a batch
-# 
-# You will now write a function that evaluates your model on the validation set and returns the accuracy. 
-# - `preds` contains the predictions.
-#     - Its dimensions are `(batch_size, output_dim)`.  `output_dim` is two in this case.  Column 0 contains the probability that the tweet belongs to class 0 (negative sentiment). Column 1 contains probability that it belongs to class 1 (positive sentiment).
-#     - If the probability in column 1 is greater than the probability in column 0, then interpret this as the model's prediction that the example has label 1 (positive sentiment).  
-#     - Otherwise, if the probabilities are equal or the probability in column 0 is higher, the model's prediction is 0 (negative sentiment).
-# - `y` contains the actual labels.
-# - `y_weights` contains the weights to give to predictions.
+ You will now write a function that evaluates your model on the validation set and returns the accuracy. 
+ - =preds= contains the predictions.
+ - Its dimensions are =(batch_size, output_dim)=.  =output_dim= is two in this case.  Column 0 contains the probability that the tweet belongs to class 0 (negative sentiment). Column 1 contains probability that it belongs to class 1 (positive sentiment).
+ - If the probability in column 1 is greater than the probability in column 0, then interpret this as the model's prediction that the example has label 1 (positive sentiment).  
+ - Otherwise, if the probabilities are equal or the probability in column 0 is higher, the model's prediction is 0 (negative sentiment).
+ - =y= contains the actual labels.
+ - =y_weights= contains the weights to give to predictions.
 
-# <a name="ex07"></a>
-# ### Exercise 07
-# Implement `compute_accuracy`.
-
-# In[ ]:
-
-
-# UNQ_C7 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
-# GRADED FUNCTION: compute_accuracy
-def compute_accuracy(preds, y, y_weights):
-    """
-    Input: 
+#+begin_src python :results none   
+def compute_accuracy(preds: numpy.ndarray,
+                     y: numpy.ndarray,
+                     y_weights: numpy.ndarray) -> tuple:
+    """Compute a batch accuracy
+    
+    Args: 
         preds: a tensor of shape (dim_batch, output_dim) 
         y: a tensor of shape (dim_batch,) with the true labels
         y_weights: a n.ndarray with the a weight for each example
-    Output: 
+
+    Returns: 
         accuracy: a float between 0-1 
         weighted_num_correct (np.float32): Sum of the weighted correct predictions
         sum_weights (np.float32): Sum of the weights
     """
-    ### START CODE HERE (Replace instances of 'None' with your code) ###
     # Create an array of booleans, 
     # True if the probability of positive sentiment is greater than
     # the probability of negative sentiment
     # else False
-    is_pos =  None
+    is_pos =  preds[:, 1] > preds[:, 0]
 
     # convert the array of booleans into an array of np.int32
-    is_pos_int = None
+    is_pos_int = is_pos.astype(numpy.int32)
     
     # compare the array of predictions (as int32) with the target (labels) of type int32
-    correct = None
+    correct = is_pos_int == y
 
     # Count the sum of the weights.
-    sum_weights = None
+    sum_weights = y_weights.sum()
     
     # convert the array of correct predictions (boolean) into an arrayof np.float32
-    correct_float = None
+    correct_float = correct.astype(numpy.float32)
     
     # Multiply each prediction with its corresponding weight.
-    weighted_correct_float = None
+    weighted_correct_float = correct_float.dot(y_weights)
 
     # Sum up the weighted correct predictions (of type np.float32), to go in the
     # denominator.
-    weighted_num_correct = None
+    weighted_num_correct = weighted_correct_float.sum()
  
     # Divide the number of weighted correct predictions by the sum of the
     # weights.
-    accuracy = None
+    accuracy = weighted_num_correct/sum_weights
 
-    ### END CODE HERE ###
     return accuracy, weighted_num_correct, sum_weights
+#+end_src
 
+Get one batch.
 
-# In[ ]:
-
-
-# test your function
-tmp_val_generator = val_generator(64)
-
-# get one batch
+#+begin_src python :results none
+tmp_val_generator = valid_generator(batch_size=64)
 tmp_batch = next(tmp_val_generator)
+#+end_src
 
-# Position 0 has the model inputs (tweets as tensors)
-# position 1 has the targets (the actual labels)
+ Position 0 has the model inputs (tweets as tensors)
+ position 1 has the targets (the actual labels)
+
+#+begin_src python :results none
 tmp_inputs, tmp_targets, tmp_example_weights = tmp_batch
+#+end_src
 
-# feed the tweet tensors into the model to get a prediction
+Feed the tweet tensors into the model to get a prediction.
+
+#+begin_src python :results none
 tmp_pred = training_loop.eval_model(tmp_inputs)
+#+end_src
 
+#+begin_src python :results output :exports both
 tmp_acc, tmp_num_correct, tmp_num_predictions = compute_accuracy(preds=tmp_pred, y=tmp_targets, y_weights=tmp_example_weights)
 
 print(f"Model's prediction accuracy on a single training batch is: {100 * tmp_acc}%")
 print(f"Weighted number of correct predictions {tmp_num_correct}; weighted number of total observations predicted {tmp_num_predictions}")
+#+end_src
 
-# ##### Expected output (Approximately)
-# 
-# ```
-# Model's prediction accuracy on a single training batch is: 100.0%
-# Weighted number of correct predictions 64.0; weighted number of total observations predicted 64
-# ```
-#+end_example
+#+RESULTS:
+: Model's prediction accuracy on a single training batch is: 100.0%
+: Weighted number of correct predictions 64.0; weighted number of total observations predicted 64
+
+* End
+  Now that we have a trained model, in the {{% lancelot title="next post" %}}sentiment-analysis-testing-the-model{{% /lancelot %}} we'll test how well it did.
