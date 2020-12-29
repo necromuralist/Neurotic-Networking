@@ -1,0 +1,370 @@
+#+BEGIN_COMMENT
+.. title: Sentiment Analysis: Testing the Model
+.. slug: sentiment-analysis-testing-the-model
+.. date: 2020-12-23 15:52:18 UTC-08:00
+.. tags: nlp,sentiment analysis,neural networks
+.. category: NLP
+.. link: 
+.. description: Testing our sentiment model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-be10952c-ccb1-42e0-9b15-31bd00c93c5a-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Beginning
+  Having trained our Deep Learning model for Sentiment Analysis {{% lancelot title="previously" %}}sentiment-analysis-training-the-model{{% /lancelot %}} we're now going to test how well it did.
+** Imports
+#+begin_src python :results none
+# python
+from argparse import Namespace
+from functools import partial
+from pathlib import Path
+
+# pypi
+import nltk
+import trax.fastmath.numpy as numpy
+import trax.layers as trax_layers
+
+# this project
+from neurotic.nlp.twitter.sentiment_network import SentimentNetwork
+from neurotic.nlp.twitter.tensor_generator import TensorBuilder, TensorGenerator
+#+end_src
+** Set Up
+*** Download
+    This is because of all the trouble getting trax and tensorflow working with CUDA means I have to keep re-building the Docker container I'm using.    
+#+begin_src python :results none
+data_path = Path("~/data/datasets/nltk_data/").expanduser()
+nltk.download("twitter_samples", download_dir=str(data_path))
+#+end_src   
+    
+*** The Data Generators
+#+begin_src python :results none
+BATCH_SIZE = 16
+converter = TensorBuilder()
+train_generator = partial(TensorGenerator, converter,
+                                     positive_data=converter.positive_training,
+                                     negative_data=converter.negative_training,
+                                     batch_size=BATCH_SIZE)
+valid_generator=partial(TensorGenerator,
+                          converter,
+                          positive_data=converter.positive_validation,
+                          negative_data=converter.negative_validation,
+                          batch_size=BATCH_SIZE)
+
+TRAINING_GENERATOR=train_generator()
+VALIDATION_GENERATOR = valid_generator()
+SIZE_OF_VOCABULARY = len(converter.vocabulary)
+TRAINING_LOOPS = 100
+
+OUTPUT_PATH = Path("~/models").expanduser()
+if not OUTPUT_PATH.is_dir():
+    OUTPUT_PATH.mkdir()
+#+end_src
+
+*** The Model Builder
+#+begin_src python :results none
+trainer = SentimentNetwork(
+    training_generator=TRAINING_GENERATOR,
+    validation_generator=VALIDATION_GENERATOR,
+    vocabulary_size=SIZE_OF_VOCABULARY,
+    training_loops=TRAINING_LOOPS,
+    output_path=OUTPUT_PATH)
+#+end_src
+#+begin_src python :results output :exports both
+
+trainer.fit()
+#+end_src
+
+#+RESULTS:
+#+begin_example
+WARNING:absl:No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+
+Step    110: Ran 10 train steps in 4.89 secs
+Step    110: train CrossEntropyLoss |  0.00662578
+Step    110: eval  CrossEntropyLoss |  0.00139236
+Step    110: eval          Accuracy |  1.00000000
+
+Step    120: Ran 10 train steps in 2.61 secs
+Step    120: train CrossEntropyLoss |  0.03323080
+Step    120: eval  CrossEntropyLoss |  0.00684100
+Step    120: eval          Accuracy |  1.00000000
+
+Step    130: Ran 10 train steps in 1.27 secs
+Step    130: train CrossEntropyLoss |  0.11124543
+Step    130: eval  CrossEntropyLoss |  0.00011413
+Step    130: eval          Accuracy |  1.00000000
+
+Step    140: Ran 10 train steps in 0.71 secs
+Step    140: train CrossEntropyLoss |  0.03609489
+Step    140: eval  CrossEntropyLoss |  0.00000590
+Step    140: eval          Accuracy |  1.00000000
+
+Step    150: Ran 10 train steps in 1.92 secs
+Step    150: train CrossEntropyLoss |  0.08605278
+Step    150: eval  CrossEntropyLoss |  0.00003427
+Step    150: eval          Accuracy |  1.00000000
+
+Step    160: Ran 10 train steps in 1.31 secs
+Step    160: train CrossEntropyLoss |  0.04926774
+Step    160: eval  CrossEntropyLoss |  0.00003597
+Step    160: eval          Accuracy |  1.00000000
+
+Step    170: Ran 10 train steps in 1.30 secs
+Step    170: train CrossEntropyLoss |  0.00986138
+Step    170: eval  CrossEntropyLoss |  0.00026259
+Step    170: eval          Accuracy |  1.00000000
+
+Step    180: Ran 10 train steps in 0.76 secs
+Step    180: train CrossEntropyLoss |  0.00773767
+Step    180: eval  CrossEntropyLoss |  0.00038017
+Step    180: eval          Accuracy |  1.00000000
+
+Step    190: Ran 10 train steps in 1.35 secs
+Step    190: train CrossEntropyLoss |  0.00555876
+Step    190: eval  CrossEntropyLoss |  0.00000706
+Step    190: eval          Accuracy |  1.00000000
+
+Step    200: Ran 10 train steps in 0.76 secs
+Step    200: train CrossEntropyLoss |  0.00381955
+Step    200: eval  CrossEntropyLoss |  0.00000122
+Step    200: eval          Accuracy |  1.00000000
+#+end_example
+
+*** The Accuracy
+    This is from the last post. I havent' figured out how to arrange all the code yet.
+#+begin_src python :results none   
+def compute_accuracy(preds: numpy.ndarray,
+                     y: numpy.ndarray,
+                     y_weights: numpy.ndarray) -> tuple:
+    """Compute a batch accuracy
+    
+    Args: 
+        preds: a tensor of shape (dim_batch, output_dim) 
+        y: a tensor of shape (dim_batch,) with the true labels
+        y_weights: a n.ndarray with the a weight for each example
+
+    Returns: 
+        accuracy: a float between 0-1 
+        weighted_num_correct (np.float32): Sum of the weighted correct predictions
+        sum_weights (np.float32): Sum of the weights
+    """
+    # Create an array of booleans, 
+    # True if the probability of positive sentiment is greater than
+    # the probability of negative sentiment
+    # else False
+    is_pos =  preds[:, 1] > preds[:, 0]
+
+    # convert the array of booleans into an array of np.int32
+    is_pos_int = is_pos.astype(numpy.int32)
+    
+    # compare the array of predictions (as int32) with the target (labels) of type int32
+    correct = is_pos_int == y
+
+    # Count the sum of the weights.
+    sum_weights = y_weights.sum()
+    
+    # convert the array of correct predictions (boolean) into an arrayof np.float32
+    correct_float = correct.astype(numpy.float32)
+    
+    # Multiply each prediction with its corresponding weight.
+    weighted_correct_float = correct_float.dot(y_weights)
+
+    # Sum up the weighted correct predictions (of type np.float32), to go in the
+    # denominator.
+    weighted_num_correct = weighted_correct_float.sum()
+ 
+    # Divide the number of weighted correct predictions by the sum of the
+    # weights.
+    accuracy = weighted_num_correct/sum_weights
+
+    return accuracy, weighted_num_correct, sum_weights
+#+end_src    
+* Middle
+** Testing the model on Validation Data
+ Now we'll test our model's prediction accuracy on validation data. 
+
+ This program will take in a data generator and the model. 
+ - The generator allows us to get batches of data. You can use it with a =for= loop:
+
+#+begin_example python
+for batch in iterator: 
+   # do something with that batch
+#+end_example
+
+=batch= has dimensions =(X, Y, weights)=. 
+ - Column 0 corresponds to the tweet as a tensor (input).
+ - Column 1 corresponds to its target (actual label, positive or negative sentiment).
+ - Column 2 corresponds to the weights associated (example weights)
+ - You can feed the tweet into model and it will return the predictions for the batch. 
+
+#+begin_src python :results none
+# UNQ_C8 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: test_model
+def test_model(generator: TensorGenerator, model: trax_layers.Serial) -> float:
+    """Calculate the accuracy of the model
+
+    Args: 
+        generator: an iterator instance that provides batches of inputs and targets
+        model: a model instance 
+    Returns: 
+        accuracy: float corresponding to the accuracy
+    """
+    
+    accuracy = 0.
+    total_num_correct = 0
+    total_num_pred = 0
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    for batch in generator: 
+        
+        # Retrieve the inputs from the batch
+        inputs = batch[0]
+        
+        # Retrieve the targets (actual labels) from the batch
+        targets = batch[1]
+        
+        # Retrieve the example weight.
+        example_weight = batch[2]
+
+        # Make predictions using the inputs
+        pred = model(inputs)
+        
+        # Calculate accuracy for the batch by comparing its predictions and targets
+        batch_accuracy, batch_num_correct, batch_num_pred = compute_accuracy(
+            pred, targets, example_weight)
+        
+        # Update the total number of correct predictions
+        # by adding the number of correct predictions from this batch
+        total_num_correct += batch_num_correct
+        
+        # Update the total number of predictions 
+        # by adding the number of predictions made for the batch
+        total_num_pred += batch_num_pred
+
+    # Calculate accuracy over all examples
+    accuracy = total_num_correct/total_num_pred
+    
+    ### END CODE HERE ###
+    return accuracy
+#+end_src
+
+#+begin_src python :results output :exports both
+# DO NOT EDIT THIS CELL
+# testing the accuracy of your model: this takes around 20 seconds
+model = trainer.training_loop.eval_model
+
+# we used all the data for the training and validation (oops)
+# so we don't have any test data. Fix that later
+#accuracy = test_model(VALIDATION_GENERATOR, model)
+generator = valid_generator(infinite=False)
+accuracy = test_model(generator, model)
+print(f'The accuracy of your model on the validation set is {accuracy:.4f}', )
+#+end_src
+
+#+RESULTS:
+: The accuracy of your model on the validation set is 0.9995
+
+
+# ##### Expected Output (Approximately)
+# 
+# ```CPP
+# The accuracy of your model on the validation set is 0.9931
+# ```
+** Testing Some Custom Input
+
+Finally, let's test some custom input. You will see that deepnets are more powerful than the older methods we have used before. Although we got close to 100% accuracy using Naive Bayes and Logistic Regression, that was because the task was way easier. 
+
+This is used to predict on a new sentence.
+
+#+begin_src python :results none
+def predict(sentence: str) -> tuple:
+    """Predicts the sentiment of the sentence
+
+    Args:
+     sentence to get the sentiment for
+
+    Returns:
+     predictions, sentiment
+    """
+    inputs = numpy.array(converter.to_tensor(sentence))
+    
+    # Batch size 1, add dimension for batch, to work with the model
+    inputs = inputs.reshape(1, len(inputs))
+    
+    # predict with the model
+    probabilities = model(inputs)
+    
+    # Turn probabilities into categories
+    prediction = int(probabilities[0, 1] > probabilities[0, 0])
+    
+    sentiment = "positive" if prediction == 1 else "negative"
+
+    return prediction, sentiment
+#+end_src
+
+#+begin_src python :results none
+sentence = "It's such a nice day, think i'll be taking Sid to Ramsgate fish and chips for lunch at Peter's fish factory and then the beach maybe"
+inputs = numpy.array(converter.to_tensor(sentence))
+#+end_src
+
+*** A Positive Sentence
+#+begin_src python :results output :exports both    
+sentence = "It's such a nice day, think i'll be taking Sid to Ramsgate fish and chips for lunch at Peter's fish factory and then the beach maybe"
+tmp_pred, tmp_sentiment = predict(sentence)
+print(f"The sentiment of the sentence \n***\n\"{sentence}\"\n***\nis {tmp_sentiment}.")
+#+end_src
+
+#+RESULTS:
+: The sentiment of the sentence 
+: ***
+: "It's such a nice day, think i'll be taking Sid to Ramsgate fish and chips for lunch at Peter's fish factory and then the beach maybe"
+: ***
+: is positive.
+
+
+*** A Negative Sentence
+
+#+begin_src python :results output :exports both    
+sentence = "I hated my day, it was the worst, I'm so sad."
+tmp_pred, tmp_sentiment = predict(sentence)
+print(f"The sentiment of the sentence \n***\n\"{sentence}\"\n***\nis {tmp_sentiment}.")
+#+end_src
+
+#+RESULTS:
+: The sentiment of the sentence 
+: ***
+: "I hated my day, it was the worst, I'm so sad."
+: ***
+: is negative.
+
+ Notice that the model works well even for complex sentences.
+
+*** On Pooh
+
+#+begin_src python :results output :exports both
+s = "Oh, bother!"
+print(f"{s}: {predict(s)}")
+#+end_src
+
+#+RESULTS:
+: Oh, bother!: (0, 'negative')
+
+** On Deep Nets
+
+ Deep nets allow you to understand and capture dependencies that you would have not been able to capture with a simple linear regression, or logistic regression. 
+ - It also allows you to better use pre-trained embeddings for classification and tends to generalize better.
+
+  
+* End
+  So, there you have it, a Deep Learning Model for Sentiment Analysis built using Trax. Here are the prior posts in this series.
+
+ - {{% lancelot title="Introduction" %}}sentiment-analysis-deep-learning-model{{% /lancelot %}}
+ - {{% lancelot title="Loading the Data" %}}sentiment-analysis-pre-processing-the-data{{% /lancelot %}}
+ - {{% lancelot title="Defining the Model" %}}sentiment-analysis-defining-the-model{{% /lancelot %}}
+ - {{% lancelot title="Training the Model" %}}sentiment-analysis-training-the-model{{% /lancelot %}}

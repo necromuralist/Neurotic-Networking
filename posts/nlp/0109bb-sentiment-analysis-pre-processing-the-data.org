@@ -1,0 +1,1035 @@
+#+BEGIN_COMMENT
+.. title: Sentiment Analysis: Pre-processing the Data
+.. slug: sentiment-analysis-pre-processing-the-data
+.. date: 2020-12-23 15:43:02 UTC-08:00
+.. tags: nlp,sentiment analysis,deep learning
+.. category: NLP
+.. link: 
+.. description: Loading the data for the deep learning model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-be10952c-ccb1-42e0-9b15-31bd00c93c5a-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  This is the next in a series about building a Deep Learning model for sentiment analysis. The first post was {{% lancelot title="this one" %}}sentiment-analysis-deep-learning-model{{% /lancelot %}}.
+*** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+
+import random
+
+# from pypi
+from expects import contain_exactly, equal, expect
+from nltk.corpus import twitter_samples
+
+import nltk
+import numpy
+
+# this project
+from neurotic.nlp.twitter.processor import TwitterProcessor
+#+end_src
+
+** Set Up
+   The NLTK data has to be downloaded at least once.
+#+begin_src python :results none
+nltk.download("twitter_samples", download_dir="~/data/datasets/nltk_data/")
+#+end_src   
+* Middle
+** The NLTK Data
+
+#+begin_src python :results output :exports both
+positive = twitter_samples.strings('positive_tweets.json')
+negative = twitter_samples.strings('negative_tweets.json')
+
+print(f"Positive Tweets: {len(positive):,}")
+print(f"Negative Tweets: {len(negative):,}")
+#+end_src
+
+#+RESULTS:
+: Positive Tweets: 5,000
+: Negative Tweets: 5,000
+** Split It Up
+   Instead of randomly splitting the data we're going to do a straight slice.
+
+#+begin_src python :results none
+SPLIT = 4000
+#+end_src   
+*** Split positive set into validation and training
+#+begin_src python :results none
+positive_validation   = positive[SPLIT:]
+positive_training  = positive[:SPLIT]
+#+end_src    
+
+*** Split negative set into validation and training
+#+begin_src python :results none
+negative_validation = negative[SPLIT:]
+negative_training  = negative[:SPLIT]
+#+end_src    
+
+*** Combine the Data Sets
+    The X data.
+#+begin_src python :results none
+train_x = positive_training + negative_training
+validation_x = positive_validation + negative_validation
+#+end_src    
+
+
+ The labels (1 for positive, 0 for negative).
+ 
+#+begin_src python :results output :exports both
+train_y = numpy.append(numpy.ones(len(positive_training)),
+                       numpy.zeros(len(negative_training)))
+validation_y  = numpy.append(numpy.ones(len(positive_validation)),
+                             numpy.zeros(len(negative_validation)))
+
+print(f"length of train_x {len(train_x):,}")
+print(f"length of validation_x {len(validation_x):,}")
+
+#+end_src
+
+#+RESULTS:
+: length of train_x 8,000
+: length of validation_x 2,000
+
+**  Building the vocabulary
+
+Now build the vocabulary.
+ - Map each word in each tweet to an integer (an "index"). 
+ - The following code does this for you, but please read it and understand what it's doing.
+ - Note that you will build the vocabulary based on the training data. 
+ - To do so, you will assign an index to everyword by iterating over your training set.
+
+ The vocabulary will also include some special tokens
+ - =__PAD__=: padding
+ - =</e>=: end of line
+ - =__UNK__=: a token representing any word that is not in the vocabulary.
+
+#+begin_src python :results none
+Tokens = Namespace(padding="__PAD__", ending="__</e>__", unknown="__UNK__")
+process = TwitterProcessor()
+vocabulary = {Tokens.padding: 0, Tokens.ending: 1, Tokens.unknown: 2}
+for tweet in train_x:
+    for token in process(tweet):
+        if token not in vocabulary:
+            vocabulary[token] = len(vocabulary)
+#+end_src
+
+#+begin_src python :results output :exports both
+print(f"Words in the vocabulary: {len(vocabulary):,}")
+
+count = 0
+for token in vocabulary:
+    print(f"{count}: {token}: {vocabulary[token]}")
+    count += 1
+    if count == 5:
+        break
+#+end_src
+
+#+RESULTS:
+: Words in the vocabulary: 9,164
+: 0: __PAD__: 0
+: 1: __</e>__: 1
+: 2: __UNK__: 2
+: 3: followfriday: 3
+: 4: top: 4
+
+**  Converting a tweet to a tensor
+
+Now we'll write a function that will convert each tweet to a tensor (a list of unique integer IDs representing the processed tweet).
+
+ - Note, the returned data type will be a **regular Python `list()`**
+     - You won't use TensorFlow in this function
+     - You also won't use a numpy array
+     - You also won't use trax.fastmath.numpy array
+ - For words in the tweet that are not in the vocabulary, set them to the unique ID for the token `__UNK__`.
+
+   For example, given this string:
+   
+#+begin_example
+'@happypuppy, is Maria happy?'
+#+end_example
+
+You first tokenize it.
+
+#+begin_example
+['maria', 'happi']
+#+end_example
+
+Then convert each word into the index for it.
+
+#+begin_example
+[2, 56]
+#+end_example
+
+Notice that the word "maria" is not in the vocabulary, so it is assigned the unique integer associated with the =__UNK__= token, because it is considered "unknown."
+
+#+begin_src python :results none
+# UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: tweet_to_tensor
+def tweet_to_tensor(tweet: str, vocab_dict: dict,
+                    unk_token: str='__UNK__', verbose: bool=False):
+    """Convert a tweet to a list of indices
+
+    Args: 
+        tweet - A string containing a tweet
+        vocab_dict - The words dictionary
+        unk_token - The special string for unknown tokens
+        verbose - Print info during runtime
+
+    Returns:
+        tensor_l - A python list with indices for the tweet tokens
+    """
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    # Process the tweet into a list of words
+    # where only important words are kept (stop words removed)
+    word_l = processor(tweet)
+    
+    if verbose:
+        print("List of words from the processed tweet:")
+        print(word_l)
+        
+    # Initialize the list that will contain the unique integer IDs of each word
+    tensor_l = []
+    
+    # Get the unique integer ID of the __UNK__ token
+    unk_ID = vocab_dict[unk_token]
+    
+    if verbose:
+        print(f"The unique integer ID for the unk_token is {unk_ID}")
+        
+    # for each word in the list:
+    for word in word_l:
+        
+        # Get the unique integer ID.
+        # If the word doesn't exist in the vocab dictionary,
+        # use the unique ID for __UNK__ instead.
+        word_ID = vocab_dict.get(word, unk_ID)
+    ### END CODE HERE ###
+        
+        # Append the unique integer ID to the tensor list.
+        tensor_l.append(word_ID) 
+    
+    return tensor_l
+#+end_src
+
+#+begin_src python :results output :exports both
+print("Actual tweet is\n", positive_validation[0])
+print("\nTensor of tweet:\n", tweet_to_tensor(positive_validation[0], vocab_dict=vocabulary))
+#+end_src
+
+#+RESULTS:
+: Actual tweet is
+:  Bro:U wan cut hair anot,ur hair long Liao bo
+: Me:since ord liao,take it easy lor treat as save $ leave it longer :)
+: Bro:LOL Sibei xialan
+: 
+: Tensor of tweet:
+:  [1072, 96, 484, 2376, 750, 8220, 1132, 750, 53, 2, 2701, 796, 2, 2, 354, 606, 2, 3523, 1025, 602, 4599, 9, 1072, 158, 2, 2]
+
+
+#+begin_src python :results output :exports both
+def test_tweet_to_tensor():
+    test_cases = [
+        
+        {
+            "name":"simple_test_check",
+            "input": [positive_validation[1], vocabulary],
+            "expected":[444, 2, 304, 567, 56, 9],
+            "error":"The function gives bad output for val_pos[1]. Test failed"
+        },
+        {
+            "name":"datatype_check",
+            "input":[positive_validation[1], vocabulary],
+            "expected":type([]),
+            "error":"Datatype mismatch. Need only list not np.array"
+        },
+        {
+            "name":"without_unk_check",
+            "input":[positive_validation[1], vocabulary],
+            "expected":6,
+            "error":"Unk word check not done- Please check if you included mapping for unknown word"
+        }
+    ]
+    count = 0
+    for test_case in test_cases:        
+        try:
+            if test_case['name'] == "simple_test_check":
+                assert test_case["expected"] == tweet_to_tensor(*test_case['input'])
+                count += 1
+            if test_case['name'] == "datatype_check":
+                assert isinstance(tweet_to_tensor(*test_case['input']), test_case["expected"])
+                count += 1
+            if test_case['name'] == "without_unk_check":
+                assert None not in tweet_to_tensor(*test_case['input'])
+                count += 1
+                                        
+        except:
+            print(test_case['error'])
+    if count == 3:
+        print("\033[92m All tests passed")
+    else:
+        print(count," Tests passed out of 3")
+test_tweet_to_tensor()            
+#+end_src
+
+#+RESULTS:
+: The function gives bad output for val_pos[1]. Test failed
+: 2  Tests passed out of 3
+
+Their tweet processor wipes out everything after the start of a URL, even if it isn't part of the URL, so they have fewer tokens, so the indices won't match exactly.
+
+** Creating a batch generator
+
+ Most of the time in Natural Language Processing, and AI in general we use batches when training our data sets. 
+ - If instead of training with batches of examples, you were to train a model with one example at a time, it would take a very long time to train the model. 
+ - You will now build a data generator that takes in the positive/negative tweets and returns a batch of training examples. It returns the model inputs, the targets (positive or negative labels) and the weight for each target (ex: this allows us to treat some examples as more important to get right than others, but commonly this will all be 1.0). 
+
+ Once you create the generator, you could include it in a for loop:
+
+#+begin_example python
+for batch_inputs, batch_targets, batch_example_weights in data_generator:
+#+end_example
+
+You can also get a single batch like this:
+
+#+begin_example python
+batch_inputs, batch_targets, batch_example_weights = next(data_generator)
+#+end_example
+
+ The generator returns the next batch each time it's called. 
+ - This generator returns the data in a format (tensors) that you could directly use in your model.
+ - It returns a triple: the inputs, targets, and loss weights:
+ -- Inputs is a tensor that contains the batch of tweets we put into the model.
+ -- Targets is the corresponding batch of labels that we train to generate.
+ -- Loss weights here are just 1s with same shape as targets. Next week, you will use it to mask input padding.
+ 
+*** data_generator
+    A batch of spaghetti.
+    
+#+begin_src python :results none
+# UNQ_C2 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED: Data generator
+def data_generator(data_pos: list, data_neg: list, batch_size: int,
+                   loop: bool, vocab_dict: dict, shuffle: bool=False):
+    """Generates batches of data
+
+    Args: 
+        data_pos - Set of positive examples
+        data_neg - Set of negative examples
+        batch_size - number of samples per batch. Must be even
+        loop - True or False
+        vocab_dict - The words dictionary
+        shuffle - Shuffle the data order
+
+    Yield:
+        inputs - Subset of positive and negative examples
+        targets - The corresponding labels for the subset
+        example_weights - An array specifying the importance of each example        
+    """
+### START GIVEN CODE ###
+    # make sure the batch size is an even number
+    # to allow an equal number of positive and negative samples
+    assert batch_size % 2 == 0
+    
+    # Number of positive examples in each batch is half of the batch size
+    # same with number of negative examples in each batch
+    n_to_take = batch_size // 2
+    
+    # Use pos_index to walk through the data_pos array
+    # same with neg_index and data_neg
+    pos_index = 0
+    neg_index = 0
+    
+    len_data_pos = len(data_pos)
+    len_data_neg = len(data_neg)
+    
+    # Get and array with the data indexes
+    pos_index_lines = list(range(len_data_pos))
+    neg_index_lines = list(range(len_data_neg))
+    
+    # shuffle lines if shuffle is set to True
+    if shuffle:
+        rnd.shuffle(pos_index_lines)
+        rnd.shuffle(neg_index_lines)
+        
+    stop = False
+    
+    # Loop indefinitely
+    while not stop:  
+        
+        # create a batch with positive and negative examples
+        batch = []
+        
+        # First part: Pack n_to_take positive examples
+        
+        # Start from pos_index and increment i up to n_to_take
+        for i in range(n_to_take):
+                    
+            # If the positive index goes past the positive dataset length,
+            if pos_index >= len_data_pos: 
+                
+                # If loop is set to False, break once we reach the end of the dataset
+                if not loop:
+                    stop = True;
+                    break;
+                
+                # If user wants to keep re-using the data, reset the index
+                pos_index = 0
+                
+                if shuffle:
+                    # Shuffle the index of the positive sample
+                    rnd.shuffle(pos_index_lines)
+                    
+            # get the tweet as pos_index
+            tweet = data_pos[pos_index_lines[pos_index]]
+            
+            # convert the tweet into tensors of integers representing the processed words
+            tensor = tweet_to_tensor(tweet, vocab_dict)
+            
+            # append the tensor to the batch list
+            batch.append(tensor)
+            
+            # Increment pos_index by one
+            pos_index = pos_index + 1
+
+### END GIVEN CODE ###
+            
+### START CODE HERE (Replace instances of 'None' with your code) ###
+
+        # Second part: Pack n_to_take negative examples
+    
+        # Using the same batch list, start from neg_index and increment i up to n_to_take
+        for i in range(neg_index, n_to_take):
+            
+            # If the negative index goes past the negative dataset length,
+            if neg_index > len_data_neg:
+                
+                # If loop is set to False, break once we reach the end of the dataset
+                if not loop:
+                    stop = True;
+                    break;
+                    
+                # If user wants to keep re-using the data, reset the index
+                neg_index = 0
+                
+                if shuffle:
+                    # Shuffle the index of the negative sample
+                    rnd.shuffle(neg_index_lines)
+            # get the tweet at neg_index
+            tweet = data_neg[neg_index_lines[neg_index]]
+            
+            # convert the tweet into tensors of integers representing the processed words
+            tensor = tweet_to_tensor(tweet, vocab_dict)
+            
+            # append the tensor to the batch list
+            batch.append(tensor)
+            
+            # Increment neg_index by one
+            neg_index += 1
+
+### END CODE HERE ###        
+
+### START GIVEN CODE ###
+        if stop:
+            break;
+
+        # Update the start index for positive data 
+        # so that it's n_to_take positions after the current pos_index
+        pos_index += n_to_take
+        
+        # Update the start index for negative data 
+        # so that it's n_to_take positions after the current neg_index
+        neg_index += n_to_take
+        
+        # Get the max tweet length (the length of the longest tweet) 
+        # (you will pad all shorter tweets to have this length)
+        max_len = max([len(t) for t in batch]) 
+        
+        
+        # Initialize the input_l, which will 
+        # store the padded versions of the tensors
+        tensor_pad_l = []
+        # Pad shorter tweets with zeros
+        for tensor in batch:
+### END GIVEN CODE ###
+
+### START CODE HERE (Replace instances of 'None' with your code) ###
+            # Get the number of positions to pad for this tensor so that it will be max_len long
+            n_pad = max_len - len(tensor)
+            
+            # Generate a list of zeros, with length n_pad
+            pad_l = [0] * n_pad
+            
+            # concatenate the tensor and the list of padded zeros
+            tensor_pad = tensor + pad_l
+            
+            # append the padded tensor to the list of padded tensors
+            tensor_pad_l.append(tensor_pad)
+
+        # convert the list of padded tensors to a numpy array
+        # and store this as the model inputs
+        inputs = numpy.array(tensor_pad_l)
+  
+        # Generate the list of targets for the positive examples (a list of ones)
+        # The length is the number of positive examples in the batch
+        target_pos = [1] * len(batch[:n_to_take])
+        
+        # Generate the list of targets for the negative examples (a list of zeros)
+        # The length is the number of negative examples in the batch
+        target_neg = [0] * len(batch[n_to_take:])
+        
+        # Concatenate the positve and negative targets
+        target_l = target_pos + target_neg
+        
+        # Convert the target list into a numpy array
+        targets = numpy.array(target_l)
+
+        # Example weights: Treat all examples equally importantly.It should return an np.array. Hint: Use np.ones_like()
+        example_weights = numpy.ones_like(targets)
+        
+
+### END CODE HERE ###
+
+### GIVEN CODE ###
+        # note we use yield and not return
+        yield inputs, targets, example_weights
+#+end_src
+
+ Now you can use your data generator to create a data generator for the training data, and another data generator for the validation data.
+
+ We will create a third data generator that does not loop, for testing the final accuracy of the model.
+
+#+begin_src python :results none
+# Set the random number generator for the shuffle procedure
+rnd = random
+rnd.seed(30) 
+
+# Create the training data generator
+def train_generator(batch_size, shuffle = False):
+    return data_generator(positive_training, negative_training,
+                          batch_size, True, vocabulary, shuffle)
+
+# Create the validation data generator
+def val_generator(batch_size, shuffle = False):
+    return data_generator(positive_validation, negative_validation,
+                          batch_size, True, vocabulary, shuffle)
+
+# Create the validation data generator
+def test_generator(batch_size, shuffle = False):
+    return data_generator(positive_validation, negative_validation, batch_size,
+                          False, vocabulary, shuffle)
+
+# Get a batch from the train_generator and inspect.
+inputs, targets, example_weights = next(train_generator(4, shuffle=True))
+#+end_src
+
+#+begin_src python :results output :exports both
+# this will print a list of 4 tensors padded with zeros
+print(f'Inputs: {inputs}')
+print(f'Targets: {targets}')
+print(f'Example Weights: {example_weights}')
+#+end_src
+
+#+RESULTS:
+: Inputs: [[2030 4492 3231    9    0    0    0    0    0    0    0]
+:  [5009  571 2025 1475 5233 3532  142 3532  132  464    9]
+:  [3798  111   96  587 2960 4007    0    0    0    0    0]
+:  [ 256 3798    0    0    0    0    0    0    0    0    0]]
+: Targets: [1 1 0 0]
+: Example Weights: [1 1 1 1]
+
+*** Test the train_generator
+
+ Create a data generator for training data which produces batches of size 4 (for tensors and their respective targets).
+
+#+begin_src python :results none 
+tmp_data_gen = train_generator(batch_size = 4)
+#+end_src
+
+ Call the data generator to get one batch and its targets.
+
+#+begin_src python :results none
+tmp_inputs, tmp_targets, tmp_example_weights = next(tmp_data_gen)
+#+end_src
+
+#+begin_src python :results output :exports both
+print(f"The inputs shape is {tmp_inputs.shape}")
+print(f"The targets shape is {tmp_targets.shape}")
+print(f"The example weights shape is {tmp_example_weights.shape}")
+
+for i,t in enumerate(tmp_inputs):
+    print(f"input tensor: {t}; target {tmp_targets[i]}; example weights {tmp_example_weights[i]}")
+#+end_src
+
+#+RESULTS:
+: The inputs shape is (4, 14)
+: The targets shape is (4,)
+: The example weights shape is (4,)
+: input tensor: [3 4 5 6 7 8 9 0 0 0 0 0 0 0]; target 1; example weights 1
+: input tensor: [10 11 12 13 14 15 16 17 18 19 20  9 21 22]; target 1; example weights 1
+: input tensor: [5807 2931 3798    0    0    0    0    0    0    0    0    0    0    0]; target 0; example weights 1
+: input tensor: [ 865  261 3689 5808  313 4499  571 1248 2795  333 1220 3798    0    0]; target 0; example weights 1
+** Bundle It Up
+#+begin_src python :tangle ../../neurotic/nlp/twitter/tensor_generator.py
+<<imports>>
+
+<<defaults>>
+
+<<nltk-settings>>
+
+<<special-tokens>>
+
+<<the-builder>>
+
+    <<positive-tweets>>
+
+    <<negative-tweets>>
+
+    <<positive-training>>
+
+    <<negative-training>>
+
+    <<positive-validation>>
+
+    <<negative-validation>>
+
+    <<twitter-processor>>
+
+    <<the-vocabulary>>
+
+    <<x-train>>
+
+    <<to-tensor>>
+
+
+<<the-generator>>
+
+    <<positive-indices>>
+
+    <<negative-indices>>
+
+    <<positives>>
+
+    <<negatives>>
+
+    <<positive-generator>>
+
+    <<negative-generator>>
+
+    <<the-iterator>>
+
+    <<the-next>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from argparse import Namespace
+from itertools import cycle
+
+import random
+
+# pypi
+from nltk.corpus import twitter_samples
+
+import attr
+import numpy
+
+# this project
+from .processor import TwitterProcessor
+#+end_src
+*** Defaults
+#+begin_src python :noweb-ref defaults
+Defaults = Namespace(
+    split = 4000,
+)
+#+end_src
+*** NLTK Settings
+#+begin_src python :noweb-ref nltk-settings
+NLTK = Namespace(
+    corpus="twitter_samples",
+    negative = "negative_tweets.json",
+    positive="positive_tweets.json",
+)
+#+end_src    
+*** Special Tokens
+#+begin_src python :noweb-ref special-tokens
+SpecialTokens = Namespace(padding="__PAD__",
+                          ending="__</e>__",
+                          unknown="__UNK__")
+
+SpecialIDs = Namespace(
+    padding=0,
+    ending=1,
+    unknown=2,
+)
+#+end_src    
+*** The Builder
+#+begin_src python :noweb-ref the-builder
+@attr.s(auto_attribs=True)
+class TensorBuilder:
+    """converts tweets to tensors
+
+    Args: 
+     - split: where to split the training and validation data
+    """
+    split = Defaults.split
+    _positive: list=None
+    _negative: list=None
+    _positive_training: list=None
+    _negative_training: list=None
+    _positive_validation: list=None
+    _negative_validation: list=None
+    _process: TwitterProcessor=None
+    _vocabulary: dict=None
+    _x_train: list=None
+#+end_src
+**** Positive Tweets
+#+begin_src python :noweb-ref positive-tweets
+@property
+def positive(self) -> list:
+    """The raw positive NLTK tweets"""
+    if self._positive is None:
+        self._positive = twitter_samples.strings(NLTK.positive)
+    return self._positive
+#+end_src
+**** Negative Tweets
+#+begin_src python :noweb-ref negative-tweets
+@property
+def negative(self) -> list:
+    """The raw negative NLTK tweets"""
+    if self._negative is None:
+        self._negative = twitter_samples.strings(NLTK.negative)
+    return self._negative
+#+end_src
+**** Positive Training
+#+begin_src python :noweb-ref positive-training
+@property
+def positive_training(self) -> list:
+    """The positive training data"""
+    if self._positive_training is None:
+        self._positive_training = self.positive[:self.split]
+    return self._positive_training
+#+end_src     
+**** Negative Training
+#+begin_src python :noweb-ref negative-training
+@property
+def negative_training(self) -> list:
+    """The negative training data"""
+    if self._negative_training is None:
+        self._negative_training = self.negative[:self.split]
+    return self._negative_training
+#+end_src
+**** Positive Validation
+#+begin_src python :noweb-ref positive-validation
+@property
+def positive_validation(self) -> list:
+    """The positive validation data"""
+    if self._positive_validation is None:
+        self._positive_validation = self.positive[self.split:]
+    return self._positive_validation
+#+end_src          
+**** Negative Validation
+#+begin_src python :noweb-ref negative-validation
+@property
+def negative_validation(self) -> list:
+    """The negative validation data"""
+    if self._negative_validation is None:
+        self._negative_validation = self.negative[self.split:]
+    return self._negative_validation
+#+end_src
+**** Twitter Processor
+#+begin_src python :noweb-ref twitter-processor
+@property
+def process(self) -> TwitterProcessor:
+    """processor for tweets"""
+    if self._process is None:
+        self._process = TwitterProcessor()
+    return self._process
+#+end_src     
+**** X Train
+#+begin_src python :noweb-ref x-train
+@property
+def x_train(self) -> list:
+    """The unprocessed training data"""
+    if self._x_train is None:
+        self._x_train = self.positive_training + self.negative_training
+    return self._x_train
+#+end_src     
+**** The Vocabulary
+#+begin_src python :noweb-ref the-vocabulary
+@property
+def vocabulary(self) -> dict:
+    """A map of token to numeric id"""
+    if self._vocabulary is None:
+        self._vocabulary = {SpecialTokens.padding: SpecialIDs.padding,
+                            SpecialTokens.ending: SpecialIDs.ending,
+                            SpecialTokens.unknown: SpecialIDs.unknown}
+        for tweet in self.x_train:
+            for token in self.process(tweet):
+                if token not in self._vocabulary:
+                    self._vocabulary[token] = len(self._vocabulary)
+    return self._vocabulary
+#+end_src
+**** To Tensor
+#+begin_src python :noweb-ref to-tensor
+def to_tensor(self, tweet: str) -> list:
+    """Converts tweet to list of numeric identifiers
+
+    Args:
+     tweet: the string to convert
+
+    Returns:
+     list of IDs for the tweet
+    """
+    tensor = [self.vocabulary.get(token, SpecialIDs.unknown)
+              for token in self.process(tweet)]
+    return tensor
+#+end_src     
+*** The Generator
+#+begin_src python :noweb-ref the-generator
+@attr.s(auto_attribs=True)
+class TensorGenerator:
+    """Generates batches of vectorized-tweets
+
+    Args:
+     converter: TensorBuilder object
+     positive_data: list of positive data
+     negative_data: list of negative data
+     batch_size: the size for each generated batch     
+     shuffle: whether to shuffle the generated data
+     infinite: whether to generate data forever
+    """
+    converter: TensorBuilder
+    positive_data: list
+    negative_data: list
+    batch_size: int
+    shuffle: bool=True
+    infinite: bool = True
+    _positive_indices: list=None
+    _negative_indices: list=None
+    _positives: iter=None
+    _negatives: iter=None
+#+end_src
+**** Positive Indices
+#+begin_src python :noweb-ref positive-indices
+@property
+def positive_indices(self) -> list:
+    """The indices to use to grab the positive tweets"""
+    if self._positive_indices is None:
+        k = len(self.positive_data)
+        if self.shuffle:
+            self._positive_indices = random.sample(range(k), k=k)
+        else:
+            self._positive_indices = list(range(k))
+    return self._positive_indices
+#+end_src
+**** Negative Indices
+#+begin_src python :noweb-ref negative-indices
+@property
+def negative_indices(self) -> list:
+    """Indices for the negative tweets"""
+    if self._negative_indices is None:
+        k = len(self.negative_data)
+        if self.shuffle:
+            self._negative_indices = random.sample(range(k), k=k)
+        else:
+            self._negative_indices = list(range(k))
+    return self._negative_indices
+#+end_src
+**** Positives
+#+begin_src python :noweb-ref positives
+@property
+def positives(self):
+    """The positive index generator"""
+    if self._positives is None:
+        self._positives = self.positive_generator()
+    return self._positives
+#+end_src     
+**** Negatives
+#+begin_src python :noweb-ref negatives
+@property
+def negatives(self):
+    """The negative index generator"""
+    if self._negatives is None:
+        self._negatives = self.negative_generator()
+    return self._negatives
+#+end_src     
+**** Positive Generator
+#+begin_src python :noweb-ref positive-generator
+def positive_generator(self):
+    """Generator of indices for positive tweets"""
+    stop = len(self.positive_indices)
+    index = 0
+    while True:
+        yield self.positive_indices[index]
+        index += 1
+        if index == stop:
+            if not self.infinite:
+                break
+            if self.shuffle:
+                self._positive_indices = None
+            index = 0
+    return
+#+end_src     
+**** Negative Generator
+#+begin_src python :noweb-ref negative-generator
+def negative_generator(self):
+    """generator of indices for negative tweets"""
+    stop = len(self.negative_indices)
+    index = 0
+    while True:
+        yield self.negative_indices[index]
+        index += 1
+        if index == stop:
+            if not self.infinite:
+                break
+            if self.shuffle:
+                self._negative_indices = None
+            index = 0
+    return
+#+end_src
+**** The Iterator
+#+begin_src python :noweb-ref the-iterator
+def __iter__(self):
+    return self
+#+end_src
+**** The Next Method
+#+begin_src python :noweb-ref the-next
+def __next__(self):
+    assert self.batch_size % 2 == 0
+    half_batch = self.batch_size // 2
+
+    # get the indices
+    positives = (next(self.positives) for index in range(half_batch))
+    negatives = (next(self.negatives) for index in range(half_batch))
+    
+    # get the tweets
+    positives = (self.positive_data[index] for index in positives)
+    negatives = (self.negative_data[index] for index in negatives)
+
+    # get the token ids
+    try:    
+        positives = [self.converter.to_tensor(tweet) for tweet in positives]
+        negatives = [self.converter.to_tensor(tweet) for tweet in negatives]
+    except RuntimeError:
+        # the next(self.positives) in the first generator will raise a
+        # RuntimeError if
+        # we're not running this infinitely
+        raise StopIteration
+
+    batch = positives + negatives
+
+    longest = max((len(tweet) for tweet in batch))
+
+    paddings = (longest - len(tensor) for tensor in batch)
+    paddings = ([0] * padding for padding in paddings)
+
+    padded = [tensor + padding for tensor, padding in zip(batch, paddings)]
+    inputs = numpy.array(padded)
+
+    # the labels for the inputs
+    targets = numpy.array([1] * half_batch + [0] * half_batch)
+
+    assert len(targets) == len(batch)
+
+    # default the weights to ones
+    weights = numpy.ones_like(targets)    
+    return inputs, targets, weights
+#+end_src     
+** Test It Out
+#+begin_src python :results none
+from neurotic.nlp.twitter.tensor_generator import TensorBuilder, TensorGenerator
+
+converter = TensorBuilder()
+expect(len(converter.vocabulary)).to(equal(len(vocabulary)))
+#+end_src
+
+#+begin_src python :results none
+tweet = positive_validation[0]
+expected = [1072, 96, 484, 2376, 750, 8220, 1132, 750, 53, 2, 2701, 796, 2, 2,
+            354, 606, 2, 3523, 1025, 602, 4599, 9, 1072, 158, 2, 2]
+
+actual = converter.to_tensor(tweet)
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+#+begin_src python :results none
+generator = TensorGenerator(converter, batch_size=4)
+#+end_src
+
+#+begin_src python :results output :exports both
+print(next(generator))
+#+end_src
+
+#+RESULTS:
+: (array([[ 749, 1019,  313, 1020,   75],
+:        [1009,    9,    0,    0,    0],
+:        [3540, 6030, 6031, 3798,    0],
+:        [  50,   96, 3798,    0,    0]]), array([1, 1, 0, 0]), array([1, 1, 1, 1]))
+
+#+begin_src python :results output :exports both
+for count, batch in enumerate(generator):
+    print(batch[0])
+    print()
+    if count == 5:
+        break
+print(next(generator))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[[  22 1228  434  354  227 2371    9]
+ [ 267  160   89    0    0    0    0]
+ [ 315 1008 8480 3798 2108  371 3233]
+ [8232 8233  791 3798    0    0    0]]
+
+[[1173 1061  586    9  896  729 1264  345 1062 1063]
+ [3387  558  991 2166 3388 3231  558  238  120    0]
+ [ 198 5997 3798    0    0    0    0    0    0    0]
+ [ 223  310 3798    0    0    0    0    0    0    0]]
+
+[[4015 4015 4015 4016  231 2117   57  422    9 4017 4018 4019   86   86]
+ [2554   57  102  358   75    0    0    0    0    0    0    0    0    0]
+ [  50   38  881 3798    0    0    0    0    0    0    0    0    0    0]
+ [6729 6730 6731  382 3798    0    0    0    0    0    0    0    0    0]]
+
+[[3479   75    0    0    0    0    0    0    0    0    0    0    0    0
+     0    0    0]
+ [4636 4637  233 4299  111  237 2626    9    0    0    0    0    0    0
+     0    0    0]
+ [  73  381  463 4321  142   96 7390 7391   92   85 1394 7392 5895 7393
+    45 3798 7394]
+ [8863 2844  991  127 5818    0    0    0    0    0    0    0    0    0
+     0    0    0]]
+
+[[ 226  615   22   75    0    0]
+ [2135  703  237  435 3124    9]
+ [2379 6264 3798    0    0    0]
+ [6504 1912 2380 3798    0    0]]
+
+[[5623  120    0    0    0    0    0    0    0    0]
+ [ 133   54  102   63 1300   56    9   50   92 3181]
+ [2094  383   73  464 3798    0    0    0    0    0]
+ [ 223  101 8754  383 2085 5818 8755    0    0    0]]
+
+(array([[ 374,   44, 2981,  435,  132,  111, 1040, 1382,    9,    0,    0,
+           0],
+       [ 369,  398,  283,    9, 2671, 1411,  136,  184,  769, 1262, 2061,
+        3460],
+       [1094, 9024,  315,  381, 3798,    0,    0,    0,    0,    0,    0,
+           0],
+       [9036, 3798,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+           0]]), array([1, 1, 0, 0]), array([1, 1, 1, 1]))
+#+end_example
+Ladies and gentlemen, we have ourselves a generator.
+* End
+  Now that we have our data, the next step will be to {{% lancelot title="define the model" %}}sentiment-analysis-defining-the-model{{% /lancelot %}}.
+  

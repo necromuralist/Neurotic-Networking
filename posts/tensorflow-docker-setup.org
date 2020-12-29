@@ -1,0 +1,78 @@
+#+BEGIN_COMMENT
+.. title: Tensorflow Docker Setup
+.. slug: tensorflow-docker-setup
+.. date: 2020-12-27 14:12:26 UTC-08:00
+.. tags: tensorflow,docker,jupyter
+.. category: How-To
+.. link: 
+.. description: Setting up tensorflow with docker.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+
+* Beginning
+  I recently re-started using tensorflow and the python interpreter kept crashing. It appears that they compiled the latest version to require [[https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2][AVX2]] and the server I was using has [[https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2][AVX]] but not AVX2. I couldn't find any documentation about this requirement, but running the code on a different machine that has both AVX and AVX2 got rid of the problem. This might be a transient problem, as the nightly build doesn't crash on either machine, but trying to run the nightly build with other code is a nightmare as it seems that every framework related to tensorflow tries to revert the version back to the broken one, so I gave up and changed machines.
+  The process of setting up cuda and tensorflow over and over again proved difficult, as there's different ways to do it (through apt, using nvidia installers, building from source) and each presents a different problem. The version apt installs, for instance puts the folders in places the tensorflow =configure.py= file can't figure out (if you build tensorflow from source) and using the nvidia debian package for cudnn left my packages in a broken state, as it was trying to install something that then broke another packages requirements... Anyway, I'm going to try and avoid building tensorflow from source and run everything from docker containers.
+
+* Setting Up
+  I don't know for sure that this is necessary, but I followed [[https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker][nvidia's docker installation]] instructions. If nothing else you can use it to check that the setup works. After that I setup tensorflow's container with a dockerfile:
+
+#+begin_src dockerfile
+FROM tensorflow/tensorflow:latest-gpu-py3-jupyter
+RUN apt-get update && \
+        apt-get install openssh-server --yes && \
+        echo "Adding neurotic user" && \
+        useradd --create-home --shell /bin/bash neurotic
+COPY authorized_keys /home/neurotic/.ssh/
+ENTRYPOINT service ssh restart && bash
+#+end_src
+
+The latest tensorflow container comes with python 2.7 as the default for some reason, and all the dependencies are installed with it in mind so to get python 3 (3.6 as of now) you need to specify the =py3= tag like I did in the from line. Additionally I use ssh-forwarding for jupyter kernels so I can work in emacs with them so I installed the ssh-server and also created a non-root user to run jupyter. The last line 
+=ENTRYPOINT service ssh restart && bash= makes sure the ssh-server is running and opens up a bash shell. To build the container I used this command:
+
+#+begin_src bash
+docker build -t neurotic-tensorflow .
+#+end_src
+
+This creates an image named =neurotic-tensorflow=. To run it I use this command:
+
+#+begin_src bash
+docker run --gpus all -p 2222:22 --name data-neurotic \
+       --mount type=bind,source=$HOME/projects/neurotic-networks,target=/home/neurotic/neurotic-networks \
+       --mount type=bind,source=/media/data,target=/home/neurotic/data \
+       -it neurotic-tensorflow bash
+#+end_src
+
+The =--gpus all= makes the GPUs available. The =-p 2222:22= flag maps the ssh-server in the container to port 2222 on the host. This allows you to ssh into the container using =ssh neurotic@localhost -p 2222= without knowing the IP address of the container. You can also grab the IP address and then ssh into it like it's another machine on the network:
+
+#+begin_src bash
+ docker inspect --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" data-neurotic
+#+end_src
+
+Where =data-neurotic= is the name given to the container in the =docker run= command, but the advantage of the port mapping is that:
+ - You don't need to know the address of the container if you are on the host machine.
+ - You can ssh into the container from another machine by substituting the host's IP address for =localhost= in the ssh command
+
+The =mount= options mount some folders into the container so we can share files.
+
+Once you've run it you can restart it at any time using:
+
+#+begin_src bash
+docker start data-neurotic
+#+end_src
+
+And if you need to run something as root you can attach the running container.
+
+#+begin_src bash
+docker attach data-neurotic
+#+end_src
+
+**NOTE:** The python 3 container has cuda 10.1 installed but the latest version of tensorflow expects 11.0 - and tensorflow seems to use hard-coded names. So to make it work you either have to upgrade cuda or symlink the file and rename it to look like the newer version.
+
+#+begin_src bash
+ln -s /usr/local/cuda-10.1/targets/x86_64-linux/lib/libcudart.so.10.1 /usr/lib/x86_64-linux-gnu/libcudart.so.11.0
+#+end_src
+
+Tensorflow dependencies are incredibly convoluted and broken all over the place.
