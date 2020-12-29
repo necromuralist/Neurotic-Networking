@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6c0535c7-2aaa-4faa-915b-371448fdca4f-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-be10952c-ccb1-42e0-9b15-31bd00c93c5a-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -39,7 +39,7 @@ from neurotic.nlp.twitter.processor import TwitterProcessor
 ** Set Up
    The NLTK data has to be downloaded at least once.
 #+begin_src python :results none
-nltk.download("twitter_samples")
+nltk.download("twitter_samples", download_dir="~/data/datasets/nltk_data/")
 #+end_src   
 * Middle
 ** The NLTK Data
@@ -873,7 +873,7 @@ def positive_generator(self):
         index += 1
         if index == stop:
             if not self.infinite:
-                raise StopIteration()
+                break
             if self.shuffle:
                 self._positive_indices = None
             index = 0
@@ -890,10 +890,10 @@ def negative_generator(self):
         index += 1
         if index == stop:
             if not self.infinite:
-                raise StopIteration()
-        if self.shuffle:
-            self._negative_indices = None
-        index = 0
+                break
+            if self.shuffle:
+                self._negative_indices = None
+            index = 0
     return
 #+end_src
 **** The Iterator
@@ -908,16 +908,22 @@ def __next__(self):
     half_batch = self.batch_size // 2
 
     # get the indices
-    positives = (next(self.positives) for positive in range(half_batch))
-    negatives = (next(self.negatives) for negative in range(half_batch))
-
+    positives = (next(self.positives) for index in range(half_batch))
+    negatives = (next(self.negatives) for index in range(half_batch))
+    
     # get the tweets
     positives = (self.positive_data[index] for index in positives)
     negatives = (self.negative_data[index] for index in negatives)
 
     # get the token ids
-    positives = [self.converter.to_tensor(tweet) for tweet in positives]
-    negatives = [self.converter.to_tensor(tweet) for tweet in negatives]
+    try:    
+        positives = [self.converter.to_tensor(tweet) for tweet in positives]
+        negatives = [self.converter.to_tensor(tweet) for tweet in negatives]
+    except RuntimeError:
+        # the next(self.positives) in the first generator will raise a
+        # RuntimeError if
+        # we're not running this infinitely
+        raise StopIteration
 
     batch = positives + negatives
 

@@ -202,7 +202,7 @@ class TensorGenerator:
             index += 1
             if index == stop:
                 if not self.infinite:
-                    raise StopIteration()
+                    break
                 if self.shuffle:
                     self._positive_indices = None
                 index = 0
@@ -217,10 +217,10 @@ class TensorGenerator:
             index += 1
             if index == stop:
                 if not self.infinite:
-                    raise StopIteration()
-            if self.shuffle:
-                self._negative_indices = None
-            index = 0
+                    break
+                if self.shuffle:
+                    self._negative_indices = None
+                index = 0
         return
 
     def __iter__(self):
@@ -231,16 +231,22 @@ class TensorGenerator:
         half_batch = self.batch_size // 2
     
         # get the indices
-        positives = (next(self.positives) for positive in range(half_batch))
-        negatives = (next(self.negatives) for negative in range(half_batch))
-    
+        positives = (next(self.positives) for index in range(half_batch))
+        negatives = (next(self.negatives) for index in range(half_batch))
+        
         # get the tweets
         positives = (self.positive_data[index] for index in positives)
         negatives = (self.negative_data[index] for index in negatives)
     
         # get the token ids
-        positives = [self.converter.to_tensor(tweet) for tweet in positives]
-        negatives = [self.converter.to_tensor(tweet) for tweet in negatives]
+        try:    
+            positives = [self.converter.to_tensor(tweet) for tweet in positives]
+            negatives = [self.converter.to_tensor(tweet) for tweet in negatives]
+        except RuntimeError:
+            # python changed the behavior to not stop a generator on StopIteration
+            # the next(self.positives) will raise a RuntimeError if
+            # we're not running this infinitely
+            raise StopIteration
     
         batch = positives + negatives
     

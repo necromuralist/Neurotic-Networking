@@ -2,16 +2,16 @@
 .. title: Sentiment Analysis: Training the Model
 .. slug: sentiment-analysis-training-the-model
 .. date: 2020-12-23 15:49:53 UTC-08:00
-.. tags: 
-.. category: 
+.. tags: nlp,sentiment analysis,neural networks
+.. category: NLP
 .. link: 
-.. description: 
+.. description: Training the deep learning sentiment analysis model.
 .. type: text
 
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3ae8b366-9a4e-4032-ad72-1bccdc801ff7-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-f1608e7d-50cc-4b4a-b6df-bd4e38ddc2df-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -144,20 +144,18 @@ if not output_path.is_dir():
 #+end_src
 
 #+begin_src python :results none
-# UNQ_C6 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
-# GRADED FUNCTION: train_model
 def train_model(classifier, train_task, eval_task, n_steps, output_dir):
-    '''
-    Input: 
+    """Create and run the training loop
+    
+    Args: 
         classifier - the model you are building
         train_task - Training task
         eval_task - Evaluation task
         n_steps - the evaluation steps
         output_dir - folder to save your files
-    Output:
+    Returns:
         trainer -  trax trainer
-    '''
-### START CODE HERE (Replace instances of 'None' with your code) ###
+    """
     training_loop = training.Loop(
                                 model=classifier, # The learning model
                                 tasks=train_task, # The training task
@@ -165,8 +163,6 @@ def train_model(classifier, train_task, eval_task, n_steps, output_dir):
                                 output_dir = output_dir) # The output directory
 
     training_loop.run(n_steps = n_steps)
-### END CODE HERE ###
-
     # Return the training_loop, since it has the model.
     return training_loop
 #+end_src
@@ -229,6 +225,126 @@ Step    200: eval  CrossEntropyLoss |  0.02190475
 Step    200: eval          Accuracy |  1.00000000
 #+end_example
 
+** Bundle It Up
+
+#+begin_src python :tangle ../../neurotic/nlp/twitter/sentiment_network.py
+<<imports>>
+
+
+<<model-trainer>>
+
+    <<the-model>>
+
+    <<training-task>>
+
+    <<eval-task>>
+
+    <<training-loop>>
+
+    <<fit-the-model>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from pathlib import Path
+
+# from pypi
+from trax.supervised import training
+
+import attr
+import trax
+import trax.layers as trax_layers
+#+end_src
+*** The Trainer
+#+begin_src python :noweb-ref model-trainer
+@attr.s(auto_attribs=True)
+class SentimentNetwork:
+    """Builds and Trains the Sentiment Analysis Model
+
+    Args:
+     training_generator: generator of training batches
+     validation_generator: generator of validation batches
+     vocabulary_size: number of tokens in the training vocabulary
+     training_loops: number of times to run the training loop
+     output_path: path to where to store the model
+     embedding_dimension: output dimension for the Embedding layer
+     output_dimension: dimension for the Dense layer
+    """
+    vocabulary_size: int
+    training_generator: object
+    validation_generator: object
+    training_loops: int
+    output_path: Path
+    embedding_dimension: int=256
+    output_dimension: int=2
+    _model: trax_layers.Serial=None
+    _training_task: training.TrainTask=None
+    _evaluation_task: training.EvalTask=None
+    _training_loop: training.Loop=None
+#+end_src
+**** The Model
+#+begin_src python :noweb-ref the-model
+@property
+def model(self) -> trax_layers.Serial:
+    """The Embeddings model"""
+    if self._model is None:
+        self._model = trax_layers.Serial(
+            trax_layers.Embedding(
+                vocab_size=self.vocabulary_size,
+                d_feature=self.embedding_dimension),
+            trax_layers.Mean(axis=1),
+            trax_layers.Dense(n_units=self.output_dimension),
+            trax_layers.LogSoftmax(),
+        )
+    return self._model
+#+end_src
+**** The Training Task
+#+begin_src python :noweb-ref training-task
+@property
+def training_task(self) -> training.TrainTask:
+    """The training task for training the model"""
+    if self._training_task is None:
+        self._training_task = training.TrainTask(
+            labeled_data=self.training_generator,
+            loss_layer=trax_layers.CrossEntropyLoss(),
+            optimizer=trax.optimizers.Adam(0.01),
+            n_steps_per_checkpoint=10,
+        )
+    return self._training_task
+#+end_src
+**** Evaluation Task
+#+begin_src python :noweb-ref eval-task
+@property
+def evaluation_task(self) -> training.EvalTask:
+    """The validation evaluation task"""
+    if self._evaluation_task is None:
+        self._evaluation_task = training.EvalTask(
+            labeled_data=self.validation_generator,
+            metrics=[trax_layers.CrossEntropyLoss(),
+                     trax_layers.Accuracy()],
+        )
+    return self._evaluation_task
+#+end_src
+**** Training Loop
+#+begin_src python :noweb-ref training-loop
+@property
+def training_loop(self) -> training.Loop:
+    """The thing to run the training"""
+    if self._training_loop is None:
+        self._training_loop = training.Loop(
+            model=self.model,
+            tasks=self.training_task,
+            eval_tasks=self.evaluation_task,
+            output_dir= self.output_path) 
+    return self._training_loop
+#+end_src     
+**** Fitting the Model
+#+begin_src python :noweb-ref fit-the-model
+def fit(self):
+    """Runs the training loop"""
+    self.training_loop.run(n_steps=self.training_loops)
+    return
+#+end_src     
 ** Practice In Making Predictions
  Now that you have trained a model, you can access it as =training_loop.model= object. We will actually use =training_loop.eval_model= and in the next weeks you will learn why we sometimes use a different model for evaluation, e.g., one without dropout. For now, make predictions with your model.
 
