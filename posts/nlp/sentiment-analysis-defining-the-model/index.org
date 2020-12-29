@@ -1,0 +1,445 @@
+#+BEGIN_COMMENT
+.. title: Sentiment Analysis: Defining the Model
+.. slug: sentiment-analysis-defining-the-model
+.. date: 2020-12-23 15:46:13 UTC-08:00
+.. tags: nlp,sentiment analysis,deep learning
+.. category: NLP
+.. link: 
+.. description: Defining the Deep Learning Model
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3953e539-c173-477c-8a3e-0d7ac31053a4.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Beginning
+  This continues a series on {{% lancelot title="sentiment analysis with deep learning" %}}sentiment-analysis-deep-learning-model{{% /lancelot %}}. In the {{% lancelot title="previous post" %}}sentiment-analysis-pre-processing-the-data{{% /lancelot %}} we loaded and processed our data set. In this post we'll see about actually defining the Neural Network.
+
+  In this part we will write your own library of layers. It will be very similar to the one used in Trax and also in Keras and PyTorch. The intention is that in writing our own small framework will help us understand how they all work and use them more effectively in the future.
+** Imports
+#+begin_src python :results none
+# from pypi
+from expects import be_true, expect
+from trax import fastmath
+
+import attr
+import numpy
+import trax
+import trax.layers as trax_layers
+
+# this project
+from neurotic.nlp.twitter.tensor_generator import TensorBuilder
+#+end_src
+** Set Up
+   Some aliases to get closer to what the notebook has.
+   
+#+begin_src python :results none
+numpy_fastmath = fastmath.numpy
+random = fastmath.random
+#+end_src
+
+* Middle
+** The Base Layer Class
+   This will be the base class that the others will inherit from.
+   
+#+begin_src python :results none
+@attr.s(auto_attribs=True)
+class Layer:
+    """Base class for layers
+    """
+    def forward(self, x: numpy.ndarray):
+        """The forward propagation method
+
+        Raises:
+         NotImplementedError - method is called but child hasn't implemented it
+        """
+        raise NotImplementedError
+  
+    def init_weights_and_state(self, input_signature, random_key):
+        """method to initialize the weights
+        based on the input signature and random key,
+        be implemented by subclasses of this Layer class
+        """
+        raise NotImplementedError
+
+    def init(self, input_signature, random_key) -> numpy.ndarray:
+        """initializes and returns the weights
+        
+        Note:
+         This is just an alias for the ``init_weights_and_state``
+        method for some reason
+
+        Args: 
+         input_signature: who knows?
+         random_key: once again, who knows?
+
+        Returns:
+         the weights
+        """
+        self.init_weights_and_state(input_signature, random_key)
+        return self.weights
+    
+    def __call__(self, x) -> numpy.ndarray:
+        """This is an alias for the ``forward`` method
+
+        Args:
+         x: input array
+
+        Returns:
+         whatever the ``forward`` method does
+        """
+        return self.forward(x)
+#+end_src
+** The ReLU class
+Here's the ReLU function: 
+
+\[
+\mathrm{ReLU}(x) = \mathrm{max}(0,x)
+\]
+
+
+We'll implement the ReLU activation function below. The function will take in a matrix or vector and it transform all the negative numbers into 0 while keeping all the positive numbers intact. 
+
+
+Please use numpy.maximum(A,k) to find the maximum between each element in A and a scalar k.
+
+
+#+begin_src python :results none
+class Relu(Layer):
+    """Relu activation function implementation"""
+    def forward(self, x: numpy.ndarray) -> numpy.ndarray:
+        """"Performs the activation
+        
+        Args: 
+            - x: the input
+        
+        Returns:
+            - activation: all positive or 0 version of x
+        """
+        return numpy.maximum(x, 0)
+#+end_src
+*** Test It
+
+#+begin_src python :results output :exports both
+x = numpy.array([[-2.0, -1.0, 0.0], [0.0, 1.0, 2.0]], dtype=float)
+relu_layer = Relu()
+print("Test data is:")
+print(x)
+print("\nOutput of Relu is:")
+actual = relu_layer(x)
+
+print(actual)
+
+expected = numpy.array([[0., 0., 0.],
+                        [0., 1., 2.]])
+
+expect(numpy.allclose(actual, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: Test data is:
+: [[-2. -1.  0.]
+:  [ 0.  1.  2.]]
+: 
+: Output of Relu is:
+: [[0. 0. 0.]
+:  [0. 1. 2.]]
+
+** The Dense class 
+
+ Implement the forward function of the Dense class. 
+ - The forward function multiplies the input to the layer (=x=) by the weight matrix (=W=).
+
+\[
+\mathrm{forward}(\mathbf{x},\mathbf{W}) = \mathbf{xW}
+\]
+
+ - You can use =numpy.dot= to perform the matrix multiplication.
+
+ Note that for more efficient code execution, you will use the trax version of =math=, which includes a trax version of =numpy= and also =random=.
+
+ Implement the weight initializer =new_weights= function
+ - Weights are initialized with a random key.
+ - The second parameter is a tuple for the desired shape of the weights (num_rows, num_cols)
+ - The num of rows for weights should equal the number of columns in x, because for forward propagation, you will multiply x times weights.
+
+ Please use =trax.fastmath.random.normal(key, shape, dtype=tf.float32)= to generate random values for the weight matrix. The key difference between this function and the standard =numpy= randomness is the explicit use of random keys, which need to be passed in. While it can look tedious at the first sight to pass the random key everywhere, you will learn in Course 4 why this is very helpful when
+implementing some advanced models.
+ - =key= can be generated by calling =random.get_prng(seed)= and passing in a number for the =seed=.
+ - =shape= is a tuple with the desired shape of the weight matrix.
+     + The number of rows in the weight matrix should equal the number of columns in the variable =x=.  Since =x= may have 2 dimensions if it represents a single training example (row, col), or three dimensions (batch_size, row, col), get the last dimension from the tuple that holds the dimensions of x.
+     + The number of columns in the weight matrix is the number of units chosen for that dense layer.  Look at the =__init__= function to see which variable stores the number of units.
+ - =dtype= is the data type of the values in the generated matrix; keep the default of =tf.float32=. In this case, don't explicitly set the dtype (just let it use the default value).
+
+ Set the standard deviation of the random values to 0.1
+ - The values generated have a mean of 0 and standard deviation of 1.
+ - Set the default standard deviation =stdev= to be 0.1 by multiplying the standard deviation to each of the values in the weight matrix.
+
+See how the fastmath.trax.random.normal function works.
+
+#+begin_src python :results output :exports both
+tmp_key = random.get_prng(seed=1)
+print("The random seed generated by random.get_prng")
+display(tmp_key)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: WARNING:absl:No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+: The random seed generated by random.get_prng
+: DeviceArray([0, 1], dtype=uint32)
+:END:
+
+For some reason tensorflow can't find the GPU. Setting the log level to 0 like the message suggests shows that it gives up after trying to find a TPU, there's no indication that it's looking for the GPU.
+
+#+begin_src python :results output :exports both
+import tensorflow
+print(tensorflow.test.gpu_device_name())
+#+end_src
+
+#+RESULTS:
+
+Hmmm. I'll have to troubleshoot that.
+
+#+begin_src python :results output :exports both
+print("choose a matrix with 2 rows and 3 columns")
+tmp_shape=(2,3)
+print(tmp_shape)
+#+end_src
+
+#+RESULTS:
+: choose a matrix with 2 rows and 3 columns
+: (2, 3)
+
+Generate a weight matrix
+ Note that you'll get an error if you try to set dtype to tf.float32, where tf is tensorflow
+ Just avoid setting the dtype and allow it to use the default data type
+
+#+begin_src python :results output :exports both
+tmp_weight = random.normal(key=tmp_key, shape=tmp_shape)
+
+print("Weight matrix generated with a normal distribution with mean 0 and stdev of 1")
+display(tmp_weight)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Weight matrix generated with a normal distribution with mean 0 and stdev of 1
+: DeviceArray([[ 0.957307  , -0.9699291 ,  1.0070664 ],
+:              [ 0.36619022,  0.17294823,  0.29092228]], dtype=float32)
+:END:
+
+#+begin_src python :results none
+@attr.s(auto_attribs=True)
+class Dense(Layer):
+    """
+    A dense (fully-connected) layer.
+
+    Args:
+     - n_units: the number of columns for our weight matrix
+     - init_stdev: standard deviation for our initial weights
+    """
+    n_units: int
+    init_stdev: float=0.1
+
+    def forward(self, x: numpy.ndarray) -> numpy.ndarray:
+        """The dot product of the input and the weights
+
+        Args:
+         x: input to multipyl
+
+        Returns:
+         product of x and weights
+        """
+        return numpy.dot(x, self.weights)
+
+    def init_weights_and_state(self, input_signature: tuple,
+                               random_key: int) -> numpy.ndarray:
+        """initializes the weights
+
+        Args:
+         input_signature: tuple whose final dimension will be the number of rows
+         random_ke: something to start the random normal generator with
+        """
+        input_shape = input_signature.shape
+
+        # to allow for more than two-dimensional matrices,
+        # we use the last column of the input shape, rather than assuming it's
+        # column 1
+        self.weights = (random.normal(key=random_key,
+                                      shape=(input_shape[-1], self.n_units))
+             ,* self.init_stdev)
+        return self.weights
+#+end_src
+
+# Testing your Dense layer 
+#+begin_src python :results output :exports both
+dense_layer = Dense(n_units=10)  #sets  number of units in dense layer
+random_key = random.get_prng(seed=0)  # sets random seed
+z = numpy.array([[2.0, 7.0, 25.0]]) # input array 
+
+dense_layer.init(z, random_key)
+print("Weights are\n ",dense_layer.weights) #Returns randomly generated weights
+output = dense_layer(z)
+print("Foward function output is ", output) # Returns multiplied values of units and weights
+
+expected_weights = numpy.array([
+    [-0.02837108,  0.09368162, -0.10050076,  0.14165013,  0.10543301,  0.09108126,
+     -0.04265672,  0.0986188,  -0.05575325,  0.00153249],
+    [-0.20785688,  0.0554837,   0.09142365,  0.05744595,  0.07227863,  0.01210617,
+     -0.03237354,  0.16234995,  0.02450038, -0.13809784],
+    [-0.06111237,  0.01403724,  0.08410042, -0.1094358,  -0.10775021, -0.11396459,
+     -0.05933381, -0.01557652, -0.03832145, -0.11144515]])
+
+expected_output = numpy.array(
+    [[-3.0395496,   0.9266802,   2.5414743,  -2.050473,   -1.9769388,  -2.582209,
+      -1.7952735,   0.94427425, -0.8980402,  -3.7497487]])
+
+expect(numpy.allclose(dense_layer.weights, expected_weights)).to(be_true)
+expect(numpy.allclose(output, expected_output)).to(be_true)
+#+end_src
+
+#+RESULTS:
+: Weights are
+:   [[-0.02837108  0.09368162 -0.10050076  0.14165013  0.10543301  0.09108126
+:   -0.04265672  0.0986188  -0.05575325  0.00153249]
+:  [-0.20785688  0.0554837   0.09142365  0.05744595  0.07227863  0.01210617
+:   -0.03237354  0.16234995  0.02450038 -0.13809784]
+:  [-0.06111237  0.01403724  0.08410042 -0.1094358  -0.10775021 -0.11396459
+:   -0.05933381 -0.01557652 -0.03832145 -0.11144515]]
+: Foward function output is  [[-3.03954965  0.92668021  2.54147445 -2.05047299 -1.97693891 -2.58220917
+:   -1.79527355  0.94427423 -0.89804017 -3.74974866]]
+
+
+** The Layers for the Trax-Based Model  
+
+For the model implementation we will use the Trax layers library. Trax layers are very similar to the ones we implemented above, but in addition to trainable weights they also have a non-trainable state.
+This state is used in layers like batch normalization and for inference - we will learn more about it later on.
+** Dense
+First, look at the code of the Trax Dense layer and compare to the implementation above.
+ - [[https://github.com/google/trax/blob/master/trax/layers/core.py#L29][Trax Dense layer implementation]]
+
+Another other important layer that we will use a lot is the [[https://github.com/google/trax/blob/master/trax/layers/combinators.py#L26][Serial]] layer which allows us to execute one layer after another in sequence.
+    - You can pass in the layers as arguments to =Serial=, separated by commas. 
+    - For example: =tl.Serial(tl.Embeddings(...), tl.Mean(...), tl.Dense(...), tl.LogSoftmax(...))=
+
+The layer classes have pretty good docstrings, unlike the fastmath stuff, so it might be useful to look at it - but it's too long to include here.
+
+We're also going to use an [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L113][Embedding]]
+     - =tl.Embedding(vocab_size, d_feature)=.
+     - =vocab_size= is the number of unique words in the given vocabulary.
+     - =d_feature= is the number of elements in the word embedding (some choices for a word embedding size range from 150 to 300, for example).
+
+#+begin_src python :results output :exports both
+tmp_embed = trax_layers.Embedding(vocab_size=3, d_feature=2)
+display(tmp_embed)
+#+end_src
+
+#+RESULTS:
+: Embedding_3_2
+
+Another useful layer is the [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L276][Mean]] which calculates means across an axis.  In this case, use axis = 1 (across rows) to get an average embedding vector (an embedding vector that is an average of all words in the vocabulary).  
+ - For example, if the embedding matrix is 300 elements and vocab size is 10,000 words, taking the mean of the embedding matrix along axis=1 will yield a vector of 300 elements.
+
+ Pretend the embedding matrix uses 2 elements for embedding the meaning of a word and has a vocabulary size of 3, so it has shape (2,3).
+
+#+begin_src python :results none :exports both
+tmp_embed = numpy.array([[1,2,3,],
+                         [4,5,6]
+                         ])
+#+end_src
+
+First take the mean along axis 0, which creates a vector whose length equals the vocabulary size (the number of columns).
+
+#+begin_src python :results output :exports both
+display(numpy.mean(tmp_embed,axis=0))
+#+end_src
+
+#+RESULTS:
+: array([2.5, 3.5, 4.5])
+
+If you take the mean along axis 1 it creates a vector whose length equals the number of elements in a word embedding (the rows).
+
+#+begin_src python :results output :exports both
+display(numpy.mean(tmp_embed,axis=1))
+#+end_src
+
+#+RESULTS:
+: array([2., 5.])
+
+Finally, a [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L242][LogSoftmax]] layer gives you a log-softmax output.
+
+
+*** Online Documentation
+    For completeness, here's some links to the Read the Docs documentation for these layers.
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Dense][Dense]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#module-trax.layers.combinators][Serial]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][Embedding]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Mean][Mean]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.LogSoftmax][LogSoftmax]]
+** The Classifier Function
+#+begin_src python :results none :exports both
+builder = TensorBuilder()
+size_of_vocabulary = len(builder.vocabulary)
+#+end_src
+
+#+begin_src python :results none :exports both
+def classifier(vocab_size: int=size_of_vocabulary,
+               embedding_dim: int=256,
+               output_dim: int=2) -> trax_layers.Serial:
+    """Creates the classifier model
+
+    Args:
+     vocab_size: number of tokens in the training vocabulary
+     embedding_dim: output dimension for the Embedding layer
+     output_dim: dimension for the Dense layer
+
+    Returns:
+     the composed layer-model
+    """
+    embed_layer = trax_layers.Embedding(
+        vocab_size=vocab_size, # Size of the vocabulary
+        d_feature=embedding_dim)  # Embedding dimension
+    
+    mean_layer = trax_layers.Mean(axis=1)
+    
+    dense_output_layer = trax_layers.Dense(n_units = output_dim)
+
+    log_softmax_layer = trax_layers.LogSoftmax()
+    
+    model = trax_layers.Serial(
+      embed_layer,
+      mean_layer,
+      dense_output_layer,
+      log_softmax_layer
+    )
+    return model
+#+end_src
+
+#+begin_src python :results none :exports both
+tmp_model = classifier()
+#+end_src
+
+#+begin_src python :results output :exports both
+print(type(tmp_model))
+display(tmp_model)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: <class 'trax.layers.combinators.Serial'>
+: Serial[
+:   Embedding_9164_256
+:   Mean
+:   Dense_2
+:   LogSoftmax
+: ]
+:END:
+
+* Ending
+  Now that we have our Deep Learning model, we'll move on to {{% lancelot title="training it" %}}sentiment-analysis-training-the-model{{% /lancelot %}}.

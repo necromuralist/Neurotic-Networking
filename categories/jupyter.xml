@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type="text/xsl" href="../assets/xml/rss.xsl" media="all"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Neurotic Networking (Posts about jupyter)</title><link>https://necromuralist.github.io/Neurotic-Networking/</link><description></description><atom:link href="https://necromuralist.github.io/Neurotic-Networking/categories/jupyter.xml" rel="self" type="application/rss+xml"></atom:link><language>en</language><copyright>Contents © 2020 &lt;a href="mailto:necromuralist@protonmail.com"&gt;Cloistered Monkey&lt;/a&gt; &lt;a rel="license" href="http://creativecommons.org/licenses/by/4.0/"&gt;&lt;img id="license-image" alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/80x15.png" /&gt;&lt;/a&gt;This work is licensed under a &lt;a rel="license" href="http://creativecommons.org/licenses/by/4.0/"&gt;Creative Commons Attribution 4.0 International License&lt;/a&gt;.</copyright><lastBuildDate>Mon, 28 Dec 2020 01:32:25 GMT</lastBuildDate><generator>Nikola (getnikola.com)</generator><docs>http://blogs.law.harvard.edu/tech/rss</docs><item><title>Tensorflow Docker Setup</title><link>https://necromuralist.github.io/Neurotic-Networking/posts/tensorflow-docker-setup/</link><dc:creator>Cloistered Monkey</dc:creator><description>&lt;div id="table-of-contents"&gt;
+&lt;h2&gt;Table of Contents&lt;/h2&gt;
+&lt;div id="text-table-of-contents"&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://necromuralist.github.io/Neurotic-Networking/posts/tensorflow-docker-setup/#org92e165a"&gt;Beginning&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://necromuralist.github.io/Neurotic-Networking/posts/tensorflow-docker-setup/#orgfabe317"&gt;Setting Up&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div id="outline-container-org92e165a" class="outline-2"&gt;
+&lt;h2 id="org92e165a"&gt;Beginning&lt;/h2&gt;
+&lt;div class="outline-text-2" id="text-org92e165a"&gt;
+&lt;p&gt;
+I recently re-started using tensorflow and the python interpreter kept crashing. It appears that they compiled the latest version to require &lt;a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2"&gt;AVX2&lt;/a&gt; and the server I was using has &lt;a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2"&gt;AVX&lt;/a&gt; but not AVX2. I couldn't find any documentation about this requirement, but running the code on a different machine that has both AVX and AVX2 got rid of the problem. This might be a transient problem, as the nightly build doesn't crash on either machine, but trying to run the nightly build with other code is a nightmare as it seems that every framework related to tensorflow tries to revert the version back to the broken one, so I gave up and changed machines.
+The process of setting up cuda and tensorflow over and over again proved difficult, as there's different ways to do it (through apt, using nvidia installers, building from source) and each presents a different problem. The version apt installs, for instance puts the folders in places the tensorflow &lt;code&gt;configure.py&lt;/code&gt; file can't figure out (if you build tensorflow from source) and using the nvidia debian package for cudnn left my packages in a broken state, as it was trying to install something that then broke another packages requirements… Anyway, I'm going to try and avoid building tensorflow from source and run everything from docker containers.
+&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div id="outline-container-orgfabe317" class="outline-2"&gt;
+&lt;h2 id="orgfabe317"&gt;Setting Up&lt;/h2&gt;
+&lt;div class="outline-text-2" id="text-orgfabe317"&gt;
+&lt;p&gt;
+I don't know for sure that this is necessary, but I followed &lt;a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker"&gt;nvidia's docker installation&lt;/a&gt; instructions. If nothing else you can use it to check that the setup works. After that I setup tensorflow's container with a dockerfile:
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;FROM tensorflow/tensorflow:latest-gpu-py3-jupyter
+RUN apt-get update &amp;amp;&amp;amp; \
+	apt-get install openssh-server --yes &amp;amp;&amp;amp; \
+	echo "Adding neurotic user" &amp;amp;&amp;amp; \
+	useradd --create-home --shell /bin/bash neurotic
+COPY authorized_keys /home/neurotic/.ssh/
+ENTRYPOINT service ssh restart &amp;amp;&amp;amp; bash
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+The latest tensorflow container comes with python 2.7 as the default for some reason, and all the dependencies are installed with it in mind so to get python 3 (3.6 as of now) you need to specify the &lt;code&gt;py3&lt;/code&gt; tag like I did in the from line. Additionally I use ssh-forwarding for jupyter kernels so I can work in emacs with them so I installed the ssh-server and also created a non-root user to run jupyter. The last line 
+&lt;code&gt;ENTRYPOINT service ssh restart &amp;amp;&amp;amp; bash&lt;/code&gt; makes sure the ssh-server is running and opens up a bash shell. To build the container I used this command:
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;docker build -t neurotic-tensorflow .
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+This creates an image named &lt;code&gt;neurotic-tensorflow&lt;/code&gt;. To run it I use this command:
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;docker run --gpus all -p 2222:22 --name data-neurotic \
+       --mount type=bind,source=$HOME/projects/neurotic-networks,target=/home/neurotic/neurotic-networks \
+       --mount type=bind,source=/media/data,target=/home/neurotic/data \
+       -it neurotic-tensorflow bash
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+The &lt;code&gt;--gpus all&lt;/code&gt; makes the GPUs available. The &lt;code&gt;-p 2222:22&lt;/code&gt; flag maps the ssh-server in the container to port 2222 on the host. This allows you to ssh into the container using &lt;code&gt;ssh neurotic@localhost -p 2222&lt;/code&gt; without knowing the IP address of the container. You can also grab the IP address and then ssh into it like it's another machine on the network:
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;docker inspect --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" data-neurotic
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+Where &lt;code&gt;data-neurotic&lt;/code&gt; is the name given to the container in the &lt;code&gt;docker run&lt;/code&gt; command, but the advantage of the port mapping is that:
+&lt;/p&gt;
+&lt;ul class="org-ul"&gt;
+&lt;li&gt;You don't need to know the address of the container if you are on the host machine.&lt;/li&gt;
+&lt;li&gt;You can ssh into the container from another machine by substituting the host's IP address for &lt;code&gt;localhost&lt;/code&gt; in the ssh command&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;
+The &lt;code&gt;mount&lt;/code&gt; options mount some folders into the container so we can share files.
+&lt;/p&gt;
+
+&lt;p&gt;
+Once you've run it you can restart it at any time using:
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;docker start data-neurotic
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+And if you need to run something as root you can attach the running container.
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;docker attach data-neurotic
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+&lt;b&gt;&lt;b&gt;NOTE:&lt;/b&gt;&lt;/b&gt; The python 3 container has cuda 10.1 installed but the latest version of tensorflow expects 11.0 - and tensorflow seems to use hard-coded names. So to make it work you either have to upgrade cuda or symlink the file and rename it to look like the newer version.
+&lt;/p&gt;
+
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;ln -s /usr/local/cuda-10.1/targets/x86_64-linux/lib/libcudart.so.10.1 /usr/lib/x86_64-linux-gnu/libcudart.so.11.0
+&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;
+Tensorflow dependencies are incredibly convoluted and broken all over the place.
+&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;</description><category>docker</category><category>jupyter</category><category>tensorflow</category><guid>https://necromuralist.github.io/Neurotic-Networking/posts/tensorflow-docker-setup/</guid><pubDate>Sun, 27 Dec 2020 22:12:26 GMT</pubDate></item></channel></rss>
