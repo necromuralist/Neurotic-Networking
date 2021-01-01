@@ -1,0 +1,356 @@
+#+BEGIN_COMMENT
+.. title: Hidden State Activation
+.. slug: hidden-state-activation
+.. date: 2020-12-30 19:02:56 UTC-08:00
+.. tags: nlp,rnn
+.. category: NLP
+.. link: 
+.. description: A look at hidden state activation in Recurrent Neural Networks.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-c4e1d307-ab1b-4e05-bf99-3c953e9e3889-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Hidden State Activation
+  This is the hidden state activation function for a vanilla RNN.
+
+\[
+h^{\langle t\rangle}=g(W_{h}[h^{\langle t-1\rangle},x^{\langle t\rangle}] + b_h)
+\]
+
+Which is another way of writing this:         
+
+\[
+h^{\langle t\rangle}=g(W_{hh}h^{\langle t-1\rangle} \oplus W_{hx}x^{\langle t\rangle} + b_h)
+\]
+
+Where
+  - \(W_{h}\) in the first formula is denotes the *horizontal* concatenation of \(W_{hh}\) and \(W_{hx}\) from the second formula.
+  - \(W_{h}\) in the first formula is then multiplied by \([h^{\langle t-1\rangle},x^{\langle t\rangle}]\), another concatenation of parameters from the second formula but this time in a different direction, i.e *vertical*.
+
+ Let us see what this means computationally.
+** Imports
+#+begin_src python :results none
+# from pypi
+import numpy
+#+end_src
+* Middle
+** Joining
+*** Weights: Horizontal Concatenation
+ A join along the vertical boundary is called a *horizontal concatenation* or *horizontal stack*. 
+
+ Visually, it looks like this:- \(W_h = \left [ W_{hh} \ | \ W_{hx} \right ]\).
+
+We'll look at two different ways to achieve this using numpy.
+
+**Note:** /The values used to populate the arrays, below, have been chosen to aid in visual illustration only. They are NOT what you'd expect to use building a model, which would typically be random variables instead./
+
+First create some dummy data. The [[https://numpy.org/doc/stable/reference/generated/numpy.full.html][numpy.full]] function creates an array of a given shape that all has the same values. Our first array is almost like =numpy.ones= except it uses the dtype of the number you pass in so it will be integers, not floats.
+
+#+begin_src python :results none
+w_hh = numpy.full((3, 2), 1)
+w_hx = numpy.full((3, 3), 9)
+#+end_src
+
+We could use some random initializations, but it would make it harder to see the joins.
+
+#+begin_src python :results output :exports both
+print("-- Data --\n")
+print("w_hh :")
+print(w_hh)
+print("w_hh shape :", w_hh.shape, "\n")
+print("w_hx :")
+print(w_hx)
+print("w_hx shape :", w_hx.shape, "\n")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+-- Data --
+
+w_hh :
+[[1 1]
+ [1 1]
+ [1 1]]
+w_hh shape : (3, 2) 
+
+w_hx :
+[[9 9 9]
+ [9 9 9]
+ [9 9 9]]
+w_hx shape : (3, 3) 
+#+end_example
+
+**** Option 1: concatenate - horizontal
+     First we'll use [[https://numpy.org/doc/stable/reference/generated/numpy.concatenate.html][numpy.concatenate]].
+     
+#+begin_src python :results output :exports both
+ROWS, COLUMNS = 0, 1
+w_h1 = numpy.concatenate((w_hh, w_hx), axis=COLUMNS)
+print("option 1 : concatenate\n")
+print("w_h :")
+print(w_h1)
+print("w_h shape :", w_h1.shape, "\n")
+#+end_src
+
+#+RESULTS:
+: option 1 : concatenate
+: 
+: w_h :
+: [[1 1 9 9 9]
+:  [1 1 9 9 9]
+:  [1 1 9 9 9]]
+: w_h shape : (3, 5) 
+: 
+
+**** Option 2: hstack
+     Now we'll try [[https://numpy.org/doc/stable/reference/generated/numpy.hstack.html][numpy.hstack]].
+#+begin_src python :results output :exports both     
+w_h2 = numpy.hstack((w_hh, w_hx))
+print("option 2 : hstack\n")
+print("w_h :")
+print(w_h2)
+print("w_h shape :", w_h2.shape)
+#+end_src
+
+#+RESULTS:
+: option 2 : hstack
+: 
+: w_h :
+: [[1 1 9 9 9]
+:  [1 1 9 9 9]
+:  [1 1 9 9 9]]
+: w_h shape : (3, 5)
+
+As you can see, =hstack= gives you the same thing as =concatenate= along columns, =concatenate= also allows you to concatenate along rows and is more general than =hstack=. Although =hstack= might be more intuitive.
+
+*** Hidden State & Inputs: Vertical Concatenation
+Joining along a horizontal boundary is called a vertical concatenation or vertical stack. Visually it looks like this:
+
+\[
+[h^{\langle t-1\rangle},x^{\langle t\rangle}] = \left[ \frac{h^{\langle t-1\rangle}}{x^{\langle t\rangle}} \right]
+\]
+
+We'll look at two different ways to achieve this using numpy.
+
+First create some more dummy data.
+
+#+begin_src python :results none
+h_t_prev = numpy.full((2, 1), 1)
+x_t = numpy.full((3, 1), 9)
+#+end_src
+
+#+begin_src python :results output :exports both
+print("-- Data --\n")
+print("h_t_prev :")
+print(h_t_prev)
+print("h_t_prev shape :", h_t_prev.shape, "\n")
+print("x_t :")
+print(x_t)
+print("x_t shape :", x_t.shape, "\n")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+-- Data --
+
+h_t_prev :
+[[1]
+ [1]]
+h_t_prev shape : (2, 1) 
+
+x_t :
+[[9]
+ [9]
+ [9]]
+x_t shape : (3, 1) 
+#+end_example
+*** Option 1: concatenate - Rows
+
+#+begin_src python :results output :exports both    
+ax_1 = numpy.concatenate(
+    (h_t_prev, x_t), axis=ROWS
+)
+print("option 1 : concatenate\n")
+print("ax_1 :")
+print(ax_1)
+print("ax_1 shape :", ax_1.shape, "\n")
+#+end_src
+
+#+RESULTS:
+: option 1 : concatenate
+: 
+: ax_1 :
+: [[1]
+:  [1]
+:  [9]
+:  [9]
+:  [9]]
+: ax_1 shape : (5, 1) 
+: 
+*** Option 2: vstack
+    [[https://numpy.org/doc/stable/reference/generated/numpy.vstack.html#numpy.vstack][vstack]] is much like =hstack= except instead of inserting columns it appends rows, more of what the word /stack/ would seem to suggest.
+
+#+begin_src python :results output :exports both    
+ax_2 = numpy.vstack((h_t_prev, x_t))
+print("option 2 : vstack\n")
+print("ax_2 :")
+print(ax_2)
+print("ax_2 shape :", ax_2.shape)
+#+end_src
+
+#+RESULTS:
+: option 2 : vstack
+: 
+: ax_2 :
+: [[1]
+:  [1]
+:  [9]
+:  [9]
+:  [9]]
+: ax_2 shape : (5, 1)
+
+
+** Verify Formulas
+Now that we know how to do the concatenations, horizontal and vertical, let's verify that the two formulas produce the same result.
+
+ - **Formula 1:** \(h^{\langle t\rangle}=g(W_{h}[h^{\langle t-1\rangle},x^{\langle t\rangle}] + b_h)\)
+ - **Formula 2:** \(h^{\langle t\rangle}=g(W_{hh}h^{\langle t-1\rangle} \oplus W_{hx}x^{\langle t\rangle} + b_h)\)
+
+We want to assure ourselves that **Formula 1** \(\Leftrightarrow\) **Formula 2**.
+
+ We will initially ignore the bias term \(b_h\) and the activation function /g( )/ because the transformation will be identical for each formula. So what we really want to compare is the result of the following parameters inside each formula:
+
+\[
+W_{h}[h^{\langle t-1\rangle},x^{\langle t\rangle}] \quad \Leftrightarrow \quad W_{hh}h^{\langle t-1\rangle} \oplus W_{hx}x^{\langle t\rangle}
+\]
+
+ We'll see how to do this using matrix multiplication combined with the data and techniques (stacking/concatenating) from above.
+
+
+*** The Data
+
+#+begin_src python :results none    
+w_hh = numpy.full((3, 2), 1)
+w_hx = numpy.full((3, 3), 9)
+h_t_prev = numpy.full((2, 1), 1)
+x_t = numpy.full((3, 1), 9)
+#+end_src
+
+*** Formula 1
+
+#+begin_src python :results none    
+stack_1 = numpy.hstack((w_hh, w_hx))
+stack_2 = numpy.vstack((h_t_prev, x_t))
+#+end_src
+
+#+begin_src python :results output :exports both
+print("\nFormula 1")
+print("Term1:\n",stack_1)
+print("Term2:\n",stack_2)
+formula_1 = numpy.matmul(stack_1,
+                         stack_2)
+print("Output:")
+print(formula_1)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Formula 1
+Term1:
+ [[1 1 9 9 9]
+ [1 1 9 9 9]
+ [1 1 9 9 9]]
+Term2:
+ [[1]
+ [1]
+ [9]
+ [9]
+ [9]]
+Output:
+[[245]
+ [245]
+ [245]]
+#+end_example
+
+*** Formula 2
+#+begin_src python :results output :exports both    
+term_1 = numpy.matmul(w_hh, h_t_prev)
+term_2 = numpy.matmul(w_hx, x_t)
+print("\nFormula 2")
+print("Term1:\n", term_1)
+print("Term2:\n", term_2)
+
+formula_2 = term_1 + term_2
+print("\nOutput:")
+print(formula_2, "\n")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Formula 2
+Term1:
+ [[2]
+ [2]
+ [2]]
+Term2:
+ [[243]
+ [243]
+ [243]]
+
+Output:
+[[245]
+ [245]
+ [245]] 
+#+end_example
+
+*** Verification 
+[[https://numpy.org/doc/stable/reference/generated/numpy.allclose.html][np.allclose]]  checks that each entry in one array is within a certain tolerance of the corresponding entry in another. For this example we're using integers, so you could probably use ~all(a == b)~ but otherwise, when you have floats, it's better to use =allclose= since floats won't always be exact.
+
+#+begin_src python :results output :exports both
+print("-- Verify --")
+print("Results are the same :", numpy.allclose(formula_1, formula_2))
+print(f"Also the same: {all(formula_1==formula_2)}")
+#+end_src
+
+#+RESULTS:
+: -- Verify --
+: Results are the same : True
+: Also the same: True
+
+Now we'll add a sigmoid activation function and bias term as a final check so we can see how this would work in action.
+
+#+begin_src python :results none    
+def sigmoid(x: numpy.ndarray) -> numpy.ndarray:
+    """Calculates the sigmoid of x
+
+    Args:
+     x: numpy array or list or float
+    """
+    return 1 / (1 + numpy.exp(-x))
+#+end_src
+
+#+begin_src python :results output :exports both    
+bias = numpy.random.standard_normal((formula_1.shape[0], 1))
+print("Formula 1 Output:\n", sigmoid(formula_1 + bias))
+print("Formula 2 Output:\n", sigmoid(formula_2 + bias))
+
+assert numpy.allclose(sigmoid(formula_1 + bias), sigmoid(formula_2 + bias))
+#+end_src
+
+#+RESULTS:
+: Formula 1 Output:
+:  [[1.]
+:  [1.]
+:  [1.]]
+: Formula 2 Output:
+:  [[1.]
+:  [1.]
+:  [1.]]
