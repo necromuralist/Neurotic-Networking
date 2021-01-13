@@ -1,0 +1,347 @@
+#+BEGIN_COMMENT
+.. title: Named Entity Recognition
+.. slug: named-entity-recognition
+.. date: 2021-01-13 14:55:54 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Named Entity Recognition with RNNs.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9974ba11-9b71-4b8e-8dc9-4b5779900b41-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Named Entity Recognition (NER)
+  - {{% lancelot title="The Data" %}}ner-data{{% /lancelot %}}
+  - {{% lancelot title="Building the Model" %}}ner-building-the-model{{% /lancelot %}}
+  - {{% lancelot title="Training the Model" %}}ner-training-the-model{{% /lancelot %}}    
+  - {{% lancelot title="Evaluating the Model" %}}ner-evaluating-the-model{{% /lancelot %}}
+  - {{% lancelot title="Testing the Model" %}}ner-testing-the-model{{% /lancelot %}}
+
+We'll start with the question - "What is Named Entity Recognition (NER)?". NER is a subtask of information extraction that locates and classifies named entities in a text. The named entities could be organizations, persons, locations, times, etc. 
+
+We'll train a named entity recognition system that could be trained in a few seconds (on a GPU) and will get around 75% accuracy. Then we'll load in the exact version of the model, which was trained for a longer period of time. We can then evaluate the trained version of the model to get 96% accuracy! Finally, we'll test the named entity recognition system with new sentences.
+
+* Raw
+#+begin_example python
+import trax 
+from trax import layers as tl
+import os 
+import numpy as np
+import pandas as pd
+
+
+from utils import get_params, get_vocab
+import random as rnd
+
+# set random seeds to make this notebook easier to replicate
+trax.supervised.trainer_lib.init_random_number_generators(33)
+
+# <a name="2"></a>
+# # Part 2:  Building the model
+# 
+# You will now implement the model. You will be using Google's TensorFlow. Your model will be able to distinguish the following:
+# <table>
+#     <tr>
+#         <td>
+# <img src = 'ner1.png' width="width" height="height" style="width:500px;height:150px;"/>
+#         </td>
+#     </tr>
+# </table>
+# 
+# The model architecture will be as follows: 
+# 
+# <img src = 'ner2.png' width="width" height="height" style="width:600px;height:250px;"/>
+# 
+# <a name="3"></a>
+# # Part 3:  Train the Model 
+# 
+# This section will train your model.
+# 
+# Before you start, you need to create the data generators for training and validation data. It is important that you mask padding in the loss weights of your data, which can be done using the `id_to_mask` argument of `trax.supervised.inputs.add_loss_weights`.
+
+# In[ ]:
+
+
+from trax.supervised import training
+
+rnd.seed(33)
+
+batch_size = 64
+
+# Create training data, mask pad id=35180 for training.
+train_generator = trax.supervised.inputs.add_loss_weights(
+    data_generator(batch_size, t_sentences, t_labels, vocab['<PAD>'], True),
+    id_to_mask=vocab['<PAD>'])
+
+# Create validation data, mask pad id=35180 for training.
+eval_generator = trax.supervised.inputs.add_loss_weights(
+    data_generator(batch_size, v_sentences, v_labels, vocab['<PAD>'], True),
+    id_to_mask=vocab['<PAD>'])
+
+
+# <a name='3.1'></a>
+# ### 3.1 Training the model
+# 
+# You will now write a function that takes in your model and trains it.
+# 
+# As you've seen in the previous assignments, you will first create the [TrainTask](https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.TrainTask) and [EvalTask](https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.EvalTask) using your data generator. Then you will use the `training.Loop` to train your model.
+# 
+# <a name="ex03"></a>
+# ### Exercise 03
+# 
+# **Instructions:** Implement the `train_model` program below to train the neural network above. Here is a list of things you should do: 
+# - Create the trainer object by calling [`trax.supervised.training.Loop`](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop) and pass in the following:
+# 
+#     - model = [NER](#ex02)
+#     - [training task](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask) that uses the train data generator defined in the cell above
+#         - loss_layer = [tl.CrossEntropyLoss()](https://github.com/google/trax/blob/22765bb18608d376d8cd660f9865760e4ff489cd/trax/layers/metrics.py#L71)
+#         - optimizer = [trax.optimizers.Adam(0.01)](https://github.com/google/trax/blob/03cb32995e83fc1455b0c8d1c81a14e894d0b7e3/trax/optimizers/adam.py#L23)
+#     - [evaluation task](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask) that uses the validation data generator defined in the cell above
+#         - metrics for `EvalTask`: `tl.CrossEntropyLoss()` and `tl.Accuracy()`
+#         - in `EvalTask` set `n_eval_batches=10` for better evaluation accuracy
+#     - output_dir = output_dir
+# 
+# You'll be using a [cross entropy loss](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss), with an [Adam optimizer](https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html#trax.optimizers.adam.Adam). Please read the [trax](https://trax-ml.readthedocs.io/en/latest/trax.html) documentation to get a full understanding. The [trax GitHub](https://github.com/google/trax) also contains some useful information and a link to a colab notebook.
+
+# In[ ]:
+
+
+# UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: train_model
+def train_model(NER, train_generator, eval_generator, train_steps=1, output_dir='model'):
+    '''
+    Input: 
+        NER - the model you are building
+        train_generator - The data generator for training examples
+        eval_generator - The data generator for validation examples,
+        train_steps - number of training steps
+        output_dir - folder to save your model
+    Output:
+        training_loop - a trax supervised training Loop
+    '''
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    train_task = training.TrainTask(
+      None, # A train data generator
+      loss_layer = None, # A cross-entropy loss function
+      optimizer = None,  # The adam optimizer
+    )
+
+    eval_task = training.EvalTask(
+      labeled_data = None, # A labeled data generator
+      metrics = [None, None], # Evaluate with cross-entropy loss and accuracy
+      n_eval_batches = None # Number of batches to use on each evaluation
+    )
+
+    training_loop = training.Loop(
+        None, # A model to train
+        None, # A train task
+        eval_task = None, # The evaluation task
+        output_dir = None) # The output directory
+
+    # Train with train_steps
+    training_loop.run(n_steps = None)
+    ### END CODE HERE ###
+    return training_loop
+
+
+# On your local machine, you can run this training for 1000 train_steps and get your own model. This training takes about 5 to 10 minutes to run.
+
+# In[ ]:
+
+
+train_steps = 100            # In coursera we can only train 100 steps
+get_ipython().system("rm -f 'model/model.pkl.gz'  # Remove old model.pkl if it exists")
+
+# Train the model
+training_loop = train_model(NER(), train_generator, eval_generator, train_steps)
+
+
+# **Expected output (Approximately)**
+# 
+# ```
+# ...
+# Step      1: train CrossEntropyLoss |  2.94375849
+# Step      1: eval  CrossEntropyLoss |  1.93172036
+# Step      1: eval          Accuracy |  0.78727312
+# Step    100: train CrossEntropyLoss |  0.57727730
+# Step    100: eval  CrossEntropyLoss |  0.36356260
+# Step    100: eval          Accuracy |  0.90943187
+# ...
+# ```
+# This value may change between executions, but it must be around 90% of accuracy on train and validations sets, after 100 training steps.
+
+# We have trained the model longer, and we give you such a trained model. In that way, we ensure you can continue with the rest of the assignment even if you had some troubles up to here, and also we are sure that everybody will get the same outputs for the last example. However, you are free to try your model, as well. 
+
+# In[ ]:
+
+
+# loading in a pretrained model..
+model = NER()
+model.init(trax.shapes.ShapeDtype((1, 1), dtype=np.int32))
+
+# Load the pretrained model
+model.init_from_file('model.pkl.gz', weights_only=True)
+
+
+# <a name="4"></a>
+# # Part 4:  Compute Accuracy
+# 
+# You will now evaluate in the test set. Previously, you have seen the accuracy on the training set and the validation (noted as eval) set. You will now evaluate on your test set. To get a good evaluation, you will need to create a mask to avoid counting the padding tokens when computing the accuracy. 
+# 
+# <a name="ex04"></a>
+# ### Exercise 04
+# 
+# **Instructions:** Write a program that takes in your model and uses it to evaluate on the test set. You should be able to get an accuracy of 95%.  
+# 
+
+# 
+# <details>    
+# <summary>
+#     <font size="3" color="darkgreen"><b>More Detailed Instructions </b></font>
+# </summary>
+# 
+# * *Step 1*: model(sentences) will give you the predicted output. 
+# 
+# * *Step 2*: Prediction will produce an output with an added dimension. For each sentence, for each word, there will be a vector of probabilities for each tag type. For each sentence,word, you need to pick the maximum valued tag. This will require `np.argmax` and careful use of the `axis` argument.
+# * *Step 3*: Create a mask to prevent counting pad characters. It has the same dimension as output. An example below on matrix comparison provides a hint.
+# * *Step 4*: Compute the accuracy metric by comparing your outputs against your test labels. Take the sum of that and divide by the total number of **unpadded** tokens. Use your mask value to mask the padded tokens. Return the accuracy. 
+# </detail>
+
+# In[ ]:
+
+
+#Example of a comparision on a matrix 
+a = np.array([1, 2, 3, 4])
+a == 2
+
+
+# In[ ]:
+
+
+# create the evaluation inputs
+x, y = next(data_generator(len(test_sentences), test_sentences, test_labels, vocab['<PAD>']))
+print("input shapes", x.shape, y.shape)
+
+
+# In[ ]:
+
+
+# sample prediction
+tmp_pred = model(x)
+print(type(tmp_pred))
+print(f"tmp_pred has shape: {tmp_pred.shape}")
+
+
+# Note that the model's prediction has 3 axes: 
+# - the number of examples
+# - the number of words in each example (padded to be as long as the longest sentence in the batch)
+# - the number of possible targets (the 17 named entity tags).
+
+# In[ ]:
+
+
+# UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: evaluate_prediction
+def evaluate_prediction(pred, labels, pad):
+    """
+    Inputs:
+        pred: prediction array with shape 
+            (num examples, max sentence length in batch, num of classes)
+        labels: array of size (batch_size, seq_len)
+        pad: integer representing pad character
+    Outputs:
+        accuracy: float
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+## step 1 ##
+    outputs = None
+    print("outputs shape:", outputs.shape)
+
+## step 2 ##
+    mask = None
+    print("mask shape:", mask.shape, "mask[0][20:30]:", mask[0][20:30])
+## step 3 ##
+    accuracy = None
+    ### END CODE HERE ###
+    return accuracy
+
+
+# In[ ]:
+
+
+accuracy = evaluate_prediction(model(x), y, vocab['<PAD>'])
+print("accuracy: ", accuracy)
+
+
+# **Expected output (Approximately)**   
+# ```
+# outputs shape: (7194, 70)
+# mask shape: (7194, 70) mask[0][20:30]: [ True  True  True False False False False False False False]
+# accuracy:  0.9543761281155191
+# ```
+# 
+
+# <a name="5"></a>
+# # Part 5:  Testing with your own sentence
+# 
+
+# Below, you can test it out with your own sentence! 
+
+# In[ ]:
+
+
+# This is the function you will be using to test your own sentence.
+def predict(sentence, model, vocab, tag_map):
+    s = [vocab[token] if token in vocab else vocab['UNK'] for token in sentence.split(' ')]
+    batch_data = np.ones((1, len(s)))
+    batch_data[0][:] = s
+    sentence = np.array(batch_data).astype(int)
+    output = model(sentence)
+    outputs = np.argmax(output, axis=2)
+    labels = list(tag_map.keys())
+    pred = []
+    for i in range(len(outputs[0])):
+        idx = outputs[0][i] 
+        pred_label = labels[idx]
+        pred.append(pred_label)
+    return pred
+
+
+# In[ ]:
+
+
+# Try the output for the introduction example
+#sentence = "Many French citizens are goin to visit Morocco for summer"
+#sentence = "Sharon Floyd flew to Miami last Friday"
+
+# New york times news:
+sentence = "Peter Navarro, the White House director of trade and manufacturing policy of U.S, said in an interview on Sunday morning that the White House was working to prepare for the possibility of a second wave of the coronavirus in the fall, though he said it wouldn’t necessarily come"
+s = [vocab[token] if token in vocab else vocab['UNK'] for token in sentence.split(' ')]
+predictions = predict(sentence, model, vocab, tag_map)
+for x,y in zip(sentence.split(' '), predictions):
+    if y != 'O':
+        print(x,y)
+
+
+# ** Expected Results **
+# 
+# ```
+# Peter B-per
+# Navarro, I-per
+# White B-org
+# House I-org
+# Sunday B-tim
+# morning I-tim
+# White B-org
+# House I-org
+# coronavirus B-tim
+# fall, B-tim
+# ```
+
+#+end_example

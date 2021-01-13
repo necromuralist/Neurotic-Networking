@@ -1,0 +1,293 @@
+#+BEGIN_COMMENT
+.. title: NER: Data
+.. slug: ner-data
+.. date: 2021-01-13 15:00:14 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Loading the data for the NER model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9974ba11-9b71-4b8e-8dc9-4b5779900b41-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Next Post" %}}ner-building-the-model{{% /lancelot %}}    
+* Raw
+#+begin_example python
+# # Part 1:  Exploring the data
+# 
+# We will be using a dataset from Kaggle, which we will preprocess for you. The original data consists of four columns, the sentence number, the word, the part of speech of the word, and the tags.  A few tags you might expect to see are: 
+# 
+# * geo: geographical entity
+# * org: organization
+# * per: person 
+# * gpe: geopolitical entity
+# * tim: time indicator
+# * art: artifact
+# * eve: event
+# * nat: natural phenomenon
+# * O: filler word
+# 
+
+# In[ ]:
+
+
+# display original kaggle data
+data = pd.read_csv("ner_dataset.csv", encoding = "ISO-8859-1") 
+train_sents = open('data/small/train/sentences.txt', 'r').readline()
+train_labels = open('data/small/train/labels.txt', 'r').readline()
+print('SENTENCE:', train_sents)
+print('SENTENCE LABEL:', train_labels)
+print('ORIGINAL DATA:\n', data.head(5))
+del(data, train_sents, train_labels)
+
+
+# <a name="1.1"></a>
+# ## 1.1  Importing the Data
+# 
+# In this part, we will import the preprocessed data and explore it.
+
+# In[ ]:
+
+
+vocab, tag_map = get_vocab('data/large/words.txt', 'data/large/tags.txt')
+t_sentences, t_labels, t_size = get_params(vocab, tag_map, 'data/large/train/sentences.txt', 'data/large/train/labels.txt')
+v_sentences, v_labels, v_size = get_params(vocab, tag_map, 'data/large/val/sentences.txt', 'data/large/val/labels.txt')
+test_sentences, test_labels, test_size = get_params(vocab, tag_map, 'data/large/test/sentences.txt', 'data/large/test/labels.txt')
+
+
+# `vocab` is a dictionary that translates a word string to a unique number. Given a sentence, you can represent it as an array of numbers translating with this dictionary. The dictionary contains a `<PAD>` token. 
+# 
+# When training an LSTM using batches, all your input sentences must be the same size. To accomplish this, you set the length of your sentences to a certain number and add the generic `<PAD>` token to fill all the empty spaces. 
+
+# In[ ]:
+
+
+# vocab translates from a word to a unique number
+print('vocab["the"]:', vocab["the"])
+# Pad token
+print('padded token:', vocab['<PAD>'])
+
+
+# The tag_map corresponds to one of the possible tags a word can have. Run the cell below to see the possible classes you will be predicting. The prepositions in the tags mean:
+# * I: Token is inside an entity.
+# * B: Token begins an entity.
+
+# In[ ]:
+
+
+print(tag_map)
+
+
+# So the coding scheme that tags the entities is a minimal one where B- indicates the first token in a multi-token entity, and I- indicates one in the middle of a multi-token entity. If you had the sentence 
+# 
+# **"Sharon flew to Miami on Friday"**
+# 
+# the outputs would look like:
+# 
+# ```
+# Sharon B-per
+# flew   O
+# to     O
+# Miami  B-geo
+# on     O
+# Friday B-tim
+# ```
+# 
+# your tags would reflect three tokens beginning with B-, since there are no multi-token entities in the sequence. But if you added Sharon's last name to the sentence: 
+# 
+# **"Sharon Floyd flew to Miami on Friday"**
+# 
+# ```
+# Sharon B-per
+# Floyd  I-per
+# flew   O
+# to     O
+# Miami  B-geo
+# on     O
+# Friday B-tim
+# ```
+# 
+# then your tags would change to show first "Sharon" as B-per, and "Floyd" as I-per, where I- indicates an inner token in a multi-token sequence.
+
+# In[ ]:
+
+
+# Exploring information about the data
+print('The number of outputs is tag_map', len(tag_map))
+# The number of vocabulary tokens (including <PAD>)
+g_vocab_size = len(vocab)
+print(f"Num of vocabulary words: {g_vocab_size}")
+print('The vocab size is', len(vocab))
+print('The training size is', t_size)
+print('The validation size is', v_size)
+print('An example of the first sentence is', t_sentences[0])
+print('An example of its corresponding label is', t_labels[0])
+
+
+# So you can see that we have already encoded each sentence into a tensor by converting it into a number. We also have 16 possible classes, as shown in the tag map.
+# 
+# 
+# <a name="1.2"></a>
+# ## 1.2  Data generator
+# 
+# In python, a generator is a function that behaves like an iterator. It will return the next item. Here is a [link](https://wiki.python.org/moin/Generators) to review python generators. 
+# 
+# In many AI applications it is very useful to have a data generator. You will now implement a data generator for our NER application.
+# 
+# <a name="ex01"></a>
+# ### Exercise 01
+# 
+# **Instructions:** Implement a data generator function that takes in `batch_size, x, y, pad, shuffle` where x is a large list of sentences, and y is a list of the tags associated with those sentences and pad is a pad value. Return a subset of those inputs in a tuple of two arrays `(X,Y)`. Each is an array of dimension (`batch_size, max_len`), where `max_len` is the length of the longest sentence *in that batch*. You will pad the X and Y examples with the pad argument. If `shuffle=True`, the data will be traversed in a random form.
+# 
+# **Details:**
+# 
+# This code as an outer loop  
+# ```
+# while True:  
+# ...  
+# yield((X,Y))  
+# ```
+# 
+# Which runs continuously in the fashion of generators, pausing when yielding the next values. We will generate a batch_size output on each pass of this loop.    
+# 
+# It has two inner loops. 
+# 1. The first stores in temporal lists the data samples to be included in the next batch, and finds the maximum length of the sentences contained in it. By adjusting the length to include only the size of the longest sentence in each batch, overall computation is reduced. 
+# 
+# 2. The second loop moves those inputs from the temporal list into NumPy arrays pre-filled with pad values.
+# 
+# There are three slightly out of the ordinary features. 
+# 1. The first is the use of the NumPy `full` function to fill the NumPy arrays with a pad value. See [full function documentation](https://numpy.org/doc/1.18/reference/generated/numpy.full.html).
+# 
+# 2. The second is tracking the current location in the incoming lists of sentences. Generators variables hold their values between invocations, so we create an `index` variable, initialize to zero, and increment by one for each sample included in a batch. However, we do not use the `index` to access the positions of the list of sentences directly. Instead, we use it to select one index from a list of indexes. In this way, we can change the order in which we traverse our original list, keeping untouched our original list.  
+# 
+# 3. The third also relates to wrapping. Because `batch_size` and the length of the input lists are not aligned, gathering a batch_size group of inputs may involve wrapping back to the beginning of the input loop. In our approach, it is just enough to reset the `index` to 0. We can re-shuffle the list of indexes to produce different batches each time.
+
+# In[ ]:
+
+
+# UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: data_generator
+def data_generator(batch_size, x, y, pad, shuffle=False, verbose=False):
+    '''
+      Input: 
+        batch_size - integer describing the batch size
+        x - list containing sentences where words are represented as integers
+        y - list containing tags associated with the sentences
+        shuffle - Shuffle the data order
+        pad - an integer representing a pad character
+        verbose - Print information during runtime
+      Output:
+        a tuple containing 2 elements:
+        X - np.ndarray of dim (batch_size, max_len) of padded sentences
+        Y - np.ndarray of dim (batch_size, max_len) of tags associated with the sentences in X
+    '''
+    
+    # count the number of lines in data_lines
+    num_lines = len(x)
+    
+    # create an array with the indexes of data_lines that can be shuffled
+    lines_index = [*range(num_lines)]
+    
+    # shuffle the indexes if shuffle is set to True
+    if shuffle:
+        rnd.shuffle(lines_index)
+    
+    index = 0 # tracks current location in x, y
+    while True:
+        buffer_x = [0] * batch_size # Temporal array to store the raw x data for this batch
+        buffer_y = [0] * batch_size # Temporal array to store the raw y data for this batch
+                
+  ### START CODE HERE (Replace instances of 'None' with your code) ###
+        
+        # Copy into the temporal buffers the sentences in x[index : index + batch_size] 
+        # along with their corresponding labels y[index : index + batch_size]
+        # Find maximum length of sentences in x[index : index + batch_size] for this batch. 
+        # Reset the index if we reach the end of the data set, and shuffle the indexes if needed.
+        max_len = 0
+        for i in range(batch_size):
+             # if the index is greater than or equal to the number of lines in x
+            if index >= num_lines:
+                # then reset the index to 0
+                index = None
+                # re-shuffle the indexes if shuffle is set to True
+                if shuffle:
+                    rnd.shuffle(None)
+            
+            # The current position is obtained using `lines_index[index]`
+            # Store the x value at the current position into the buffer_x
+            buffer_x[i] = None
+            
+            # Store the y value at the current position into the buffer_y
+            buffer_y[i] = None
+            
+            lenx = None    #length of current x[]
+            if lenx > max_len:
+                max_len = None                   #max_len tracks longest x[]
+            
+            # increment index by one
+            index += None
+
+
+        # create X,Y, NumPy arrays of size (batch_size, max_len) 'full' of pad value
+        X = None
+        Y = None
+
+        # copy values from lists to NumPy arrays. Use the buffered values
+        for i in range(batch_size):
+            # get the example (sentence as a tensor)
+            # in `buffer_x` at the `i` index
+            x_i = None
+            
+            # similarly, get the example's labels
+            # in `buffer_y` at the `i` index
+            y_i = None
+            
+            # Walk through each word in x_i
+            for j in range(len(x_i)):
+                # store the word in x_i at position j into X
+                X[i, j] = None
+                
+                # store the label in y_i at position j into Y
+                Y[i, j] = None
+
+    ### END CODE HERE ###
+        if verbose: print("index=", index)
+        yield((X,Y))
+
+
+# In[ ]:
+
+
+batch_size = 5
+mini_sentences = t_sentences[0: 8]
+mini_labels = t_labels[0: 8]
+dg = data_generator(batch_size, mini_sentences, mini_labels, vocab["<PAD>"], shuffle=False, verbose=True)
+X1, Y1 = next(dg)
+X2, Y2 = next(dg)
+print(Y1.shape, X1.shape, Y2.shape, X2.shape)
+print(X1[0][:], "\n", Y1[0][:])
+
+
+# **Expected output:**   
+# ```
+# index= 5
+# index= 2
+# (5, 30) (5, 30) (5, 30) (5, 30)
+# [    0     1     2     3     4     5     6     7     8     9    10    11
+#     12    13    14     9    15     1    16    17    18    19    20    21
+#  35180 35180 35180 35180 35180 35180] 
+#  [    0     0     0     0     0     0     1     0     0     0     0     0
+#      1     0     0     0     0     0     2     0     0     0     0     0
+#  35180 35180 35180 35180 35180 35180]  
+# ```
+
+
+#+end_example
