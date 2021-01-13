@@ -1,0 +1,190 @@
+#+BEGIN_COMMENT
+.. title: RNNS and Vanishing Gradients
+.. slug: rnns-and-vanishing-gradients
+.. date: 2021-01-10 18:52:32 UTC-08:00
+.. tags: rnn,nlp
+.. category: NLP
+.. link: 
+.. description: A look at the problem of vanishing gradients with RNNs.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e104e86f-dbf2-448e-a848-f69de722695d-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Vanishing Gradients
+  This will be a look at the problem of vanishing gradients from an intuitive standpoint.
+
+** Background
+Adding layers to a neural network introduces multiplicative effects in both forward and backward propagation. The back-prop in particular presents a problem as the gradient of activation functions can be very small. Multiplied together across many layers, their product can be vanishingly small. This results in weights not being updated in the front layers and training not progressing.
+
+Gradients of the sigmoid function, for example, are in the range 0 to 0.25. To calculate gradients for the front layers of a neural network the chain rule is used. This means that these tiny values are multiplied starting at the last layer, working backwards to the first layer, with the gradients shrinking exponentially at each step.
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from functools import partial
+
+# pypi
+import holoviews
+import hvplot.pandas
+import numpy
+import pandas
+
+# another project
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+#+begin_src python :results none
+SLUG = "rnns-and-vanishing-gradients"
+Embed = partial(EmbedHoloviews,
+                folder_path=f"files/posts/nlp/{SLUG}")
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src   
+* Middle
+** The Data
+   This will be an evenly spaced set of points over an interval (see [[https://numpy.org/doc/stable/reference/generated/numpy.linspace.html][numpy.linspace]]).
+
+#+begin_src python :results none
+STOP, STEPS = 10, 100
+x = numpy.linspace(-STOP, STOP, STEPS)
+#+end_src
+** The Sigmoid
+   Our activation function will be the [[https://en.wikipedia.org/wiki/Sigmoid_function][sigmoid (wikipedia link)]] (well, the logistic function).
+
+#+begin_src python :results none
+def sigmoid(x: numpy.ndarray) -> numpy.ndarray:
+    return 1 / (1 + numpy.exp(-x))
+#+end_src
+
+Now we'll calculate the activations for our input data.
+
+#+begin_src python :results none
+activations = sigmoid(x)
+#+end_src
+** The Gradient
+   Our gradient is the derivative of the sigmoid.
+
+#+begin_src python :results none
+def gradient(x: numpy.ndarray) -> numpy.ndarray:
+    return (x) * (1 - x)
+#+end_src
+
+Now we can get the gradients for our activations.
+
+#+begin_src python :results none
+gradients = gradient(activations)
+#+end_src
+** Plotting the Sigmoid
+#+begin_src python :results none
+tangent_x = 0
+tangent_y = sigmoid(tangent_x)
+span = 2
+
+gradient_tangent = gradient(sigmoid(tangent_x))
+
+tangent_plot_x = numpy.linspace(tangent_x - span, tangent_x + span, STEPS)
+tangent_plot_y = tangent_y + gradient_tangent * (tangent_plot_x - tangent_x)
+
+frame = pandas.DataFrame.from_dict(
+    {"X": x,
+     "Sigmoid": activations,
+     "X-Tangent": tangent_plot_x,
+     "Y-Tangent": tangent_plot_y,
+     "Gradient": gradients})
+plot = (frame.hvplot(x="X", y="Sigmoid").opts(color=PLOT.blue)
+        ,* frame.hvplot(x="X", y="Gradient").opts(color=PLOT.red)
+        ,* frame.hvplot(x="X-Tangent",
+                       y="Y-Tangent").opts(color=PLOT.tan)).opts(
+            title="Sigmoid and Tangent",
+            width=PLOT.width,
+            height=PLOT.height,
+            fontscale=PLOT.fontscale)
+output = Embed(plot=plot, file_name="sigmoid_tangent")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+ <object type="text/html" data="sigmoid_tangent.html" style="width:100%" height=800>
+   <p>Figure Missing</p>
+ </object>
+#+end_export
+
+The thing to notice is that as the input data moves away from the center (at 0) the gradients get smaller in either direction, rapidly approaching zero.
+** The Numerical Impact
+*** Multiplication & Decay
+ Multiplying numbers smaller than 1 results in smaller and smaller numbers. Below is an example that finds the gradient for an input /x = 0/ and multiplies it over n steps. Look how quickly it 'Vanishes' to almost zero. Yet \(\sigma(x=0) \implies 0.5\) which has a sigmoid gradient of 0.25 and that happens to be the largest sigmoid gradient possible.
+
+** A Decay Simulation
+*** Input data
+
+#+begin_src python :results output :exports both
+n = 6
+x = 0
+
+gradients = gradient(sigmoid(x))
+steps = numpy.arange(1, n + 1)
+print("-- Inputs --")
+print("steps :", n)
+print("x value :", x)
+print("sigmoid :", "{:.5f}".format(sigmoid(x)))
+print("gradient :", "{:.5f}".format(gradients), "\n")
+#+end_src    
+
+#+RESULTS:
+: -- Inputs --
+: steps : 6
+: x value : 0
+: sigmoid : 0.50000
+: gradient : 0.25000 
+: 
+
+*** Plot The Decay
+
+#+begin_src python :results none
+decaying_values = (numpy.ones(len(steps)) * gradients).cumprod()
+#+end_src    
+
+#+begin_src python :results none
+data = pandas.DataFrame.from_dict(dict(Step=steps, Gradient=decaying_values))
+plot = data.hvplot(x="Step", y="Gradient").opts(
+    title="Cumulative Gradient",
+    width=PLOT.width,
+    height=PLOT.height,
+    fontscale=PLOT.fontscale
+)
+output = Embed(plot=plot, file_name="cumulative_gradient")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="cumulative_gradient.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+The point being that the gradients very quickly approach zero.
+
+* So, How Do You Fix This?
+
+  One solution is to use activation functions that don't have tiny gradients. Other solutions involve more sophisticated model design. But they're both discussions for another time.
