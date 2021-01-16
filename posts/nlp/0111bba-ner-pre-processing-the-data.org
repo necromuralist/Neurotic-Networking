@@ -1,0 +1,554 @@
+#+BEGIN_COMMENT
+.. title: NER: Pre-Processing the Data
+.. slug: ner-pre-processing-the-data
+.. date: 2021-01-13 16:43:13 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Pre-processing the kaggle dataset.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1f744d39-5ec7-43c3-aed3-2bff2bd4b574-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Preprocessing The Data
+  - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Next Post" %}}ner-data{{% /lancelot %}}
+
+ We will be using a dataset from [[https://www.kaggle.com/abhinavwalia95/entity-annotated-corpus][Kaggle]] which appears to have originally come from the [[https://gmb.let.rug.nl/][Groningen Meaning Bank]] (a bank of texts, not money). The original data consists of four columns, the sentence number, the word, the part of speech of the word, and the tags.  A few tags you might expect to see are: 
+
+ - geo: geographical entity
+ - org: organization
+ - per: person 
+ - gpe: geopolitical entity
+ - tim: time indicator
+ - art: artifact
+ - eve: event
+ - nat: natural phenomenon
+ - O: filler word
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from pathlib import Path
+
+import os
+
+# pypi
+from dotenv import load_dotenv
+from expects import equal, expect
+from sklearn.model_selection import train_test_split
+from tabulate import tabulate
+
+import pandas
+#+end_src
+
+** Set Up
+*** The Dataset
+    **Note:** to get the encoding for the file use =file=:
+    
+#+begin_example bash
+file -bi ner_dataset.csv
+#+end_example
+
+In this case we get:
+
+#+begin_example bash
+application/csv; charset=iso-8859-1
+#+end_example
+
+Since it isn't ASCII or ISO-8 we'll have to tell pandas what the encoding is.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+path = Path(os.environ["NER_DATASET"]).expanduser()
+data = pandas.read_csv(path, encoding="ISO-8859-1")
+#+end_src
+* Middle
+** The Kaggle Data
+#+begin_src python :results output :exports both
+print(tabulate(data.iloc[:5], tablefmt="orgtbl", headers="keys"))
+#+end_src   
+
+#+RESULTS:
+|    | Sentence #   | Word          | POS   | Tag   |
+|----+--------------+---------------+-------+-------|
+|  0 | Sentence: 1  | Thousands     | NNS   | O     |
+|  1 | nan          | of            | IN    | O     |
+|  2 | nan          | demonstrators | NNS   | O     |
+|  3 | nan          | have          | VBP   | O     |
+|  4 | nan          | marched       | VBN   | O     |
+
+As you can (kind of) tell, the sentences are broken up so that each row has one word in it.
+
+To make it easier to work with I'm going to rename the columns.
+
+#+begin_src python :results none
+data = data.rename(columns={"Sentence #":"sentence", "Word": "word", "Tag": "tag"})
+#+end_src
+
+** Words and Tags
+   The first thing we're going to do is separate out the words to build our vocabulary. The =vocabulary= will be a mapping of each word to an index so that we can convert our text to numbers for our model. In addition we're going to add a =<PAD>= token so that if our input is to short we can pad it to be the right size. And an =UNK= token in case we don't know a word.
+
+#+begin_src python :results none
+token = namedtuple("Token", "pad unknown".split())
+Token = token(pad="<PAD>", unknown="UNK")
+#+end_src   
+
+#+begin_src python :results output :exports both
+vocabulary = {word: index for index, word in enumerate(data.word.unique())}
+vocabulary[Token.pad] = len(vocabulary)
+vocabulary[Token.unknown] = len(vocabulary)
+print(f"{len(vocabulary):,}")
+#+end_src
+
+#+RESULTS:
+: 35,180
+
+We're going to do the same with the Tag column.
+
+#+begin_src python :results output :exports both
+tags = {tag: index for index, tag in enumerate(data.tag.unique())}
+print(tags)
+#+end_src
+
+#+RESULTS:
+: {'O': 0, 'B-geo': 1, 'B-gpe': 2, 'B-per': 3, 'I-geo': 4, 'B-org': 5, 'I-org': 6, 'B-tim': 7, 'B-art': 8, 'I-art': 9, 'I-per': 10, 'I-gpe': 11, 'I-tim': 12, 'B-nat': 13, 'B-eve': 14, 'I-eve': 15, 'I-nat': 16}
+
+**Note:** This is actually cheating because I am using the whole dataset. Later on make sure to only use the training data.
+
+** Sentences and Labels
+   We're also going to need to smash the words back into sentences. There's probably a clever pandas way to do this, but I'll just brute-force it. We'll also need to join the labels for the sentences into strings.
+
+
+#+begin_src python :results output :exports both
+sentences = []
+labels = []
+sentence = None
+for row in data.itertuples():
+    if not pandas.isna(row.sentence):
+        if sentence:
+            sentences.append(sentence)
+            labels.append(label)
+        sentence = [row.word]
+        label = [row.tag]
+    else:
+        sentence.append(row.word)
+        label.append(row.tag)
+print(f"{len(sentences):,}")
+print(f"{len(labels):,}")
+print(sentences[0])
+print(labels[0])
+#+end_src   
+
+#+RESULTS:
+: 47,958
+: 47,958
+: ['Thousands', 'of', 'demonstrators', 'have', 'marched', 'through', 'London', 'to', 'protest', 'the', 'war', 'in', 'Iraq', 'and', 'demand', 'the', 'withdrawal', 'of', 'British', 'troops', 'from', 'that', 'country', '.']
+: ['O', 'O', 'O', 'O', 'O', 'O', 'B-geo', 'O', 'O', 'O', 'O', 'O', 'B-geo', 'O', 'O', 'O', 'O', 'O', 'B-gpe', 'O', 'O', 'O', 'O', 'O']
+
+We're going to convert them to numbers so I didn't join them into strings.
+
+** To Numbers
+
+#+begin_src python :results output :exports both
+sentence_vectors = [
+    [vocabulary.get(word, Token.unknown) for word in sentence]
+    for sentence in sentences
+]
+
+assert len(sentence_vectors) == len(sentences)
+print(sentence_vectors[0])
+#+end_src
+
+#+RESULTS:
+: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 9, 15, 1, 16, 17, 18, 19, 20, 21]
+
+
+#+begin_src python :results output :exports both
+label_vectors = [
+    [tags[label] for label in sentence_labels] for sentence_labels in labels
+]
+assert len(label_vectors) == len(labels)
+print(label_vectors[0])
+#+end_src
+
+#+RESULTS:
+: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0]
+
+In this case we're assuming that there's no unknown tags because they are only used for training and testing so we wouldn't expect to see one that isn't in our current dataset, unlike the sentences which are going to be used with new data and so might have tokens we haven't seen before.
+
+We could add the padding here, but instead we're going to do it in the batch generator.
+
+** The Train-Test Split
+   This time we're going to do a real train-validation-test split. 
+#+begin_src python :results none
+splits = namedtuple("Split", "train validation test".split())
+Split = splits(train=33570, validation=7194, test=7194)
+
+x_train, x_leftovers, y_train, y_leftovers = train_test_split(sentences, labels, train_size=Split.train)
+x_validation, x_test, y_validation, y_test = train_test_split(x_leftovers, y_leftovers, test_size=Split.test)
+
+assert len(x_train) == Split.train
+assert len(y_train) == Split.train
+assert len(x_validation) == Split.validation
+assert len(y_validation) == Split.validation
+assert len(x_test) == Split.test
+assert len(y_test) == Split.test
+#+end_src
+
+** Bundling This Up
+#+begin_src python :tangle ../../neurotic/nlp/named_entity_recognition/data_processor.py
+<<imports>>
+
+<<constants>>
+
+
+<<data-splitter>>
+
+    <<data-sets>>
+
+
+<<data-transformer>>
+
+    <<sentences>>
+
+    <<labels>>
+
+    <<sentence-vectors>>
+
+    <<label-vectors>>
+
+    <<set-sentences-and-labels>>
+
+
+<<the-loader>>
+
+    <<kaggle-data>>
+
+    <<vocabulary>>
+
+    <<tags>>
+
+
+<<the-data>>
+
+    <<data-data-sets>>
+
+    <<loader>>
+
+    <<transformer>>
+
+    <<splitter>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import namedtuple
+from pathlib import Path
+
+import os
+
+# pypi
+from dotenv import load_dotenv
+from sklearn.model_selection import train_test_split
+
+import attr
+import pandas
+#+end_src    
+*** Some Constants
+
+#+begin_src python :noweb-ref constants
+Read = namedtuple("Read", "dotenv key encoding".split())
+READ = Read(dotenv="posts/nlp/.env", key="NER_DATASET",
+            encoding="ISO-8859-1")
+
+COLUMNS={"Sentence #":"sentence",
+         "Word": "word",
+         "Tag": "tag"}
+
+Token = namedtuple("Token", "pad unknown".split())
+TOKEN = Token(pad="<PAD>", unknown="UNK")
+
+Splits = namedtuple("Split", "train validation test".split())
+SPLIT = Splits(train=33570, validation=7194, test=7194)
+
+DataSets = namedtuple("DataSets", [
+    "x_train",
+    "y_train",
+    "x_validate",
+    "y_validate",
+    "x_test",
+    "y_test"
+])
+#+end_src
+*** The Data Processor
+    Each of the three sets needs to be vectorized since I'm not saving the sentences beforehand. So this class handles that.
+#+begin_src python :noweb-ref data-transformer
+@attr.s(auto_attribs=True)
+class DataTransformer:
+    """Converts a dataset to vectors
+
+    Since this might process the validation and test sets
+    pass in the vocabulary and tags explicitly
+
+    Args:
+     data: the data to convert
+     vocabulary: map from word to index
+     tags: map from tag to index
+    """
+    data: pandas.DataFrame
+    vocabulary: dict
+    tags: dict
+    _sentences: list=None
+    _labels: list=None
+    _sentence_vectors: list=None
+    _label_vectors: list=None
+#+end_src
+**** Sentences
+#+begin_src python :noweb-ref sentences
+@property
+def sentences(self) -> list:
+    """List of sentences from the data"""
+    if self._sentences is None:
+        self.set_sentences_and_labels()
+    return self._sentences
+#+end_src
+**** Labels
+#+begin_src python :noweb-ref labels
+@property
+def labels(self) -> list:
+    """List of labels from the data"""
+    if self._labels is None:
+        self.set_sentences_and_labels()
+    return self._labels
+#+end_src
+**** Sentence Vectors
+#+begin_src python :noweb-ref sentence-vectors
+@property
+def sentence_vectors(self) -> list:
+    """Sentences converted to Integers"""
+    if self._sentence_vectors is None:
+        self._sentence_vectors = [
+            [self.vocabulary.get(word, TOKEN.unknown)
+             for word in sentence]
+            for sentence in self.sentences
+        ]
+        assert len(self._sentence_vectors) == len(self.sentences)
+    return self._sentence_vectors
+#+end_src
+**** Label Vectors
+#+begin_src python :noweb-ref label-vectors
+@property
+def label_vectors(self) -> list:
+    """Labels converted to integer-lists"""
+    if self._label_vectors is None:
+        self._label_vectors = [
+            [self.tags.get(label, TOKEN.unknown)
+             for label in sentence_labels]
+            for sentence_labels in self.labels
+        ]
+        assert len(self._label_vectors) == len(self.labels)
+    return self._label_vectors
+#+end_src         
+**** Sentences and Labels maker
+#+begin_src python :noweb-ref set-sentences-and-labels
+def set_sentences_and_labels(self) -> None:
+    """Converts the data to lists
+    of sentence token lists and also sets the labels
+    """
+    self._sentences = []
+    self._labels = []
+    sentence = None
+    for row in self.data.itertuples():
+        if not pandas.isna(row.sentence):
+            if sentence:
+                self._sentences.append(sentence)
+                self._labels.append(labels)
+            sentence = [row.word]
+            labels = [row.tag]
+        else:
+            sentence.append(row.word)
+            labels.append(row.tag)
+    return
+#+end_src
+*** The Splitter
+#+begin_src python :noweb-ref data-splitter
+@attr.s(auto_attribs=True)
+class DataSplitter:
+    """Splits up the training, testing, etc.
+
+    Args:
+     split: constants with the train, test counts
+     sentences: input data to split
+     labels: y-data to split
+     random_state: seed for the splitting
+    """
+    split: namedtuple
+    sentences: list
+    labels: list    
+    random_state: int=None
+    _data_sets: namedtuple=None
+#+end_src
+**** Data Sets
+#+begin_src python :noweb-ref data-sets
+@property
+def data_sets(self) -> namedtuple:
+    """The Split data sets"""
+    if self._data_sets is None:
+        x_train, x_leftovers, y_train, y_leftovers = train_test_split(
+            self.sentences, self.labels,
+            train_size=self.split.train,
+            random_state=self.random_state)
+        x_validate, x_test, y_validate, y_test = train_test_split(
+            x_leftovers,
+            y_leftovers,
+            test_size=self.split.test,
+            random_state=self.random_state)
+        self._data_sets = DataSets(x_train=x_train,
+                                   y_train=y_train,
+                                   x_validate=x_validate,
+                                   y_validate=y_validate,
+                                   x_test=x_test,
+                                   y_test=y_test,
+                                   )
+        assert len(x_train) + len(x_validate) + len(x_test) == len(self.sentences)
+    return self._data_sets
+#+end_src         
+*** The Loader
+#+begin_src python :noweb-ref the-loader
+@attr.s(auto_attribs=True)
+class DataLoader:
+    """Loads and converts the kaggle data
+
+    Args:
+      read: the stuff to download the data
+    """
+    read: namedtuple=READ    
+    _data: pandas.DataFrame=None
+    _vocabulary: dict=None
+    _tags: dict=None
+#+end_src
+**** The Kaggle Data
+#+begin_src python :noweb-ref kaggle-data
+@property
+def data(self) -> pandas.DataFrame:
+    """The original kaggle dataset"""
+    if self._data is None:
+        load_dotenv(self.read.dotenv)
+        path = Path(os.environ[self.read.key]).expanduser()
+        self._data = pandas.read_csv(path, encoding=self.read.encoding)
+        self._data = self._data.rename(columns=COLUMNS)
+    return self._data
+#+end_src         
+**** The Vocabulary
+#+begin_src python :noweb-ref vocabulary
+@property
+def vocabulary(self) -> dict:
+    """map of word to index
+
+    Note:
+      This is creating a transformation of the entire data-set
+    so it comes before the train-test-split so it uses the whole
+    dataset, not just training
+    """
+    if self._vocabulary is None:
+        self._vocabulary = {
+            word: index
+            for index, word in enumerate(self.data.word.unique())}
+        self._vocabulary[TOKEN.pad] = len(self._vocabulary)
+        self._vocabulary[TOKEN.unknown] = len(self._vocabulary)
+    return self._vocabulary
+#+end_src
+**** The Tags
+#+begin_src python :noweb-ref tags
+@property
+def tags(self) -> dict:
+    """map of tag to index"""
+    if self._tags is None:
+        self._tags = {tag: index for index, tag in enumerate(
+            self.data.tag.unique())}
+        self._tags[TOKEN.unknown] = len(self._tags)
+    return self._tags
+#+end_src
+*** The Processor
+#+begin_src python :noweb-ref the-data
+@attr.s(auto_attribs=True)
+class TheData:
+    """Data pre-processor
+    
+    Args:
+     read_constants: stuff to help load the dataset
+     split_constants: stuff to help split the dataset
+     random_state: seed for the splitting
+    """
+    read_constants: namedtuple=READ
+    split_constants: namedtuple=SPLIT
+    random_state: int=33
+    _data_sets: namedtuple=None
+    _loader: DataLoader=None
+    _transformer: DataTransformer=None
+    _splitter: DataSplitter=None
+#+end_src
+**** The Data Sets
+#+begin_src python :noweb-ref data-data-sets
+@property
+def data_sets(self) -> namedtuple:
+    """The split up data sets"""
+    if self._data_sets is None:
+        self._data_sets = self.splitter.data_sets
+    return self._data_sets
+#+end_src
+**** The Loader
+#+begin_src python :noweb-ref loader
+@property
+def loader(self) -> DataLoader:
+    """The loader of the data"""
+    if self._loader is None:
+        self._loader = DataLoader(
+            read=self.read_constants,            
+        )
+    return self._loader
+#+end_src
+**** The Transformer
+#+begin_src python :noweb-ref transformer
+@property
+def transformer(self) -> DataTransformer:
+    """The sentence and label builder"""
+    if self._transformer is None:
+        self._transformer = DataTransformer(
+            data=self.loader.data,
+            vocabulary=self.loader.vocabulary,
+            tags=self.loader.tags,
+        )
+    return self._transformer
+#+end_src
+**** The Splitter
+#+begin_src python :noweb-ref splitter
+@property
+def splitter(self) -> DataSplitter:
+    """The splitter upper for the data"""
+    if self._splitter is None:
+        self._splitter = DataSplitter(
+            split=self.split_constants,
+            sentences = self.transformer.sentence_vectors,
+            labels = self.transformer.label_vectors,
+            random_state=self.random_state
+        )
+    return self._splitter
+#+end_src     
+*** Testing It Out
+#+begin_src python :results none
+from neurotic.nlp.named_entity_recognition import TheData
+
+the_data = TheData()
+
+expect(len(the_data.data_sets.x_train)).to(equal(Split.train))
+expect(len(the_data.data_sets.x_validate)).to(equal(Split.validation))
+expect(len(the_data.data_sets.x_test)).to(equal(Split.test))
+#+end_src    
