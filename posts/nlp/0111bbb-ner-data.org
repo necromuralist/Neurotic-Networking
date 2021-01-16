@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1f744d39-5ec7-43c3-aed3-2bff2bd4b574-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-709fde8b-8b91-427d-957f-760d2020bb80-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -54,108 +54,95 @@ The vocabulary maps words in our vocabulary to unique integers. As you can see, 
 We also made a map for tags.
 
 #+begin_src python :results output :exports both
-for tag, index in tags.items 
+for tag, index in tags.items():
+    print(f" - {tag}: {index}")
 #+end_src
 
-* Raw
-#+begin_example python
-# The tag_map corresponds to one of the possible tags a word can have. Run the cell below to see the possible classes you will be predicting. The prepositions in the tags mean:
-# * I: Token is inside an entity.
-# * B: Token begins an entity.
+#+RESULTS:
+#+begin_example
+ - O: 0
+ - B-geo: 1
+ - B-gpe: 2
+ - B-per: 3
+ - I-geo: 4
+ - B-org: 5
+ - I-org: 6
+ - B-tim: 7
+ - B-art: 8
+ - I-art: 9
+ - I-per: 10
+ - I-gpe: 11
+ - I-tim: 12
+ - B-nat: 13
+ - B-eve: 14
+ - I-eve: 15
+ - I-nat: 16
+ - UNK: 17
+#+end_example
 
-# In[ ]:
+| Prefix | Interpretation            |
+|--------+---------------------------|
+| B      | Token Begins an entity    |
+| I      | Token is Inside an entity |
 
+This is to help when you have multi-token entities. So if you had the name "Burt Reynolds", "Burt" would be tagged =B-per= and "Reynolds" would be tagged "I-per".
 
-print(tag_map)
+#+begin_src python :results output :exports both
+print(f"The number of tags is {len(tag_map)}")
+print(f"The vocabulary size is {len(vocab):,}")
+print(f"The training size is {len(ner.data.data_sets.x_train):,}")
+print(f"The validation size is {len(ner.data.data_sets.x_validate):,}")
+print("The first training sentence is ")
+print(f"'{' '.join(ner.data.raw_data_sets.x_train[0])}'")
+print("Its corresponding label is")
+print(f" '{' '.join(ner.data.raw_data_sets.y_train[0])}'")
 
+print("The first training encoded sentence is ")
+print(f"{ner.data.data_sets.x_train[0]}")
+print("Its corresponding encoded label is")
+print(f"{ner.data.data_sets.y_train[0]}")
+#+end_src
 
-# So the coding scheme that tags the entities is a minimal one where B- indicates the first token in a multi-token entity, and I- indicates one in the middle of a multi-token entity. If you had the sentence 
-# 
-# **"Sharon flew to Miami on Friday"**
-# 
-# the outputs would look like:
-# 
-# ```
-# Sharon B-per
-# flew   O
-# to     O
-# Miami  B-geo
-# on     O
-# Friday B-tim
-# ```
-# 
-# your tags would reflect three tokens beginning with B-, since there are no multi-token entities in the sequence. But if you added Sharon's last name to the sentence: 
-# 
-# **"Sharon Floyd flew to Miami on Friday"**
-# 
-# ```
-# Sharon B-per
-# Floyd  I-per
-# flew   O
-# to     O
-# Miami  B-geo
-# on     O
-# Friday B-tim
-# ```
-# 
-# then your tags would change to show first "Sharon" as B-per, and "Floyd" as I-per, where I- indicates an inner token in a multi-token sequence.
+#+RESULTS:
+#+begin_example
+The number of tags is 18
+The vocabulary size is 35,180
+The training size is 33,570
+The validation size is 7,194
+The first training sentence is 
+'Opposition leader Michael Howard said he hopes the government in coming weeks will try to uncover possible security flaws exploited in the attacks .'
+Its corresponding label is
+ 'O O B-per I-per O O O O O O O O O O O O O O O O O O O O'
+The first training encoded sentence is 
+[7848, 538, 5951, 6187, 172, 502, 2453, 9, 293, 11, 5306, 822, 141, 1962, 7, 26689, 1176, 686, 11905, 14806, 11, 9, 292, 21]
+Its corresponding encoded label is
+[0, 0, 3, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+#+end_example
+** A Data Generator
+ **Instructions:** Implement a data generator function that takes in `batch_size, x, y, pad, shuffle` where x is a large list of sentences, and y is a list of the tags associated with those sentences and pad is a pad value. Return a subset of those inputs in a tuple of two arrays `(X,Y)`. Each is an array of dimension (`batch_size, max_len`), where `max_len` is the length of the longest sentence *in that batch*. You will pad the X and Y examples with the pad argument. If `shuffle=True`, the data will be traversed in a random form.
 
-# In[ ]:
+ This code as an outer loop  
+ ```
+ while True:  
+ ...  
+ yield((X,Y))  
+ ```
 
+ runs continuously in the fashion of generators, pausing when yielding the next values. We will generate a batch_size output on each pass of this loop.    
 
-# Exploring information about the data
-print('The number of outputs is tag_map', len(tag_map))
-# The number of vocabulary tokens (including <PAD>)
-g_vocab_size = len(vocab)
-print(f"Num of vocabulary words: {g_vocab_size}")
-print('The vocab size is', len(vocab))
-print('The training size is', t_size)
-print('The validation size is', v_size)
-print('An example of the first sentence is', t_sentences[0])
-print('An example of its corresponding label is', t_labels[0])
+ It has two inner loops. 
+ 1. The first stores in temporal lists the data samples to be included in the next batch, and finds the maximum length of the sentences contained in it. By adjusting the length to include only the size of the longest sentence in each batch, overall computation is reduced. 
 
+ 2. The second loop moves those inputs from the temporal list into NumPy arrays pre-filled with pad values.
 
-# So you can see that we have already encoded each sentence into a tensor by converting it into a number. We also have 16 possible classes, as shown in the tag map.
-# 
-# 
-# <a name="1.2"></a>
-# ## 1.2  Data generator
-# 
-# In python, a generator is a function that behaves like an iterator. It will return the next item. Here is a [link](https://wiki.python.org/moin/Generators) to review python generators. 
-# 
-# In many AI applications it is very useful to have a data generator. You will now implement a data generator for our NER application.
-# 
-# <a name="ex01"></a>
-# ### Exercise 01
-# 
-# **Instructions:** Implement a data generator function that takes in `batch_size, x, y, pad, shuffle` where x is a large list of sentences, and y is a list of the tags associated with those sentences and pad is a pad value. Return a subset of those inputs in a tuple of two arrays `(X,Y)`. Each is an array of dimension (`batch_size, max_len`), where `max_len` is the length of the longest sentence *in that batch*. You will pad the X and Y examples with the pad argument. If `shuffle=True`, the data will be traversed in a random form.
-# 
-# **Details:**
-# 
-# This code as an outer loop  
-# ```
-# while True:  
-# ...  
-# yield((X,Y))  
-# ```
-# 
-# Which runs continuously in the fashion of generators, pausing when yielding the next values. We will generate a batch_size output on each pass of this loop.    
-# 
-# It has two inner loops. 
-# 1. The first stores in temporal lists the data samples to be included in the next batch, and finds the maximum length of the sentences contained in it. By adjusting the length to include only the size of the longest sentence in each batch, overall computation is reduced. 
-# 
-# 2. The second loop moves those inputs from the temporal list into NumPy arrays pre-filled with pad values.
-# 
-# There are three slightly out of the ordinary features. 
-# 1. The first is the use of the NumPy `full` function to fill the NumPy arrays with a pad value. See [full function documentation](https://numpy.org/doc/1.18/reference/generated/numpy.full.html).
-# 
-# 2. The second is tracking the current location in the incoming lists of sentences. Generators variables hold their values between invocations, so we create an `index` variable, initialize to zero, and increment by one for each sample included in a batch. However, we do not use the `index` to access the positions of the list of sentences directly. Instead, we use it to select one index from a list of indexes. In this way, we can change the order in which we traverse our original list, keeping untouched our original list.  
-# 
-# 3. The third also relates to wrapping. Because `batch_size` and the length of the input lists are not aligned, gathering a batch_size group of inputs may involve wrapping back to the beginning of the input loop. In our approach, it is just enough to reset the `index` to 0. We can re-shuffle the list of indexes to produce different batches each time.
+ There are three slightly out of the ordinary features. 
+ 1. The first is the use of the NumPy `full` function to fill the NumPy arrays with a pad value. See [full function documentation](https://numpy.org/doc/1.18/reference/generated/numpy.full.html).
+ 
+ 2. The second is tracking the current location in the incoming lists of sentences. Generators variables hold their values between invocations, so we create an `index` variable, initialize to zero, and increment by one for each sample included in a batch. However, we do not use the `index` to access the positions of the list of sentences directly. Instead, we use it to select one index from a list of indexes. In this way, we can change the order in which we traverse our original list, keeping untouched our original list.  
 
-# In[ ]:
+ 3. The third also relates to wrapping. Because `batch_size` and the length of the input lists are not aligned, gathering a batch_size group of inputs may involve wrapping back to the beginning of the input loop. In our approach, it is just enough to reset the `index` to 0. We can re-shuffle the list of indexes to produce different batches each time.
 
-
+#+begin_src python :results none
 # UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: data_generator
 def data_generator(batch_size, x, y, pad, shuffle=False, verbose=False):
@@ -244,11 +231,9 @@ def data_generator(batch_size, x, y, pad, shuffle=False, verbose=False):
     ### END CODE HERE ###
         if verbose: print("index=", index)
         yield((X,Y))
+#+end_src
 
-
-# In[ ]:
-
-
+#+begin_src python :results output :exports both
 batch_size = 5
 mini_sentences = t_sentences[0: 8]
 mini_labels = t_labels[0: 8]
@@ -257,7 +242,7 @@ X1, Y1 = next(dg)
 X2, Y2 = next(dg)
 print(Y1.shape, X1.shape, Y2.shape, X2.shape)
 print(X1[0][:], "\n", Y1[0][:])
-
+#+end_src
 
 # **Expected output:**   
 # ```
@@ -271,6 +256,3 @@ print(X1[0][:], "\n", Y1[0][:])
 #      1     0     0     0     0     0     2     0     0     0     0     0
 #  35180 35180 35180 35180 35180 35180]  
 # ```
-
-
-#+end_example

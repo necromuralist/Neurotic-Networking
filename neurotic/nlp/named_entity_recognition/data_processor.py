@@ -1,5 +1,6 @@
 # python
 from collections import namedtuple
+from functools import partial
 from pathlib import Path
 
 import os
@@ -37,7 +38,8 @@ DataSets = namedtuple("DataSets", [
 TheData = namedtuple("TheData", [
     "vocabulary",
     "tags",
-    "data_sets"
+    "data_sets",
+    "raw_data_sets",
 ])
 
 
@@ -82,24 +84,15 @@ class DataSplitter:
 
 
 @attr.s(auto_attribs=True)
-class DataTransformer:
-    """Converts a dataset to vectors
-
-    Since this might process the validation and test sets
-    pass in the vocabulary and tags explicitly
+class DataFlattener:
+    """Converts the kaggle data to sentences and labels
 
     Args:
      data: the data to convert
-     vocabulary: map from word to index
-     tags: map from tag to index
     """
     data: pandas.DataFrame
-    vocabulary: dict
-    tags: dict
     _sentences: list=None
     _labels: list=None
-    _sentence_vectors: list=None
-    _label_vectors: list=None
 
     @property
     def sentences(self) -> list:
@@ -114,30 +107,6 @@ class DataTransformer:
         if self._labels is None:
             self.set_sentences_and_labels()
         return self._labels
-
-    @property
-    def sentence_vectors(self) -> list:
-        """Sentences converted to Integers"""
-        if self._sentence_vectors is None:
-            self._sentence_vectors = [
-                [self.vocabulary.get(word, TOKEN.unknown)
-                 for word in sentence]
-                for sentence in self.sentences
-            ]
-            assert len(self._sentence_vectors) == len(self.sentences)
-        return self._sentence_vectors
-
-    @property
-    def label_vectors(self) -> list:
-        """Labels converted to integer-lists"""
-        if self._label_vectors is None:
-            self._label_vectors = [
-                [self.tags.get(label, TOKEN.unknown)
-                 for label in sentence_labels]
-                for sentence_labels in self.labels
-            ]
-            assert len(self._label_vectors) == len(self.labels)
-        return self._label_vectors
 
     def set_sentences_and_labels(self) -> None:
         """Converts the data to lists
@@ -157,6 +126,57 @@ class DataTransformer:
                 sentence.append(row.word)
                 labels.append(row.tag)
         return
+
+
+@attr.s(auto_attribs=True)
+class DataVectorizer:
+    """Converts the data-set strings to vectors
+
+    Args:
+     data_sets: the split up data sets
+     vocabulary: map from token to index
+     tags: map from tag to index
+    """
+    data_sets: namedtuple
+    vocabulary: dict
+    tags: dict
+    _vectorized_datasets: namedtuple=None
+
+    @property
+    def vectorized_datasets(self) -> namedtuple:
+        """the original data sets converted to indices"""
+        if self._vectorized_datasets is None:
+            sentence_vectors = partial(self.to_vectors,
+                                       to_index=self.vocabulary)
+            label_vectors = partial(self.to_vectors,
+                                    to_index=self.tags)
+            self._vectorized_datasets = DataSets(
+                x_train = sentence_vectors(self.data_sets.x_train),
+                y_train = label_vectors(self.data_sets.y_train),
+                x_validate = sentence_vectors(self.data_sets.x_validate),
+                y_validate = label_vectors(self.data_sets.y_validate),
+                x_test = sentence_vectors(self.data_sets.x_test),
+                y_test = label_vectors(self.data_sets.y_test),
+            )
+        return self._vectorized_datasets
+
+    def to_vectors(self, source: list, to_index: dict) -> list:
+        """Sentences converted to Integers
+        
+        Args:
+         source: iterator of tokenized strings to convert
+         to_index: map to convert the tokens to indices
+    
+        Returns:
+         tokens in source converted to indices
+        """
+        vectors = [
+                [to_index.get(token, TOKEN.unknown)
+                 for token in line]
+                for line in source
+            ]
+        assert len(vectors) == len(source)
+        return vectors
 
 
 @attr.s(auto_attribs=True)
@@ -222,8 +242,9 @@ class NERData:
     random_state: int=33
     _data: namedtuple=None
     _loader: DataLoader=None
-    _transformer: DataTransformer=None
+    _flattener: DataFlattener=None
     _splitter: DataSplitter=None
+    _vectorizer = DataVectorizer=None
 
     @property
     def data(self) -> namedtuple:
@@ -232,7 +253,8 @@ class NERData:
             self._data = TheData(
                 vocabulary=self.loader.vocabulary,
                 tags=self.loader.tags,
-                data_sets=self.splitter.data_sets,
+                raw_data_sets=self.splitter.data_sets,
+                data_sets=self.vectorizer.vectorized_datasets,
             )
         return self._data
 
@@ -246,15 +268,13 @@ class NERData:
         return self._loader
 
     @property
-    def transformer(self) -> DataTransformer:
+    def flattener(self) -> DataFlattener:
         """The sentence and label builder"""
-        if self._transformer is None:
-            self._transformer = DataTransformer(
+        if self._flattener is None:
+            self._flattener = DataFlattener(
                 data=self.loader.data,
-                vocabulary=self.loader.vocabulary,
-                tags=self.loader.tags,
             )
-        return self._transformer
+        return self._flattener
 
     @property
     def splitter(self) -> DataSplitter:
@@ -262,8 +282,19 @@ class NERData:
         if self._splitter is None:
             self._splitter = DataSplitter(
                 split=self.split_constants,
-                sentences = self.transformer.sentence_vectors,
-                labels = self.transformer.label_vectors,
+                sentences = self.flattener.sentences,
+                labels = self.flattener.labels,
                 random_state=self.random_state
             )
         return self._splitter
+
+    @property
+    def vectorizer(self) -> DataVectorizer:
+        """Vectorizes the raw-data sets"""
+        if self._vectorizer is None:
+            self._vectorizer = DataVectorizer(
+                data_sets=self.splitter.data_sets,
+                tags=self.loader.tags,
+                vocabulary=self.loader.vocabulary
+            )
+        return self._vectorizer
