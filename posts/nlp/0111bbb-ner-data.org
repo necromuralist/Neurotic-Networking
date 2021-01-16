@@ -11,100 +11,54 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9baee0df-a027-4acf-b17c-b0fd366b6187-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-1f744d39-5ec7-43c3-aed3-2bff2bd4b574-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * The Data
   - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Previous Post" %}}ner-pre-processing-the-data{{% /lancelot %}}
   - {{% lancelot title="The Next Post" %}}ner-building-the-model{{% /lancelot %}}
-
-
- We will be using a dataset from [[https://www.kaggle.com/abhinavwalia95/entity-annotated-corpus][Kaggle]] which appears to have originally come from the [[https://gmb.let.rug.nl/][Groningen Meaning Bank]] (a bank of texts, not money). The original data consists of four columns, the sentence number, the word, the part of speech of the word, and the tags.  A few tags you might expect to see are: 
-
- - geo: geographical entity
- - org: organization
- - per: person 
- - gpe: geopolitical entity
- - tim: time indicator
- - art: artifact
- - eve: event
- - nat: natural phenomenon
- - O: filler word
 
 ** Imports
 #+begin_src python :results none
-# python
-from pathlib import Path
-
-import os
-
-# pypi
-from dotenv import load_dotenv
-from tabulate import tabulate
-
-import pandas
+# this project
+from neurotic.nlp.named_entity_recognition import NERData, TOKEN
 #+end_src
-
 ** Set Up
-*** The Dataset
-    **Note:** to get the encoding for the file use =file=:
-    
-#+begin_example bash
-file -bi ner_dataset.csv
-#+end_example
-
-In this case we get:
-
-#+begin_example bash
-application/csv; charset=iso-8859-1
-#+end_example
-
-Since it isn't ASCII or ISO-8 we'll have to tell pandas what the encoding is.
-
 #+begin_src python :results none
-load_dotenv("posts/nlp/.env", override=True)
-path = Path(os.environ["NER_DATASET"]).expanduser()
-data = pandas.read_csv(path, encoding="ISO-8859-1")
+ner = NERData()
+
+# to make the functions pass we need to use their names (initially)
+vocab = vocabulary = ner.data.vocabulary
+tag_map = tags = ner.data.tags
 #+end_src
 * Middle
-** The Kaggle Data
+** Reviewing The Dataset
+As a review we can look at what's in the vocabulary.
+
 #+begin_src python :results output :exports both
-print(tabulate(data.iloc[:5], tablefmt="orgtbl", headers="keys"))
-#+end_src   
+print(vocabulary["the"])
+print(vocabulary[TOKEN.pad])
+print(vocabulary["The"])
+#+end_src
 
 #+RESULTS:
-|    | Sentence #   | Word          | POS   | Tag   |
-|----+--------------+---------------+-------+-------|
-|  0 | Sentence: 1  | Thousands     | NNS   | O     |
-|  1 | nan          | of            | IN    | O     |
-|  2 | nan          | demonstrators | NNS   | O     |
-|  3 | nan          | have          | VBP   | O     |
-|  4 | nan          | marched       | VBN   | O     |
+: 9
+: 35178
+: 61
 
-As you can (kind of) tell, the sentences are broken up so that each row has one word in it.
+The vocabulary maps words in our vocabulary to unique integers. As you can see, we made it case-sensitive.
+
+We also made a map for tags.
+
+#+begin_src python :results output :exports both
+for tag, index in tags.items 
+#+end_src
+
 * Raw
 #+begin_example python
-vocab, tag_map = get_vocab('data/large/words.txt', 'data/large/tags.txt')
-t_sentences, t_labels, t_size = get_params(vocab, tag_map, 'data/large/train/sentences.txt', 'data/large/train/labels.txt')
-v_sentences, v_labels, v_size = get_params(vocab, tag_map, 'data/large/val/sentences.txt', 'data/large/val/labels.txt')
-test_sentences, test_labels, test_size = get_params(vocab, tag_map, 'data/large/test/sentences.txt', 'data/large/test/labels.txt')
-
-
-`vocab` is a dictionary that translates a word string to a unique number. Given a sentence, you can represent it as an array of numbers translating with this dictionary. The dictionary contains a `<PAD>` token. 
-
- When training an LSTM using batches, all your input sentences must be the same size. To accomplish this, you set the length of your sentences to a certain number and add the generic `<PAD>` token to fill all the empty spaces. 
-
-# In[ ]:
-
-
-# vocab translates from a word to a unique number
-print('vocab["the"]:', vocab["the"])
-# Pad token
-print('padded token:', vocab['<PAD>'])
-
-
 # The tag_map corresponds to one of the possible tags a word can have. Run the cell below to see the possible classes you will be predicting. The prepositions in the tags mean:
 # * I: Token is inside an entity.
 # * B: Token begins an entity.

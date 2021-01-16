@@ -1,1 +1,1 @@
-from .data_processor import TheData
+from .data_processor import NERData, TOKEN

@@ -34,6 +34,12 @@ DataSets = namedtuple("DataSets", [
     "y_test"
 ])
 
+TheData = namedtuple("TheData", [
+    "vocabulary",
+    "tags",
+    "data_sets"
+])
+
 
 @attr.s(auto_attribs=True)
 class DataSplitter:
@@ -203,8 +209,8 @@ class DataLoader:
 
 
 @attr.s(auto_attribs=True)
-class TheData:
-    """Data pre-processor
+class NERData:
+    """Master NER Data preparer
     
     Args:
      read_constants: stuff to help load the dataset
@@ -214,17 +220,21 @@ class TheData:
     read_constants: namedtuple=READ
     split_constants: namedtuple=SPLIT
     random_state: int=33
-    _data_sets: namedtuple=None
+    _data: namedtuple=None
     _loader: DataLoader=None
     _transformer: DataTransformer=None
     _splitter: DataSplitter=None
 
     @property
-    def data_sets(self) -> namedtuple:
+    def data(self) -> namedtuple:
         """The split up data sets"""
-        if self._data_sets is None:
-            self._data_sets = self.splitter.data_sets
-        return self._data_sets
+        if self._data is None:
+            self._data = TheData(
+                vocabulary=self.loader.vocabulary,
+                tags=self.loader.tags,
+                data_sets=self.splitter.data_sets,
+            )
+        return self._data
 
     @property
     def loader(self) -> DataLoader:
