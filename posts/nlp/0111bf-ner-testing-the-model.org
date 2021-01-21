@@ -11,71 +11,124 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9974ba11-9b71-4b8e-8dc9-4b5779900b41-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-04f9c070-9f15-4e44-a10b-fafaa3a277fb-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Beginning
+* Testing New Sentences
   - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
-  - {{% lancelot title="The Previous Post" %}}ner-evaluating-the-model{{% /lancelot %}}    
-* Raw
-#+begin_example python
-# # Part 5:  Testing with your own sentence
-# 
+  - {{% lancelot title="The Previous Post" %}}ner-evaluating-the-model{{% /lancelot %}}
 
-# Below, you can test it out with your own sentence! 
+#+begin_src python :results none
+# python
+from pathlib import Path
 
-# In[ ]:
+# pypi
+from trax import layers
 
+import numpy
 
-# This is the function you will be using to test your own sentence.
-def predict(sentence, model, vocab, tag_map):
-    s = [vocab[token] if token in vocab else vocab['UNK'] for token in sentence.split(' ')]
-    batch_data = np.ones((1, len(s)))
-    batch_data[0][:] = s
-    sentence = np.array(batch_data).astype(int)
+# this project
+from neurotic.nlp.named_entity_recognition import (NER,
+                                                   NERData,
+                                                   TOKEN)
+#+end_src
+
+** Set Up the Model and Maps
+#+begin_src python :results output :exports both
+data = NERData().data
+model = NER(vocabulary_size=len(data.vocabulary),
+            tag_count=len(data.tags)).model
+model.init_from_file(Path("~/models/ner/model.pkl.gz", weights_only=True).expanduser())
+print(model)
+#+end_src
+
+#+RESULTS:
+: Serial[
+:   Embedding_35180_50
+:   LSTM_50
+:   Dense_18
+:   LogSoftmax
+: ]
+
+* Middle
+#+begin_src python :results none
+def predict(sentence: str,
+            model: layers.Serial=model,
+            vocabulary: dict=data.vocabulary,
+            tags: dict=data.tags,
+            unknown: str=data.vocabulary[TOKEN.unknown]) -> list:
+    """Predicts the named entities in a sentence
+
+    Args:
+     sentence: the sentence to analyze
+     model: the NER model
+     vocabulary: token to id map
+     tags: tag to id map
+     unknown: key in the vocabulary for unknown tokens
+    """
+    tokens = [vocabulary.get(token, unknown)
+              for token in sentence.split()]
+    batch_data = numpy.ones((1, len(tokens)))
+    batch_data[0][:] = tokens
+    sentence = numpy.array(batch_data).astype(int)
     output = model(sentence)
-    outputs = np.argmax(output, axis=2)
-    labels = list(tag_map.keys())
-    pred = []
-    for i in range(len(outputs[0])):
-        idx = outputs[0][i] 
-        pred_label = labels[idx]
-        pred.append(pred_label)
-    return pred
+    outputs = numpy.argmax(output, axis=-1)
+    labels = list(tags.keys())
 
+    indices = (outputs[0][index] for index in range(len(outputs[0])))
+    predictions = [labels[index] for index in indices]
+    return predictions
+#+end_src
 
-# In[ ]:
+#+begin_src python :results output :exports both
+sentence = "Bilbo Baggins, the Shire's director of trade and manufacturing policy for the Lord Sauron, said in an interview on Sunday morning that Rumblefish was working to prepare for the possibility of a second wave of the Coronavirus in the Fall, although he said it wouldn’t necessarily come before the fall of the Empire and the rise of the corpse brigade in July"
 
+def print_predictions(sentence: str):
+    predictions = predict(sentence)
+    for word, entity in zip(sentence.split(), predictions):
+        if entity != 'O':
+            print(f"{word} - {entity}")
+    return
 
-# Try the output for the introduction example
-#sentence = "Many French citizens are goin to visit Morocco for summer"
-#sentence = "Sharon Floyd flew to Miami last Friday"
+print_predictions(sentence)
+#+end_src
 
-# New york times news:
-sentence = "Peter Navarro, the White House director of trade and manufacturing policy of U.S, said in an interview on Sunday morning that the White House was working to prepare for the possibility of a second wave of the coronavirus in the fall, though he said it wouldn’t necessarily come"
-s = [vocab[token] if token in vocab else vocab['UNK'] for token in sentence.split(' ')]
-predictions = predict(sentence, model, vocab, tag_map)
-for x,y in zip(sentence.split(' '), predictions):
-    if y != 'O':
-        print(x,y)
+#+RESULTS:
+: Lord - B-org
+: Sauron, - I-org
+: Sunday - B-tim
+: morning - I-tim
+: July - B-tim
 
+#+begin_src python :results output :exports both
+print_predictions("anyone lived in a pretty how town "
+                  "(with up so floating many bells down) "
+                  "spring summer autumn winter "
+                  "he sang his didn't he danced his did.")
+#+end_src
 
-# ** Expected Results **
-# 
-# ```
-# Peter B-per
-# Navarro, I-per
-# White B-org
-# House I-org
-# Sunday B-tim
-# morning I-tim
-# White B-org
-# House I-org
-# coronavirus B-tim
-# fall, B-tim
-# ```
+#+RESULTS:
+: summer - I-tim
+: autumn - I-tim
 
+Hmm, that's interesting.
 
-#+end_example
+#+begin_src python :results output :exports both
+print_predictions("Spring Summer Autumn Winter")
+#+end_src
+
+#+RESULTS:
+: Summer - B-eve
+
+Some kind of anti-spring bias.
+
+#+begin_src python :results output :exports both
+print_predictions("Boogie booty bunny butt")
+#+end_src
+
+#+RESULTS:
+: booty - B-per
+
+Well, I suppose I'd have to match the dataset to  put more weird things in there.
