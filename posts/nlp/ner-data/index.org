@@ -1,0 +1,393 @@
+#+BEGIN_COMMENT
+.. title: NER: Data
+.. slug: ner-data
+.. date: 2021-01-13 15:00:14 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Loading the data for the NER model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-cc9191a3-0c8b-4476-8e6e-99b820b4ed41-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* The Data
+  - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Previous Post" %}}ner-pre-processing-the-data{{% /lancelot %}}
+  - {{% lancelot title="The Next Post" %}}ner-building-the-model{{% /lancelot %}}
+
+** Imports
+#+begin_src python :results none
+# from python
+import random
+
+# from pypi
+import numpy
+
+# this project
+from neurotic.nlp.named_entity_recognition import NERData, TOKEN
+#+end_src
+** Set Up
+#+begin_src python :results none
+ner = NERData()
+
+# to make the functions pass we need to use their names (initially)
+vocab = vocabulary = ner.data.vocabulary
+tag_map = tags = ner.data.tags
+#+end_src
+* Middle
+** Reviewing The Dataset
+As a review we can look at what's in the vocabulary.
+
+#+begin_src python :results output :exports both
+print(vocabulary["the"])
+print(vocabulary[TOKEN.pad])
+print(vocabulary["The"])
+#+end_src
+
+#+RESULTS:
+: 9
+: 35178
+: 61
+
+The vocabulary maps words in our vocabulary to unique integers. As you can see, we made it case-sensitive.
+
+We also made a map for tags.
+
+#+begin_src python :results output :exports both
+for tag, index in tags.items():
+    print(f" - {tag}: {index}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ - O: 0
+ - B-geo: 1
+ - B-gpe: 2
+ - B-per: 3
+ - I-geo: 4
+ - B-org: 5
+ - I-org: 6
+ - B-tim: 7
+ - B-art: 8
+ - I-art: 9
+ - I-per: 10
+ - I-gpe: 11
+ - I-tim: 12
+ - B-nat: 13
+ - B-eve: 14
+ - I-eve: 15
+ - I-nat: 16
+ - UNK: 17
+#+end_example
+
+| Prefix | Interpretation            |
+|--------+---------------------------|
+| B      | Token Begins an entity    |
+| I      | Token is Inside an entity |
+
+This is to help when you have multi-token entities. So if you had the name "Burt Reynolds", "Burt" would be tagged =B-per= and "Reynolds" would be tagged "I-per".
+
+#+begin_src python :results output :exports both
+print(f"The number of tags is {len(tag_map)}")
+print(f"The vocabulary size is {len(vocab):,}")
+print(f"The training size is {len(ner.data.data_sets.x_train):,}")
+print(f"The validation size is {len(ner.data.data_sets.x_validate):,}")
+print("The first training sentence is ")
+print(f"'{' '.join(ner.data.raw_data_sets.x_train[0])}'")
+print("Its corresponding label is")
+print(f" '{' '.join(ner.data.raw_data_sets.y_train[0])}'")
+
+print("The first training encoded sentence is ")
+print(f"{ner.data.data_sets.x_train[0]}")
+print("Its corresponding encoded label is")
+print(f"{ner.data.data_sets.y_train[0]}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+The number of tags is 18
+The vocabulary size is 35,180
+The training size is 33,570
+The validation size is 7,194
+The first training sentence is 
+'Opposition leader Michael Howard said he hopes the government in coming weeks will try to uncover possible security flaws exploited in the attacks .'
+Its corresponding label is
+ 'O O B-per I-per O O O O O O O O O O O O O O O O O O O O'
+The first training encoded sentence is 
+[7848, 538, 5951, 6187, 172, 502, 2453, 9, 293, 11, 5306, 822, 141, 1962, 7, 26689, 1176, 686, 11905, 14806, 11, 9, 292, 21]
+Its corresponding encoded label is
+[0, 0, 3, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+#+end_example
+** A Data Generator
+ The generator will have a main outer loop:
+
+#+begin_example python
+ while True:  
+     yield((X,Y))  
+#+end_example
+
+ runs continuously in the fashion of generators, pausing when yielding the next values. We will generate a batch_size output on each pass of this loop.    
+
+ It has two inner loops. 
+ 1. The first stores in temporal lists the data samples to be included in the next batch, and finds the maximum length of the sentences contained in it. By adjusting the length to include only the size of the longest sentence in each batch, overall computation is reduced. 
+
+ 2. The second loop moves those inputs from the temporal list into NumPy arrays pre-filled with pad values.
+
+ There are three slightly out of the ordinary features. 
+ 1. The first is the use of the NumPy =full= function to fill the NumPy arrays with a pad value. See [[https://numpy.org/doc/1.18/reference/generated/numpy.full.html][=full= function documentation]].
+ 
+ 2. The second is tracking the current location in the incoming lists of sentences. Generators variables hold their values between invocations, so we create an =index= variable, initialize to zero, and increment by one for each sample included in a batch. However, we do not use the =index= to access the positions of the list of sentences directly. Instead, we use it to select one index from a list of indexes. In this way, we can change the order in which we traverse our original list, keeping untouched our original list.  
+
+ 3. The third also relates to wrapping. Because =batch_size= and the length of the input lists are not aligned, gathering a batch_size group of inputs may involve wrapping back to the beginning of the input loop. In our approach, it is just enough to reset the =index= to 0. We can re-shuffle the list of indexes to produce different batches each time.
+
+#+begin_src python :results none
+def data_generator(batch_size: int, x: list, y: list, pad: int,
+                   shuffle: bool=False, verbose: bool=False):
+    """Generate batches of data for training
+
+    Args: 
+      batch_size - size of each batch generated
+      x - sentences where words are represented as integers
+      y - tags associated with the sentences
+      pad - number to use as the padding character
+      shuffle - Whether to shuffle the data
+      verbose - Whether to print information to stdout
+
+    Yields:
+     a tuple containing 2 elements:
+        X - np.ndarray of dim (batch_size, max_len) of padded sentences
+        Y - np.ndarray of dim (batch_size, max_len) of tags associated with the sentences in X
+    """    
+    # count the number of lines in data_lines
+    num_lines = len(x)
+    
+    # create an array with the indexes of data_lines that can be shuffled
+    lines_index = list(range(num_lines))
+    
+    # shuffle the indexes if shuffle is set to True
+    if shuffle:
+        random.shuffle(lines_index)
+    
+    index = 0 # tracks current location in x, y
+    while True:
+        buffer_x = [0] * batch_size
+        buffer_y = [0] * batch_size
+        max_len = 0
+        for i in range(batch_size):
+             # if the index is greater than or equal to the number of lines in x
+            if index >= num_lines:
+                # then reset the index to 0
+                index = 0
+                # re-shuffle the indexes if shuffle is set to True
+                if shuffle:
+                    random.shuffle(lines_index)
+            
+            # The current position is obtained using `lines_index[index]`
+            # Store the x value at the current position into the buffer_x
+            buffer_x[i] = x[lines_index[index]]
+            
+            # Store the y value at the current position into the buffer_y
+            buffer_y[i] = y[lines_index[index]]
+            
+            lenx = len(buffer_x[i])    #length of current x[]
+            if lenx > max_len:
+                max_len = lenx                   #max_len tracks longest x[]
+            
+            # increment index by one
+            index += 1
+
+
+        # create X,Y, NumPy arrays of size (batch_size, max_len) 'full' of pad value
+        X = numpy.full((batch_size, max_len), pad)
+        Y = numpy.full((batch_size, max_len), pad)
+
+        # copy values from lists to NumPy arrays. Use the buffered values
+        for i in range(batch_size):
+            # get the example (sentence as a tensor)
+            # in `buffer_x` at the `i` index
+            x_i = buffer_x[i]
+            
+            # similarly, get the example's labels
+            # in `buffer_y` at the `i` index
+            y_i = buffer_y[i]
+            
+            # Walk through each word in x_i
+            for j in range(len(x_i)):
+                # store the word in x_i at position j into X
+                X[i, j] = x_i[j]
+                
+                # store the label in y_i at position j into Y
+                Y[i, j] = y_i[j]
+
+        if verbose: print("index=", index)
+        yield((X,Y))
+#+end_src
+
+#+begin_src python :results output :exports both
+batch_size = 5
+mini_sentences = ner.data.data_sets.x_train[0: 8]
+mini_labels = ner.data.data_sets.y_train[0: 8]
+dg = data_generator(batch_size, mini_sentences, mini_labels, vocab["<PAD>"], shuffle=False, verbose=True)
+X1, Y1 = next(dg)
+X2, Y2 = next(dg)
+print(Y1.shape, X1.shape, Y2.shape, X2.shape)
+print(X1[0][:], "\n", Y1[0][:])
+#+end_src
+
+#+RESULTS:
+: index= 5
+: index= 2
+: (5, 27) (5, 27) (5, 24) (5, 24)
+: [ 7848   538  5951  6187   172   502  2453     9   293    11  5306   822
+:    141  1962     7 26689  1176   686 11905 14806    11     9   292    21
+:  35178 35178 35178] 
+:  [    0     0     3    10     0     0     0     0     0     0     0     0
+:      0     0     0     0     0     0     0     0     0     0     0     0
+:  35178 35178 35178]
+* Bundle It Up
+#+begin_src python :tangle ../../neurotic/nlp/named_entity_recognition/generators.py :exports none
+<<imports>>
+
+<<some-types>>
+
+
+<<data-generator>>
+
+    <<batch-generator>>
+
+    <<generator>>
+
+    <<iter-method>>
+
+    <<next-method>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# from python
+from typing import List, Tuple
+import random
+
+# from pypi
+import attr
+import numpy
+#+end_src
+** Some Types
+#+begin_src python :noweb-ref some-types
+Vectors = List[List[int]]
+Batch = Tuple[numpy.ndarray]
+#+end_src   
+** The Data Generator
+#+begin_src python :noweb-ref data-generator
+@attr.s(auto_attribs=True)
+class DataGenerator:
+    """A generator of data to train the NER Model
+
+    Args:
+     batch_size: how many lines to generate at once
+     x: the encoded sentences
+     y: the encoded labels 
+     padding: encoding to use for padding lines
+     shuffle: whether to shuffle the data
+     verbose: whether to print messages to stdout
+    """
+    batch_size: int
+    x: Vectors
+    y: Vectors
+    padding: int
+    shuffle: bool=False
+    verbose: bool=False
+    _batch: iter=None
+#+end_src
+*** The Batch Generator
+#+begin_src python :noweb-ref batch-generator
+def batch_generator(self):
+    """Generates batches"""
+    line_count = len(self.x)
+    line_indices = list(range(line_count))
+
+    if self.shuffle:
+        random.shuffle(line_indices)
+    index = 0
+    
+    while True:
+        x_batch = [0] * self.batch_size
+        y_batch = [0] * self.batch_size
+        longest = 0
+        for batch_index in range(self.batch_size):
+            if index >= line_count:
+                index = 0
+                if self.shuffle:
+                    random.shuffle(line_indices)
+            
+            x_batch[batch_index] = self.x[line_indices[index]]
+            y_batch[batch_index] = self.y[line_indices[index]]
+            
+            longest = max(longest, len(x_batch[batch_index]))
+            index += 1
+            
+        X = numpy.full((self.batch_size, longest), self.padding)
+        Y = numpy.full((self.batch_size, longest), self.padding)
+
+        for batch_index in range(self.batch_size): 
+            line = x_batch[batch_index]
+            label = y_batch[batch_index]
+
+            for word in range(len(line)):
+                X[batch_index, word] = line[word]
+                Y[batch_index, word] = label[word]
+
+        if self.verbose:
+            print("index=", index)
+        yield (X,Y)
+    return    
+#+end_src
+*** The Generator Method
+#+begin_src python :noweb-ref generator
+@property
+def batch(self):
+    """The instance of the generator"""
+    if self._batch is None:
+        self._batch = self.batch_generator()
+    return self._batch
+#+end_src    
+*** The Iterator Method
+#+begin_src python :noweb-ref iter-method
+def __iter__(self):
+    return self
+#+end_src
+*** The Next Method
+#+begin_src python :noweb-ref next-method
+def __next__(self) -> Batch:
+    return next(self.batch)
+#+end_src
+
+** Test It
+   
+#+begin_src python :results output :exports both
+from neurotic.nlp.named_entity_recognition import DataGenerator
+
+generator = DataGenerator(x=ner.data.data_sets.x_train[0:8],
+                          y=ner.data.data_sets.y_train[0: 8],
+                          batch_size=5,
+                          padding=vocabulary[TOKEN.pad])
+
+X1, Y1 = next(generator)
+X2, Y2 = next(generator)
+print(Y1.shape, X1.shape, Y2.shape, X2.shape)
+print(X1[0][:], "\n", Y1[0][:])
+#+end_src
+
+#+RESULTS:
+: (5, 27) (5, 27) (5, 24) (5, 24)
+: [ 7848   538  5951  6187   172   502  2453     9   293    11  5306   822
+:    141  1962     7 26689  1176   686 11905 14806    11     9   292    21
+:  35178 35178 35178] 
+:  [    0     0     3    10     0     0     0     0     0     0     0     0
+:      0     0     0     0     0     0     0     0     0     0     0     0
+:  35178 35178 35178]

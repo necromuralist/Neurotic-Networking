@@ -1,0 +1,406 @@
+#+BEGIN_COMMENT
+.. title: Deep N-Grams: Batch Generation
+.. slug: deep-n-grams-batch-generation
+.. date: 2021-01-05 17:08:48 UTC-08:00
+.. tags: nlp,rnns,gru,n-grams
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-d9fc4bf2-b6bc-4f8e-8664-bae9a555bd0a-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Generating Batches of Data
+  - {{% lancelot title="First Post" %}}deep-n-grams{{% /lancelot %}}
+  - {{% lancelot title="Previous Post" %}}deep-n-grams-loading-the-data{{% /lancelot %}}
+  - {{% lancelot title="Next Post" %}}deep-n-grams-creating-the-model{{% /lancelot %}}
+
+  Most of the time in Natural Language Processing, and AI in general we use batches when training our data sets. Here, you will build a data generator that takes in a text and returns a batch of text lines (lines are sentences).
+ - The generator converts text lines (sentences) into numpy arrays of integers padded by zeros so that all arrays have the same length, which is the length of the longest sentence in the entire data set.
+
+ This generator returns the data in a format that you could directly use in your model when computing the feed-forward pass of your algorithm. This iterator returns a batch of lines and a per-token mask. The batch is a tuple of three parts: inputs, targets, and mask. The inputs and targets are identical. The second column will be used to evaluate your predictions. Mask is 1 for non-padding tokens.
+
+** Imports
+#+begin_src python :results none
+# python
+from itertools import cycle
+import random
+
+# from pypi
+from expects import be_true, expect
+import trax.fastmath.numpy as numpy
+
+# this project
+from neurotic.nlp.deep_rnn.data_loader import DataLoader
+#+end_src
+** Set Up
+*** The DataLoader
+#+begin_src python :results none
+data_loader = DataLoader()
+#+end_src
+* Middle
+** The Data Generator
+ - While True loop: this will yield one batch at a time.
+ - if index >= num_lines, set index to 0. 
+ - The generator should return shuffled batches of data. To achieve this without modifying the actual lines a list containing the indexes of data_lines` is created. This list can be shuffled and used to get random batches everytime the index is reset.
+ - if len(line) < max_length append line to cur_batch.
+     - Note that a line that has length equal to max_length should not be appended to the batch. 
+     - This is because when converting the characters into a tensor of integers, an additional end of sentence token id will be added.  
+     - So if max_length is 5, and a line has 4 characters, the tensor representing those 4 characters plus the end of sentence character will be f length 5, which is the max length.
+ - if len(cur_batch) == batch_size, go over every line, convert it to an int and store it.
+ 
+ **Remember that when calling np you are really calling trax.fastmath.numpy which is trax’s version of numpy that is compatible with JAX. As a result of this, where you used to encounter the type numpy.ndarray now you will find the type jax.interpreters.xla.DeviceArray.**
+
+**Hints:**
+ - Use the line_to_tensor function above inside a list comprehension in order to pad lines with zeros.
+ - Keep in mind that the length of the tensor is always 1 + the length of the original line of characters.  Keep this in mind when setting the padding of zeros.
+
+To get it to pass you'll have to pass in the =to-tensor= method of the =DataLoader= so we'll need to alias it to match their definition.
+
+#+begin_src python :results none
+line_to_tensor = data_loader.to_tensor
+#+end_src
+
+*** Implementing the Generator
+#+begin_src python :results none
+def data_generator(batch_size: int, max_length: int, data_lines: list,
+                   line_to_tensor=line_to_tensor, shuffle: bool=True):
+    """Generator function that yields batches of data
+
+    Args:
+        batch_size (int): number of examples (in this case, sentences) per batch.
+        max_length (int): maximum length of the output tensor.
+        NOTE: max_length includes the end-of-sentence character that will be added
+                to the tensor.  
+                Keep in mind that the length of the tensor is always 1 + the length
+                of the original line of characters.
+        data_lines (list): list of the sentences to group into batches.
+        line_to_tensor (function, optional): function that converts line to tensor. Defaults to line_to_tensor.
+        shuffle (bool, optional): True if the generator should generate random batches of data. Defaults to True.
+
+    Yields:
+        tuple: two copies of the batch (jax.interpreters.xla.DeviceArray) and mask (jax.interpreters.xla.DeviceArray).
+        NOTE: jax.interpreters.xla.DeviceArray is trax's version of numpy.ndarray
+    """
+    # initialize the index that points to the current position in the lines index array
+    index = 0
+    
+    # initialize the list that will contain the current batch
+    cur_batch = []
+    
+    # count the number of lines in data_lines
+    num_lines = len(data_lines)
+    
+    # create an array with the indexes of data_lines that can be shuffled
+    lines_index = [*range(num_lines)]
+    
+    # shuffle line indexes if shuffle is set to True
+    if shuffle:
+        random.shuffle(lines_index)
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    while True:
+        
+        # if the index is greater or equal than to the number of lines in data_lines
+        if index >= num_lines:
+            # then reset the index to 0
+            index = 0
+            # shuffle line indexes if shuffle is set to True
+            if shuffle:
+                random.shuffle(lines_index)
+            
+        # get a line at the `lines_index[index]` position in data_lines
+        line = data_lines[lines_index[index]]
+        
+        # if the length of the line is less than max_length
+        if len(line) < max_length:
+            # append the line to the current batch
+            cur_batch.append(line)
+            
+        # increment the index by one
+        index += 1
+        
+        # if the current batch is now equal to the desired batch size
+        if len(cur_batch) == batch_size:
+            
+            batch = []
+            mask = []
+            
+            # go through each line (li) in cur_batch
+            for li in cur_batch:
+                # convert the line (li) to a tensor of integers
+                tensor = line_to_tensor(li)
+                
+                # Create a list of zeros to represent the padding
+                # so that the tensor plus padding will have length `max_length`
+                pad = [0] * (max_length - len(tensor))
+                
+                # combine the tensor plus pad
+                tensor_pad = tensor + pad
+                
+                # append the padded tensor to the batch
+                batch.append(tensor_pad)
+
+                # A mask for  tensor_pad is 1 wherever tensor_pad is not
+                # 0 and 0 wherever tensor_pad is 0, i.e. if tensor_pad is
+                # [1, 2, 3, 0, 0, 0] then example_mask should be
+                # [1, 1, 1, 0, 0, 0]
+                # Hint: Use a list comprehension for this
+                example_mask = [int(item != 0) for item in tensor_pad]
+                mask.append(example_mask)
+               
+            # convert the batch (data type list) to a trax's numpy array
+            batch_np_arr = numpy.array(batch)
+            mask_np_arr = numpy.array(mask)
+            
+            ### END CODE HERE ##
+            
+            # Yield two copies of the batch and mask.
+            yield batch_np_arr, batch_np_arr, mask_np_arr
+            
+            # reset the current batch to an empty list
+            cur_batch = []
+#+end_src            
+
+*** Try out the data generator.
+
+#+begin_src python :results none
+tmp_lines = ['12345678901',
+             '123456789',
+             '234567890',
+             '345678901']
+#+end_src
+
+Create a generator with a batch size of 2 and a  maximum length of 10.
+
+#+begin_src python :results none
+tmp_data_gen = data_generator(batch_size=2, 
+                              max_length=10, 
+                              data_lines=tmp_lines,
+                              shuffle=False)
+#+end_src
+
+Get one batch.
+
+#+begin_src python :results none
+tmp_batch = next(tmp_data_gen)
+#+end_src
+
+View the batch.
+
+#+begin_src python :results output :exports both
+print(tmp_batch)
+
+expected = (numpy.array([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+                         [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]]),
+            numpy.array([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+                         [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]]),
+            numpy.array([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]))
+for index, batch in enumerate(tmp_batch):
+    expect(bool((batch==expected[index]).all())).to(be_true)
+#+end_src
+
+#+RESULTS:
+: (DeviceArray([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+:              [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]], dtype=int32), DeviceArray([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+:              [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]], dtype=int32), DeviceArray([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+:              [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=int32))
+
+
+ Now that you have your generator, you can just call them and they will return tensors which correspond to your lines in Shakespeare. The first column and the second column are identical. Now you can go ahead and start building your neural network. 
+** Repeating Batch generator
+
+The way the iterator is currently defined, it will keep providing batches forever.
+
+ Although it is not needed, we want to show you the =itertools.cycle= function which is really useful when you have a generator that eventually stops.
+
+Usually we want to cycle over the dataset multiple times during training (i.e. train for multiple *epochs*).
+
+For small datasets we can use [[https://docs.python.org/3.8/library/itertools.html#itertools.cycle][=itertools.cycle=]] to achieve this easily.
+
+#+begin_src python :results none
+infinite_data_generator = cycle(
+    data_generator(batch_size=2, max_length=10, data_lines=tmp_lines))
+#+end_src
+
+#+begin_src python :results output :exports both
+ten_lines = [next(infinite_data_generator) for _ in range(10)]
+print(len(ten_lines))
+#+end_src
+
+#+RESULTS:
+: 10
+
+** Bundle It Up
+   As always, since this is going to be needed further down the road, I'll bundle it up.
+
+#+begin_src python :tangle ../../neurotic/nlp/deep_rnn/generator.py :exports none
+<<imports>>
+
+<<data-generator>>
+
+    <<line-count>>
+
+    <<line-indices>>
+
+    <<iterator-method>>
+
+    <<batch-generator>>
+
+    <<generator>>
+
+    <<next-method>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+import random
+
+# pypi
+import attr
+import trax.fastmath.numpy as numpy
+
+# this project
+from neurotic.nlp.deep_rnn.data_loader import DataLoader
+#+end_src
+*** Data Generator
+#+begin_src python :noweb-ref data-generator
+@attr.s(auto_attribs=True)
+class DataGenerator:
+    """Generates batches
+
+    Args:
+     data: lines of data
+     data_loader: something with to-tensor method
+     batch_size: size of the batches
+     max_length: the maximum length for a line (longer lines will be ignored)
+     shuffle: whether to shuffle the data
+    """
+    data: list
+    data_loader: DataLoader
+    batch_size: int
+    max_length: int
+    shuffle: bool=True
+    _line_count: int= None
+    _line_indices: list=None
+    _generator: object=None
+#+end_src
+*** Line Count
+#+begin_src python :noweb-ref line-count
+@property
+def line_count(self) -> int:
+    """Number of lines in the data"""
+    if self._line_count is None:
+        self._line_count = len(self.data)
+    return self._line_count
+#+end_src    
+*** Line Indices
+#+begin_src python :noweb-ref line-indices
+@property
+def line_indices(self) -> list:
+    """Indices of the lines in the data"""
+    if self._line_indices is None:
+        self._line_indices = list(range(self.line_count))
+    return self._line_indices
+#+end_src    
+*** The Iterator Method
+#+begin_src python :noweb-ref iterator-method
+def __iter__(self):
+    """A pass-through for this method"""
+    return self
+#+end_src
+*** The Batch Generator
+#+begin_src python :noweb-ref batch-generator
+def data_generator(self):
+    """Generator method that yields batches of data
+
+    Yields:
+     (batch, batch, mask)
+    """
+    index = 0
+    current_batch = []
+    if self.shuffle:
+        random.shuffle(self.line_indices)
+    
+    while True:
+        if index >= self.line_count:
+            index = 0
+            if self.shuffle:
+                random.shuffle(self._line_indices)
+            
+        line = self.data[self.line_indices[index]]
+        if len(line) < self.max_length:
+            current_batch.append(line)
+        index += 1
+
+        if len(current_batch) == self.batch_size:
+            batch = []
+            mask = []
+            for line in current_batch:
+                tensor = self.data_loader.to_tensor(line)
+                tensor += [0] * (self.max_length - len(tensor))
+                batch.append(tensor)
+                mask.append([int(item != 0) for item in tensor])
+               
+            batch = numpy.array(batch)
+            yield batch, batch, numpy.array(mask)
+            current_batch = []
+    return
+#+end_src
+*** The Generator
+#+begin_src python :noweb-ref generator
+@property
+def generator(self):
+    """Infinite generator of batches"""
+    if self._generator is None:
+        self._generator = self.data_generator()
+    return self._generator
+#+end_src    
+*** The Next Method
+#+begin_src python :noweb-ref next-method
+def __next__(self):
+    """make this an iterator"""
+    return next(self.generator)
+#+end_src    
+** Try It Out
+
+#+begin_src python :results none
+from neurotic.nlp.deep_rnn import DataGenerator, DataLoader
+
+loader = DataLoader()
+test_lines = ['12345678901',
+              '123456789',
+              '234567890',
+              '345678901']
+
+generator = DataGenerator(data=test_lines,
+                          data_loader=loader,
+                          batch_size=2,
+                          max_length=10,
+                          shuffle=False)
+
+actual = next(generator)
+
+expected = (numpy.array([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+                         [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]]),
+            numpy.array([[49, 50, 51, 52, 53, 54, 55, 56, 57,  1],
+                         [50, 51, 52, 53, 54, 55, 56, 57, 48,  1]]),
+            numpy.array([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]))
+for index, batch in enumerate(actual):
+    try:
+        expect(bool((batch==expected[index]).all())).to(be_true)
+    except AssertionError:
+        print(batch)
+        print(expected[index])
+        break
+#+end_src
+

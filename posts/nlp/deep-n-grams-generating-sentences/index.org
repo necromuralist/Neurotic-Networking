@@ -1,0 +1,177 @@
+#+BEGIN_COMMENT
+.. title: Deep N-Grams: Generating Sentences
+.. slug: deep-n-grams-generating-sentences
+.. date: 2021-01-05 16:49:26 UTC-08:00
+.. tags: nlp,n-grams,rnn,gru
+.. category: NLP
+.. link: 
+.. description: Generating sentences with our GRU model.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b5d72b74-c138-4af9-867f-c0dd39175ef3-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Generating New Sentences
+  - {{% lancelot title="First Post" %}}deep-n-grams{{% /lancelot %}}
+  - {{% lancelot title="Previous Post" %}}deep-n-grams-evaluating-the-model{{% /lancelot %}}
+
+ Now we'll use the language model to generate new sentences for that we need to make draws from a [[https://en.wikipedia.org/wiki/Gumbel_distribution][Gumble distribution]].
+
+The Gumbel Probability Density Function (PDF) is defined as: 
+\[
+f(z) = {1\over{\beta}}e^{\left(-z+e^{(-z)}\right)}
+\]
+
+Where:
+\[
+z = {(x - \mu)\over{\beta}}
+\]
+
+The maximum value is what we choose as the prediction in the last step of a Recursive Neural Network =RNN= we are using for text generation. A sample of a random variable from an exponential distribution approaches the Gumbel distribution when the sample increases asymptotically. For that reason, the Gumbel distribution is used to sample from a categorical distribution.
+
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+# from pypi
+import numpy
+
+# this project
+from neurotic.nlp.deep_rnn import GRUModel
+#+end_src
+** Set Up
+#+begin_src python :results none
+gru = GRUModel()
+model = gru.model
+ours = Path("~/models/gru-shakespeare-model/model.pkl.gz").expanduser()
+model.init_from_file(ours)
+#+end_src   
+* Middle
+** The Gumbel Sample
+#+begin_src python :results none
+def gumbel_sample(log_probabilities: numpy.array,
+                  temperature: float=1.0) -> float:
+    """Gumbel sampling from a categorical distribution
+
+    Args:
+     log_probabilities: model predictions for a given input
+     temperature: fudge
+
+    Returns:
+     the maximum sample
+    """
+    u = numpy.random.uniform(low=1e-6, high=1.0 - 1e-6,
+                             size=log_probabilities.shape)
+    g = -numpy.log(-numpy.log(u))
+    return numpy.argmax(log_probabilities + g * temperature, axis=-1)
+#+end_src
+** A Predictor
+#+begin_src python :results none
+END_OF_SENTENCE = 1
+
+def predict(number_of_characters: int, prefix: str,
+            break_on: int=END_OF_SENTENCE) -> str:
+    """Predicts characters
+
+    Args:
+     number_of_characters: how many characters to predict
+     prefix: character to prompt the predictions
+     break_on: identifier for character to prematurely stop on
+
+    Returns:
+     prefix followed by predicted characters
+    """
+    inputs = [ord(character) for character in prefix]
+    result = list(prefix)
+    maximum_length = len(prefix) + number_of_characters
+    for _ in range(number_of_characters):
+        current_inputs = numpy.array(inputs + [0] * (maximum_length - len(inputs)))
+        output = model(current_inputs[None, :])  # Add batch dim.
+        next_character = gumbel_sample(output[0, len(inputs)])
+        inputs += [int(next_character)]
+       
+        if inputs[-1] == break_on:
+            break  # EOS
+        result.append(chr(int(next_character)))
+    
+    return "".join(result)
+#+end_src
+** Some Predictions
+#+begin_src python :results output :exports both
+print(predict(32, ""))
+#+end_src   
+
+#+RESULTS:
+: you would not live at essenomed 
+
+Yes, but I don't know anyone who would. Note that we are using a random sample, so repeatedly making predictions won't necessarily get you the same result.
+#+begin_src python :results output :exports both
+print(predict(32, ""))
+print(predict(32, ""))
+print(predict(32, ""))
+#+end_src
+
+#+RESULTS:
+: [exeunt]
+: katharine	yes, you are like the 
+: le beau	where's some of my prett
+
+#+begin_src python :results output :exports both
+print(predict(64, "falstaff"))
+#+end_src
+
+#+RESULTS:
+: falstaff	yea, marry, lady, she hath bianced three months.
+
+/bianced/?
+
+#+begin_src python :results output :exports both
+print(predict(64, "beast"))
+#+end_src
+
+#+RESULTS:
+: beastly, and god forbid, sir! our revenue's cannon,
+
+#+begin_src python :results output :exports both
+start = "finger"
+for word in range(5):
+    start = predict(10, start)
+    print(start)
+#+end_src
+
+#+RESULTS:
+: finger, iago, an
+: finger, iago, and ask.
+: finger, iago, and ask.
+: finger, iago, and ask.
+: finger, iago, and ask.
+
+So, if you feed it enough text, it becomes more deterministic.
+
+#+begin_src python :results output :exports both
+SPACE = ord(" ")
+start = "iago"
+output = start
+for word in range(10):
+    tokens = predict(32, start).split()
+    start = tokens[1] if len(tokens) > 1 else tokens[0]
+    output = f"{output} {start}"
+print(output)    
+#+end_src
+
+#+RESULTS:
+: iago your husband if there never for you need no never
+
+
+In the generated text above, you can see that the model generates text that makes sense capturing dependencies between words and without any input. A simple n-gram model would have not been able to capture all of that in one sentence.
+* On statistical methods
+
+ Using a statistical method will not give you results that are as good. The model would not be able to encode information seen previously in the data set and as a result, the perplexity will increase. The higher the perplexity, the worse your model is. Furthermore, statistical N-Gram models take up too much space and memory. As a result, it would be inefficient and too slow. Conversely, with deep neural networks, you can get a better perplexity. Note though, that learning about n-gram language models is still important and leads to a better understanding of deep neural networks.
+

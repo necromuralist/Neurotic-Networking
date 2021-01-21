@@ -1,0 +1,310 @@
+#+BEGIN_COMMENT
+.. title: Deep N-Grams: Loading the Data
+.. slug: deep-n-grams-loading-the-data
+.. date: 2021-01-05 16:47:30 UTC-08:00
+.. tags: nlp,n-grams,rnn,gru
+.. category: NLP
+.. link: 
+.. description: Loading the data and converting it to tensors.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-5db9f1b2-7e92-4572-8627-e28f07f8bbd5-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Text to Tensor
+  - {{% lancelot title="Previous Post" %}}deep-n-grams{{% /lancelot %}}
+  - {{% lancelot title="Next Post" %}}deep-n-grams-batch-generation{{% /lancelot %}}
+
+In this section we're going to load the text data and transform it into tensors.
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+import os
+
+# pypi
+from dotenv import load_dotenv
+from expects import (be_true,
+                     contain_exactly,
+                     equal,
+                     expect)
+#+end_src
+** Set Up
+   The path to the data is kept in a =.env= file so we'll load it into the environment here.
+
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env", override=True)
+data_path = Path(os.environ["SHAKESPEARE"]).expanduser()
+expect(data_path.is_dir()).to(be_true)
+#+end_src
+* Middle
+** Loading the Data  
+  We're going to be using the plays of Shakespeare. Unlike previously, this data source has them in separate files so we'll have to load each one separately. We're going to be generating characters, not words, so each character has to be given an integer ID. We'll use the Unicode values given to us by the built-in [[https://docs.python.org/3/library/functions.html#ord][ord]] function.
+
+#+begin_src python :results none
+lines = []
+for filename in data_path.glob("*.txt"):
+    with filename.open() as play:
+        cleaned = (line.strip() for line in play)
+        lines += [line for line in cleaned if line]
+#+end_src
+
+This only cleans out the leading and trailing whitespace, there are other things like tabs still in there.
+
+#+begin_src python :results output :exports both
+line_count = len(lines)
+print(f"Number of lines: {line_count:,}")
+print(f"Sample line at position 0: {lines[0]}")
+print(f"Sample line at position 999: {lines[999]}")
+#+end_src
+
+#+RESULTS:
+: Number of lines: 125,097
+: Sample line at position 0: king john
+: Sample line at position 999: as it makes harmful all that speak of it.
+
+To make this a little easier, we'll convert all characters to lowercase.  This way, for example, the model only needs to predict the likelihood that a letter is 'a' and not decide between uppercase 'A' and lowercase 'a'.
+
+#+begin_src python :results output :exports both
+lines = [line.lower() for line in lines]
+
+new_line_count = len(lines)
+expect(new_line_count).to(equal(line_count))
+print(f"Number of lines: {new_line_count:,}")
+print(f"Sample line at position 0: {lines[0]}")
+print(f"Sample line at position 999: {lines[999]}")
+#+end_src
+
+#+RESULTS:
+: Number of lines: 125,097
+: Sample line at position 0: king john
+: Sample line at position 999: as it makes harmful all that speak of it.
+
+Once again, we're gong to do a strait split to create the training and validation data instead of using randomization.
+
+#+begin_src python :results output :exports both
+SPLIT = 1000
+validation = lines[-SPLIT:]
+training = lines[:-SPLIT]
+
+print(f"Number of lines for training: {len(training):,}")
+print(f"Number of lines for validation: {len(validation):,}")
+
+#+end_src
+
+#+RESULTS:
+: Number of lines for training: 124,097
+: Number of lines for validation: 1,000
+
+** To Tensors
+   Like I mentioned before, we're going to use python's =ord= function to convert the letters to integers.
+
+#+begin_src python :results output :exports both
+for character in "abc xyz123":
+    print(f"{character}: {ord(character)}")
+#+end_src   
+
+#+RESULTS:
+: a: 97
+: b: 98
+: c: 99
+:  : 32
+: x: 120
+: y: 121
+: z: 122
+: 1: 49
+: 2: 50
+: 3: 51
+
+# **Instructions:** Write a function that takes in a single line and transforms each character into its unicode integer.  This returns a list of integers, which we'll refer to as a tensor.
+# - Use a special integer to represent the end of the sentence (the end of the line).
+# - This will be the EOS_int (end of sentence integer) parameter of the function.
+# - Include the EOS_int as the last integer of the 
+# - For this exercise, you will use the number `1` to represent the end of a sentence.
+
+#+begin_src python :results none
+def line_to_tensor(line: str, EOS_int: int=1) -> list:
+    """Turns a line of text into a tensor
+
+    Args:
+     line: A single line of text.
+     EOS_int: End-of-sentence integer. Defaults to 1.
+
+    Returns:
+     a list of integers (unicode values) for the characters in the ``line``.
+    """
+    tensor = []
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    # for each character:
+    for c in line:
+        
+        # convert to unicode int
+        c_int = ord(c)
+        
+        # append the unicode integer to the tensor list
+        tensor.append(c_int)
+    
+    # include the end-of-sentence integer
+    tensor.append(EOS_int)
+    ### END CODE HERE ###
+
+    return tensor
+#+end_src
+
+*** Test the Output
+
+#+begin_src python :results none
+actual = line_to_tensor('abc xyz')
+expected = [97, 98, 99, 32, 120, 121, 122, 1]
+
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+** Bundle It Up
+   This is going to be needed in future posts so I'm going to put it in a class.
+
+#+begin_src python :tangle ../../neurotic/nlp/deep_rnn/data_loader.py :exports none
+<<imports>>
+
+<<data-loader>>
+
+    <<data-path>>
+
+    <<lines>>
+
+    <<training>>
+
+    <<validation>>
+
+    <<to-tensor>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from pathlib import Path
+
+import os
+
+# pypi
+from dotenv import load_dotenv
+
+import attr
+#+end_src
+*** The Data Loader
+
+#+begin_src python :noweb-ref data-loader
+@attr.s(auto_attribs=True)
+class DataLoader:
+    """Load the data and convert it to 'tensors'
+
+    Args:
+     env_path: the path to the env file (as a string)
+     env_key: the environmental variable with the path to the data
+     validation_size: number for the validation set
+     end_of_sentence: integer to use to indicate the end of a sentence
+    """
+    env_path: str="posts/nlp/.env"
+    env_key: str="SHAKESPEARE"
+    validation_size: int=1000
+    end_of_sentence: int=1
+    _data_path: Path=None
+    _lines: list=None
+    _training: list=None
+    _validation: list=None
+#+end_src
+*** The Data Path
+#+begin_src python :noweb-ref data-path
+@property
+def data_path(self) -> Path:
+    """Loads the dotenv and converts the path
+
+    Raises:
+     assertion error if path doesn't exist
+    """
+    if self._data_path is None:
+        load_dotenv(self.env_path, override=True)
+        self._data_path = Path(os.environ[self.env_key]).expanduser()
+        assert self.data_path.is_dir()
+    return self._data_path
+#+end_src    
+*** The Lines
+#+begin_src python :noweb-ref lines
+@property
+def lines(self) -> list:
+    """The lines of text-data"""
+    if self._lines is None:
+        self._lines = []
+        for filename in self.data_path.glob("*.txt"):
+            with filename.open() as play:
+                cleaned = (line.strip() for line in play)
+                self._lines += [line.lower() for line in cleaned if line]
+    return self._lines
+#+end_src    
+*** The Training Set
+#+begin_src python :noweb-ref training
+@property
+def training(self) -> list:
+    """Subset of the lines for training"""
+    if self._training is None:
+        self._training = self.lines[:-self.validation_size]
+    return self._training
+#+end_src
+*** The Validation Set
+#+begin_src python :noweb-ref validation
+@property
+def validation(self) -> list:
+    """The validation subset of the lines"""
+    if self._validation is None:
+        self._validation = self.lines[-self.validation_size:]
+    return self._validation
+#+end_src
+*** To Tensor
+#+begin_src python :noweb-ref to-tensor
+def to_tensor(self, line: str) -> list:
+    """Converts the line to the unicode value
+
+    Args:
+     line: the text to convert
+    Returns:
+     line converted to unicode integer encodings
+    """
+    return [ord(character) for character in line] + [self.end_of_sentence]
+#+end_src
+** Check the Data Loader
+#+begin_src python :results none
+from neurotic.nlp.deep_rnn.data_loader import DataLoader
+
+loader = DataLoader()
+
+expect(len(loader.lines)).to(equal(line_count))
+expect(len(loader.validation)).to(equal(SPLIT))
+expect(len(loader.training)).to(equal(line_count - SPLIT))
+
+actual = loader.to_tensor('abc xyz')
+expected = [97, 98, 99, 32, 120, 121, 122, 1]
+
+expect(actual).to(contain_exactly(*expected))
+#+end_src
+
+#+begin_src python :results output :exports both
+for line in loader.lines[:10]:
+    print(line)
+#+end_src
+
+#+RESULTS:
+: king john
+: dramatis personae
+: king john:
+: prince henry	son to the king.
+: arthur	duke of bretagne, nephew to the king.
+: the earl of
+: pembroke	(pembroke:)
+: the earl of essex	(essex:)
+: the earl of
+: salisbury	(salisbury:)

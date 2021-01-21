@@ -1,0 +1,134 @@
+#+BEGIN_COMMENT
+.. title: NER: Testing the Model
+.. slug: ner-testing-the-model
+.. date: 2021-01-13 15:03:18 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Testing the NER model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-04f9c070-9f15-4e44-a10b-fafaa3a277fb-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Testing New Sentences
+  - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Previous Post" %}}ner-evaluating-the-model{{% /lancelot %}}
+
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+# pypi
+from trax import layers
+
+import numpy
+
+# this project
+from neurotic.nlp.named_entity_recognition import (NER,
+                                                   NERData,
+                                                   TOKEN)
+#+end_src
+
+** Set Up the Model and Maps
+#+begin_src python :results output :exports both
+data = NERData().data
+model = NER(vocabulary_size=len(data.vocabulary),
+            tag_count=len(data.tags)).model
+model.init_from_file(Path("~/models/ner/model.pkl.gz", weights_only=True).expanduser())
+print(model)
+#+end_src
+
+#+RESULTS:
+: Serial[
+:   Embedding_35180_50
+:   LSTM_50
+:   Dense_18
+:   LogSoftmax
+: ]
+
+* Middle
+#+begin_src python :results none
+def predict(sentence: str,
+            model: layers.Serial=model,
+            vocabulary: dict=data.vocabulary,
+            tags: dict=data.tags,
+            unknown: str=data.vocabulary[TOKEN.unknown]) -> list:
+    """Predicts the named entities in a sentence
+
+    Args:
+     sentence: the sentence to analyze
+     model: the NER model
+     vocabulary: token to id map
+     tags: tag to id map
+     unknown: key in the vocabulary for unknown tokens
+    """
+    tokens = [vocabulary.get(token, unknown)
+              for token in sentence.split()]
+    batch_data = numpy.ones((1, len(tokens)))
+    batch_data[0][:] = tokens
+    sentence = numpy.array(batch_data).astype(int)
+    output = model(sentence)
+    outputs = numpy.argmax(output, axis=-1)
+    labels = list(tags.keys())
+
+    indices = (outputs[0][index] for index in range(len(outputs[0])))
+    predictions = [labels[index] for index in indices]
+    return predictions
+#+end_src
+
+#+begin_src python :results output :exports both
+sentence = "Bilbo Baggins, the Shire's director of trade and manufacturing policy for the Lord Sauron, said in an interview on Sunday morning that Rumblefish was working to prepare for the possibility of a second wave of the Coronavirus in the Fall, although he said it wouldn’t necessarily come before the fall of the Empire and the rise of the corpse brigade in July"
+
+def print_predictions(sentence: str):
+    predictions = predict(sentence)
+    for word, entity in zip(sentence.split(), predictions):
+        if entity != 'O':
+            print(f"{word} - {entity}")
+    return
+
+print_predictions(sentence)
+#+end_src
+
+#+RESULTS:
+: Lord - B-org
+: Sauron, - I-org
+: Sunday - B-tim
+: morning - I-tim
+: July - B-tim
+
+#+begin_src python :results output :exports both
+print_predictions("anyone lived in a pretty how town "
+                  "(with up so floating many bells down) "
+                  "spring summer autumn winter "
+                  "he sang his didn't he danced his did.")
+#+end_src
+
+#+RESULTS:
+: summer - I-tim
+: autumn - I-tim
+
+Hmm, that's interesting.
+
+#+begin_src python :results output :exports both
+print_predictions("Spring Summer Autumn Winter")
+#+end_src
+
+#+RESULTS:
+: Summer - B-eve
+
+Some kind of anti-spring bias.
+
+#+begin_src python :results output :exports both
+print_predictions("Boogie booty bunny butt")
+#+end_src
+
+#+RESULTS:
+: booty - B-per
+
+Well, I suppose I'd have to match the dataset to  put more weird things in there.

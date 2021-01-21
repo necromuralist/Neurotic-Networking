@@ -1,0 +1,176 @@
+#+BEGIN_COMMENT
+.. title: NER: Building the Model
+.. slug: ner-building-the-model
+.. date: 2021-01-13 15:01:26 UTC-08:00
+.. tags: lstm,rnn,nlp,ner
+.. category: NLP
+.. link: 
+.. description: Building the NER model with Trax.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-04f9c070-9f15-4e44-a10b-fafaa3a277fb-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+  - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
+  - {{% lancelot title="The Previous Post" %}}ner-data{{% /lancelot %}}
+  - {{% lancelot title="The Next Post" %}}ner-training-the-model{{% /lancelot %}}
+
+Here we'll actually build the model.
+
+ - Feed the data into an Embedding layer, to produce more semantic entries
+ - Feed it into an LSTM layer
+ - Run the output through a linear layer
+ - Run the result through a log softmax layer to get the predicted class for each word.
+** Imports
+#+begin_src python :results none
+# pypi
+from trax import layers
+
+# this project
+from neurotic.nlp.named_entity_recognition import DataGenerator, NERData, TOKEN
+#+end_src
+** Set Up
+#+begin_src python :results none
+ner = NERData()
+
+vocab = vocabulary = ner.data.vocabulary
+tag_map = tags = ner.data.tags
+#+end_src   
+* Middle
+  These are the Trax components we'll use (the links are to the implementations on Github).
+  
+ - [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/combinators.py#L26][tl.Serial]]: Combinator that applies layers serially (by function composition).
+ - [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L113][tl.Embedding]]: Initializes the embedding. In this case it is the dimension of the model by the size of the vocabulary. 
+     - =tl.Embedding(vocab_size, d_feature)=.
+     - =vocab_size= is the number of unique words in the given vocabulary.
+     - =d_feature= is the number of elements in the word embedding (some choices for a word embedding size range from 150 to 300, for example).
+ -  [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/rnn.py#L87][tl.LSTM]]:=Trax= LSTM layer of size d_model. 
+     - =LSTM(n_units)= Builds an LSTM layer of n_cells.
+ -  [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L28)(https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L28][tl.Dense]]:  A dense layer.
+     - =tl.Dense(n_units)=: The parameter =n_units= is the number of units chosen for this dense layer.  
+ - [[https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L242][tl.LogSoftmax]]: Log of the output probabilities.
+     - Here, you don't need to set any parameters for =LogSoftMax()=.
+
+ **Online documentation**
+
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#module-trax.layers.combinators][tl.Serial]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][tl.Embedding]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][tl.LSTM]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Dense][tl.Dense]]
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.LogSoftmax][tl.LogSoftmax]]
+
+#+begin_src python :results none
+def NER(vocab_size: int=35181, d_model: int=50, tags: dict=tag_map):
+    """
+    Args: 
+      vocab_size: number of words in the vocabulary
+      d_model: the embedding size
+
+    Returns:
+       model: a trax serial model
+    """
+    model = layers.Serial(
+        layers.Embedding(vocab_size, d_feature=d_model),
+        layers.LSTM(d_model),
+        layers.Dense(n_units=len(tag_map)),
+        layers.LogSoftmax()
+      )
+    return model
+#+end_src
+
+** Inspecting the Model
+
+#+begin_src python :results outut :exports both
+model = NER()
+# display your model
+print(model)
+#+end_src
+
+#+RESULTS:
+: Serial[
+:   Embedding_35181_50
+:   LSTM_50
+:   Dense_18
+:   LogSoftmax
+: ]
+
+** Pack It Up for Later
+#+begin_src python :tangle ../../neurotic/nlp/named_entity_recognition/model.py :exports none
+<<imports>>
+
+<<constants>>
+
+
+<<the-model>>
+
+    <<model-instance>>
+#+end_src   
+*** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import namedtuple
+
+# pypi
+from trax import layers
+
+import attr
+#+end_src
+*** Constants
+#+begin_src python :noweb-ref constants
+Settings = namedtuple("Settings", ["embeddings_size"])
+SETTINGS = Settings(50)
+#+end_src    
+*** The Model
+#+begin_src python :noweb-ref the-model
+@attr.s(auto_attribs=True)
+class NER:
+    """The named entity recognition model
+
+    Args:
+     vocabulary_size: number of tokens in the vocabulary
+     tag_count: number of tags
+     embeddings_size: the number of features in the embeddings layer
+    """
+    vocabulary_size: int
+    tag_count: int
+    embeddings_size: int=SETTINGS.embeddings_size
+    _model: layers.Serial=None
+#+end_src    
+**** The Actual Model
+#+begin_src python :noweb-ref model-instance
+@property
+def model(self) -> layers.Serial:
+    """The NER model instance"""
+    if self._model is None:
+        self._model = layers.Serial(
+            layers.Embedding(self.vocabulary_size,
+                             d_feature=self.embeddings_size),
+            layers.LSTM(self.embeddings_size),
+            layers.Dense(n_units=self.tag_count),
+            layers.LogSoftmax()
+      )
+    return self._model
+#+end_src     
+
+** Sanity Check
+#+begin_src python :results output :exports both
+from neurotic.nlp.named_entity_recognition import NER
+
+builder = NER(122, 666)
+
+print(builder.model)
+#+end_src
+
+#+RESULTS:
+: Serial[
+:   Embedding_122_50
+:   LSTM_50
+:   Dense_666
+:   LogSoftmax
+: ]

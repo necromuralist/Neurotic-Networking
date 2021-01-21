@@ -1,0 +1,175 @@
+#+BEGIN_COMMENT
+.. title: Deep N-Grams: Creating the Model
+.. slug: deep-n-grams-creating-the-model
+.. date: 2021-01-05 16:48:01 UTC-08:00
+.. tags: nlp,n-grams,rnn,gru
+.. category: NLP
+.. link: 
+.. description: Creating a GRU model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-a24596d0-64a2-492f-addb-06954c445c65-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Defining the GRU Model
+  - {{% lancelot title="First Post" %}}deep-n-grams{{% /lancelot %}}
+  - {{% lancelot title="Previous Post" %}}deep-n-grams-loading-the-data{{% /lancelot %}}
+  - {{% lancelot title="Next Post" %}}deep-n-grams-training-the-model{{% /lancelot %}}
+
+We're going to build a =GRU= model using trax. We'll do this by passing in "layers" to the =Serial= class:
+
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial][=Serial=]]: Class that applies layers serially (by function composition). 
+    + You can pass in the layers as arguments to =Serial=, separated by commas. 
+    + For example: =Serial(Embeddings(...), Mean(...), Dense(...), LogSoftmax(...))=
+
+
+These are the layers that we'll be using:
+
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.ShiftRight][=ShiftRight=]]: A layer that adds padding to shift the input. (note that this is one of the Trax methods that has re-named the arguments)
+    + =ShiftRight(n_positions=1, mode='train')= layer to shift the tensor to the right n_positions times
+    + Here in the exercise you only need to specify the mode and not worry about n_positions
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][=Embedding=]]: Initializes the embedding layer which maps tokens/IDs to vectors 
+    + =Embedding(vocab_size, d_feature)=. In this case it is the size of the vocabulary by the dimension of the model.
+    + =vocab_size= is the number of unique words in the given vocabulary.
+    + =d_feature= is the number of elements in the word embedding (some choices for a word embedding size range from 150 to 300, for example).
+ -  [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.GRU][=GRU=]]: The =Trax= GRU layer.
+    + =GRU(n_units)= Builds a traditional GRU of n_cells with dense internal transformations.
+    + An academic paper looking at the GRU: [[https://arxiv.org/abs/1412.3555][Empirical Evaluation of Gated Neural Networks On Sequence Modeling]]
+ -  [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Dense][=Dense=]]: A dense (fully-connected) layer.
+    + =Dense(n_units)=: The parameter =n_units= is the number of units chosen for this dense layer.
+ -  [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.LogSoftmax][=LogSoftmax=]]: Log of the output probabilities.
+    + Here, you don't need to set any parameters for =LogSoftMax()=.
+** Imports
+#+begin_src python :results none
+# pypi
+from trax import layers
+#+end_src
+* Middle
+** The GRU Model
+#+begin_src python :results none
+def GRULM(vocab_size: int=256, d_model: int=512, n_layers: int=2, mode:str='train') -> layers.Serial:
+    """Returns a GRU language model.
+
+    Args:
+        vocab_size (int, optional): Size of the vocabulary. Defaults to 256.
+        d_model (int, optional): Depth of embedding (n_units in the GRU cell). Defaults to 512.
+        n_layers (int, optional): Number of GRU layers. Defaults to 2.
+        mode (str, optional): 'train', 'eval' or 'predict', predict mode is for fast inference. Defaults to "train".
+
+    Returns:
+        trax.layers.combinators.Serial: A GRU language model as a layer that maps from a tensor of tokens to activations over a vocab set.
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    model = layers.Serial(
+        # the ``n_shifts`` argument seems to have changed to ``n_positions``,
+        # don't use it remain be backwards compatible
+        layers.ShiftRight(1, mode=mode),
+        layers.Embedding(vocab_size, d_model),
+        *[layers.GRU(d_model) for unit in range(n_layers)],
+        layers.Dense(vocab_size),
+        layers.LogSoftmax()
+    )
+    ### END CODE HERE ###
+    return model
+#+end_src
+** Will It Build?
+#+begin_src python :results output :exports both
+model = GRULM()
+print(model)
+#+end_src
+
+#+RESULTS:
+: Serial[
+:   Serial[
+:     ShiftRight(1)
+:   ]
+:   Embedding_256_512
+:   GRU_512
+:   GRU_512
+:   Dense_256
+:   LogSoftmax
+: ]
+
+** Saving it for Later
+ It seems a little goofy to do this, but since I might forget some of the values, might as well.
+
+#+begin_src python :tangle ../../neurotic/nlp/deep_rnn/model.py
+<<imports>>
+
+<<constants>>
+
+
+<<the-model-builder>>
+
+    <<the-model>>
+#+end_src
+*** Imports
+#+begin_src python :noweb-ref imports
+# from pypi
+from trax import layers
+
+import attr
+#+end_src
+*** Model Builder
+#+begin_src python :noweb-ref the-model-builder
+@attr.s(auto_attribs=True)
+class GRUModel:
+    """Builds the layers for the GRU model
+
+    Args:
+     shift_positions: amount of padding to add to the front of input
+     vocabulary_size: the size of our learned vocabulary
+     model_dimensions: the GRU and Embeddings dimensions
+     gru_layers: how many GRU layers to create
+     mode: train, eval, or predict
+    """
+    shift_positions: int=1
+    vocabulary_size: int=256
+    model_dimensions: int=512
+    gru_layers: int=2
+    mode: str="train"
+    _model: layers.Serial=None
+#+end_src
+**** The Model
+#+begin_src python :noweb-ref the-model
+@property
+def model(self) -> layers.Serial:
+    """The GRU Model"""
+    if self._model is None:
+        self._model = layers.Serial(
+            layers.ShiftRight(self.shift_positions, mode=self.mode),
+            layers.Embedding(self.vocabulary_size, self.model_dimensions),
+            ,*[layers.GRU(self.model_dimensions)
+              for gru_layer in range(self.gru_layers)],
+            layers.Dense(self.vocabulary_size),
+            layers.LogSoftmax()
+        )
+    return self._model
+#+end_src     
+
+** Check It Out
+
+#+begin_src python :results output :exports both
+from neurotic.nlp.deep_rnn import GRUModel
+
+gru = GRUModel()
+print(gru.model)
+#+end_src   
+
+#+RESULTS:
+: Serial[
+:   Serial[
+:     ShiftRight(1)
+:   ]
+:   Embedding_256_512
+:   GRU_512
+:   GRU_512
+:   Dense_256
+:   LogSoftmax
+: ]

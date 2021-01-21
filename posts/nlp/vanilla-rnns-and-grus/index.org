@@ -1,0 +1,304 @@
+#+BEGIN_COMMENT
+.. title: Vanilla RNNs and GRUs
+.. slug: vanilla-rnns-and-grus
+.. date: 2021-01-01 20:21:58 UTC-08:00
+.. tags: nlp,rnns
+.. category: NLP
+.. link: 
+.. description: Looking at Recurrent Neural Networks with and without GRUs.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-173c4e71-b516-4d1c-9dc3-75c8fef90415-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Vanilla RNNs, GRUs and the =scan= function
+** Imports
+#+begin_src python :results none
+# from python
+from argparse import Namespace
+from collections import namedtuple
+from time import perf_counter
+
+# from pypi
+from expects import be_true, expect
+from numpy import random
+
+import numpy
+#+end_src
+** Set Up
+*** The Sigmoid Function
+#+begin_src python :results none
+def sigmoid(x: numpy.ndarray) -> numpy.ndarray:
+    """Calculates the sigmoid of x
+
+    Args:
+     x: the array (or float) to get the sigmoid for
+
+    Returns:
+     the sigmoid of x
+    """
+    return 1.0 / (1.0 + numpy.exp(-x))
+#+end_src
+*** Collections
+    These are going to hold the arrays that we are using for calculation.
+
+#+begin_src python :results none
+Weights = namedtuple("Weights", "w1 w2 w3 b1 b2 b3".split())
+Inputs = namedtuple("Inputs", "X hidden_state".split())
+#+end_src
+    
+* Middle
+** The Forward Method For Vanilla RNNs and GRUs
+In this part of the notebook, we'll look at the implementation of the forward method for a vanilla RNN and implement that same method for a GRU. For this excercise we'll use a set of random weights and variables with the following dimensions:
+
+ - Embedding size (=emb=) : 128
+ - Hidden state size (=h_dim=) : (16,1)
+
+The weights =w_= and biases =b_= are initialized with dimensions (=h_dim=, =emb + h_dim=) and (=h_dim=, 1). We expect the hidden state =h_t= to be a column vector with size (=h_dim=,1) and the initial hidden state =h_0= is a vector of zeros.
+
+Now we'll set up the variables for the dimensions.
+
+#+begin_src python :results none
+Dimension = Namespace(
+    embedding=128,
+    hidden_variables=256,
+    hidden_state=16,    
+)
+#+end_src
+
+Now we'll initialize the various arrays.
+
+
+#+begin_src python :results none
+random.seed(10)
+
+weights = Weights(
+    w1 = random.standard_normal(
+        (Dimension.hidden_state,
+         Dimension.embedding + Dimension.hidden_state)),
+    w2 = random.standard_normal(
+        (Dimension.hidden_state,
+         Dimension.embedding + Dimension.hidden_state)),
+    w3 = random.standard_normal(
+        (Dimension.hidden_state,
+         Dimension.embedding + Dimension.hidden_state)),
+    b1 = random.standard_normal((Dimension.hidden_state, 1)),
+    b2 = random.standard_normal((Dimension.hidden_state, 1)),
+    b3 = random.standard_normal((Dimension.hidden_state, 1)),  
+)
+
+inputs = Inputs(
+    hidden_state = numpy.zeros((Dimension.hidden_state, 1)),
+    X = random.standard_normal((Dimension.hidden_variables, Dimension.embedding, 1))
+)
+#+end_src
+*** The Forward Method For Vanilla RNNs
+The vanilla RNN cell is quite straight forward. 
+
+The computations made in a vanilla RNN cell are equivalent to the following equations:
+
+\begin{equation}
+ h^{\langle t \rangle}=g(W_{h}[h^{\langle t-1 \rangle},x^{\langle t \rangle}] + b_h)
+ \label{eq: htRNN}
+ \end{equation}
+
+ \begin{equation}
+ \hat{y}^{\langle t \rangle}=g(W_{yh}h^{\langle t \rangle} + b_y)
+ \label{eq: ytRNN}
+\end{equation}
+ 
+ Where \([h^{\langle t-1 \rangle},x^{\langle t \rangle}]\) means that \(h^{\langle t-1 \rangle}\) and \(x^{\langle t \rangle}\) are concatenated together.
+
+ Here's the implementation of the forward method for a vanilla RNN. 
+
+#+begin_src python :results none 
+def forward_vanilla_RNN(inputs: tuple, weights: tuple) -> tuple:
+    """
+    Forward propagation for a a single vanilla RNN cell
+
+    Args:
+     inputs: collection of x and the hidden state
+     weights: collections of weights and biases
+
+    Returns:
+     hidden state twice (so we don't have to implement y for the scan)
+    """
+    x, hidden_state = inputs
+    w1, _, _, b1, _, __ = weights
+    h_t = numpy.dot(w1,
+                    numpy.concatenate([hidden_state,
+                                       x])) + b1
+    h_t = sigmoid(h_t)
+    return h_t, h_t
+#+end_src
+
+As you can see, we omitted the computation of \(\hat{y}^{\langle t \rangle}\). This was done for the sake of simplicity, so you can focus on the way that hidden states are updated here and in the GRU cell.
+*** The Forward Method For GRUs
+ A GRU cell has more computations than the ones that vanilla RNNs have.
+
+GRUs have relevance \(\Gamma_r\) and update \(\Gamma_u\) gates that control how the hidden state \(h^{\langle t \rangle}\) is updated on every time step. With these gates, GRUs are capable of keeping relevant information in the hidden state even for long sequences. The equations needed for the forward method in GRUs are: 
+
+\begin{equation}
+\Gamma_r=\sigma{(W_r[h^{\langle t-1\rangle}, x^{\langle t\rangle}]+b_r)}
+\end{equation}
+
+\begin{equation}
+\Gamma_u=\sigma{(W_u[h^{\langle t-1\rangle}, x^{\langle t\rangle}]+b_u)}
+\end{equation}
+
+\begin{equation}
+c^{\langle t\rangle}=\tanh{(W_h[\Gamma_r*h^{\langle t-1\rangle},x^{\langle t\rangle}]+b_h)}
+\end{equation}
+
+\begin{equation}
+h^{\langle t\rangle}=\Gamma_u*c^{\langle t\rangle}+(1-\Gamma_u)*h^{\langle t-1\rangle}
+\end{equation}
+
+In the next cell, we'll implement the forward method for a GRU cell by computing the update =u= and relevance =r= gates, and the candidate hidden state =c=. 
+
+#+begin_src python :results none
+def forward_GRU(inputs: tuple, weights: Namespace) -> tuple:
+    """
+    Forward propagation for a single GRU cell
+
+    Args: 
+     inputs: collection of (x, h_t)
+     weights: tuple of weights
+
+    Returns:
+     updated hidden weights twice
+    """
+    x, h_t = inputs
+
+    # weights.
+    wu, wr, wc, bu, br, bc = weights
+
+    # Update gate
+    u = numpy.dot(wu, numpy.concatenate([h_t, x])) + bu
+    u = sigmoid(u)
+    
+    # Relevance gate
+    r = numpy.dot(wr, numpy.concatenate([h_t, x])) + br
+    r = sigmoid(r)
+    
+    # Candidate hidden state 
+    c = numpy.dot(wc, numpy.concatenate([r * h_t, x])) + bc
+    c = numpy.tanh(c)
+    
+    # New Hidden state h_t
+    h_t = u * c + (1 - u) * h_t
+    return h_t, h_t
+#+end_src
+
+**** A Check
+
+#+begin_src python :results output :exports both
+actual = forward_GRU([inputs.X[1], inputs.hidden_state], weights)[0]
+print(actual)
+
+expected = numpy.array([[ 9.77779014e-01],
+                        [-9.97986240e-01],
+                        [-5.19958083e-01],
+                        [-9.99999886e-01],
+                        [-9.99707004e-01],
+                        [-3.02197037e-04],
+                        [-9.58733503e-01],
+                        [ 2.10804828e-02],
+                        [ 9.77365398e-05],
+                        [ 9.99833090e-01],
+                        [ 1.63200940e-08],
+                        [ 8.51874303e-01],
+                        [ 5.21399924e-02],
+                        [ 2.15495959e-02],
+                        [ 9.99878828e-01],
+                        [ 9.77165472e-01]])
+expect(numpy.allclose(actual, expected)).to(be_true)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[[ 9.77779014e-01]
+ [-9.97986240e-01]
+ [-5.19958083e-01]
+ [-9.99999886e-01]
+ [-9.99707004e-01]
+ [-3.02197037e-04]
+ [-9.58733503e-01]
+ [ 2.10804828e-02]
+ [ 9.77365398e-05]
+ [ 9.99833090e-01]
+ [ 1.63200940e-08]
+ [ 8.51874303e-01]
+ [ 5.21399924e-02]
+ [ 2.15495959e-02]
+ [ 9.99878828e-01]
+ [ 9.77165472e-01]]
+#+end_example
+
+** Part 2: Implementation of the =scan= function
+
+The =scan= function is used for forward propagation in RNNs. It takes as inputs:
+
+ - =fn= : the function to be called recurrently (i.e. =forward_GRU=)
+ - =elems= : the list of inputs for each time step (=X=)
+ - =weights= : the parameters needed to compute =fn=
+ - =h_0= : the initial hidden state
+
+ =scan= goes through all the elements =x= in =elems=, calls the function =fn= with arguments ([=x=, =h_t=],=weights=), stores the computed hidden state =h_t= and appends the result to a list =ys=. Complete the following cell by calling =fn= with arguments ([=x=, =h_t=],=weights=).
+
+#+begin_src python :results none
+def scan(fn, elems, weights, h_0=None) -> tuple:
+    """
+    Forward propagation for RNNs
+
+    Args:
+     function: callable that updates the hidden state
+      elems: input (x)
+      weights: collection of weights
+      h_0: the initial hidden weights
+    """
+    h_t = h_0
+    ys = []
+    for x in elems:
+        y, h_t = fn([x, h_t], weights)
+        ys.append(y)
+    return ys, h_t
+#+end_src
+
+** Comparing Vanilla RNNs and GRUs
+
+ You have already seen how forward propagation is computed for vanilla RNNs and GRUs. As a quick recap, you need to have a forward method for the recurrent cell and a function like =scan= to go through all the elements from a sequence using a forward method. You saw that GRUs performed more computations than vanilla RNNs, and you can check that they have 3 times more parameters. In the next two cells, we compute forward propagation for a sequence with 256 time steps (=T=) for an RNN and a GRU with the same hidden state =h_t= size (=h_dim==16).  
+
+*** Vanilla RNNs
+    We'll train the RNN and also time it.
+
+#+begin_src python :results output :exports both    
+tick = perf_counter()
+ys, h_T = scan(forward_vanilla_RNN, inputs.X, weights, inputs.hidden_state)
+tock = perf_counter()
+RNN_time=(tock-tick) * 1000
+print (f"It took {RNN_time:.2f}ms to run the forward method for the vanilla RNN.")
+#+end_src
+
+#+RESULTS:
+: It took 2.03ms to run the forward method for the vanilla RNN.
+
+*** GRUs
+#+begin_src python :results output :exports both
+tick = perf_counter()
+ys, h_T = scan(forward_GRU, inputs.X, weights, inputs.hidden_state)
+tock = perf_counter()
+GRU_time=(tock - tick) * 1000
+print (f"It took {GRU_time:.2f}ms to run the forward method for the GRU.")
+#+end_src
+
+#+RESULTS:
+: It took 5.48ms to run the forward method for the GRU.
+
+
+GRUs take more time to compute. This means that training and prediction would take more time for a GRU than for a vanilla RNN. However, GRUs allow you to propagate relevant information even for long sequences, so when selecting an architecture for NLP we should assess the tradeoff between computational time and performance. 

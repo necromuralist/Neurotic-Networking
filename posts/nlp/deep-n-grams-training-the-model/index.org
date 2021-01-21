@@ -1,0 +1,1731 @@
+#+BEGIN_COMMENT
+.. title: Deep N-Grams: Training the Model
+.. slug: deep-n-grams-training-the-model
+.. date: 2021-01-05 16:48:29 UTC-08:00
+.. tags: nlp,n-grams,rnn,gru
+.. category: NLP
+.. link: 
+.. description: Training the GRU model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-00a06be7-a9a9-4891-a70c-9ee395ff0ab2-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Training The Model
+  - {{% lancelot title="First Post" %}}deep-n-grams{{% /lancelot %}}
+  - {{% lancelot title="Previous Post" %}}deep-n-grams-creating-the-model{{% /lancelot %}}
+  - {{% lancelot title="Next Post" %}}deep-n-grams-evaluating-the-model{{% /lancelot %}}
+
+  Now we are going to train the model. We have to define:
+   - the cost function
+   - the optimizer
+
+   To train a model on a task, Trax defines an abstraction called [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html?highlight=TrainTask#trax.supervised.training.TrainTask][=trax.supervised.training.TrainTask=]] which packages the training data, loss, and optimizer (among other things) together into an object.
+
+ Similarly, to evaluate a model Trax defines an abstraction =trax.supervised.training.EvalTask= which packages the eval data and metrics (among other things) into another object (and which doesn't seem to have any documentation yet).
+
+ The final piece tying things together is the [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop][=trax.supervised.training.Loop=]] abstraction that is a very simple and flexible way to put everything together and train the model, all the while evaluating it and saving checkpoints.
+ 
+Using =training.Loop= will save you a lot of code compared to always writing the training loop by hand, like you did in courses 1 and 2. More importantly, you are less likely to have a bug in that code that would ruin your training.
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from datetime import datetime
+from functools import partial
+
+# pypi
+from expects import equal, expect
+from holoviews import opts
+from trax.supervised import training as trax_training
+from trax import layers
+
+import holoviews
+import hvplot.pandas
+import pandas
+import trax
+
+# this project
+from neurotic.nlp.deep_rnn import GRUModel, DataGenerator, DataLoader
+
+# another project
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** Some Constants
+#+begin_src python :results none
+DataSettings = namedtuple(
+    "DataSettings",
+    "batch_size max_length learning_rate output".split())
+SETTINGS = DataSettings(batch_size=32,
+                        max_length=64,
+                        learning_rate=0.0005,
+                        output="~/models/gru-shakespeare-model/")
+#+end_src
+*** Previous Code From this Series
+#+begin_src python :results none
+loader = DataLoader()
+
+# the name "training" was getting confusing (since trax's module is also called
+# training) so this is training_generator and their's is trax_training
+training_generator = DataGenerator(data=loader.training, data_loader=loader,
+                  batch_size=SETTINGS.batch_size,
+                  max_length=SETTINGS.max_length)
+
+evaluation = DataGenerator(data=loader.validation, data_loader=loader,
+                  batch_size=SETTINGS.batch_size,
+                  max_length=SETTINGS.max_length)
+gru = GRUModel()
+#+end_src
+*** Plotting
+#+begin_src python :results none
+slug = "deep-n-grams-training-the-model"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{slug}")
+
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src    
+* Middle
+** Some Jargon
+An =epoch= is traditionally defined as one pass through the dataset.
+
+ Since the dataset was divided into =batches= you need several =steps= (gradient evaluations) in order to complete an =epoch=. So, one =epoch= corresponds to the number of examples in a =batch= times the number of =steps=. In short, in each =epoch= you go over all of the data. 
+
+The =max_length= variable defines the maximum length of lines to be used in training our data, lines longer that that length are discarded. 
+
+ Below is a function and results that indicate how many lines conform to our criteria of maximum length of a sentence in the entire dataset and how many =steps= are required in order to cover the entire dataset which in turn corresponds to an =epoch=.
+
+#+begin_src python :results none
+def lines_used(lines: list, max_length: int) -> int:
+    """Counts the number of lines of max_length or shorter
+
+    Args: 
+     lines: all lines of text as an array of lines
+     max_length: maximum length of a line to use
+
+    Returns:
+     number of usable examples
+    """
+    return sum(1 for line in lines if len(line) <= max_length)
+#+end_src
+
+Let's see what we get.
+
+
+#+begin_src python :results output :exports both
+useable = lines_used(loader.training, 32)
+print(f"Number of used lines from the dataset: {useable:,}")
+print(f"Batch size (a power of 2): {SETTINGS.batch_size}")
+steps_per_epoch = int(useable/SETTINGS.batch_size)
+print(f"Number of steps to cover one epoch: {steps_per_epoch}")
+
+# our training sets aren't exactly the same for some reason.
+# expect(useable).to(equal(25881))
+# expect(steps_per_epoch).to(equal(808))
+#+end_src
+
+#+RESULTS:
+: Number of used lines from the dataset: 25,781
+: Batch size (a power of 2): 32
+: Number of steps to cover one epoch: 805
+
+It looks like the original notebook used =os.listdir= while I'm using =Path.glob=. Neither of them load the files in alphabetical order, but they also don't load them in the same order as each other for some reason, so our data sets are the same length but the training and validation split created slightly different sets. Oh, well.
+** Training the Model
+We'll implement the =train_model= program below to train the neural network we created in the previous post. Here is a list of things to do:
+
+ - Create a =trax.supervised.trainer.TrainTask= object:
+    + labeled_data = the labeled data that we want to *train* on.
+    + loss_fn = [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=CrossEntropyLoss#trax.layers.metrics.CrossEntropyLoss][CrossEntropyLoss()]] (**note that this is deprecated**)
+    + optimizer = [[https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html?highlight=Adam#trax.optimizers.adam.Adam][trax.optimizers.Adam()]] with a learning rate of 0.0005
+ - Create a =trax.supervised.trainer.EvalTask= object:
+    + labeled_data = the labeled data that we want to *evaluate* on.
+    + metrics = [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss][CrossEntropyLoss()]] and [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.Accuracy][Accuracy()]]
+    + How frequently we want to evaluate and checkpoint the model.
+
+ - Create a =trax.supervised.trainer.Loop= object, this encapsulates the following:
+    + The previously created =TrainTask= and =EvalTask= objects.
+    + the training model
+    + optionally the evaluation model, if different from the training model. **NOTE:** in presence of Dropout, etc. we usually want the evaluation model to behave slightly differently than the training model.
+
+We will be using a cross entropy loss, with the Adam optimizer. See the [[https://trax-ml.readthedocs.io/en/latest/index.html][trax]] documentation to get a better understanding. Make sure you use the number of steps provided as a parameter to train for the desired number of steps.
+
+ **NOTE:** Don't forget to wrap the data generator in =itertools.cycle= to iterate on it for multiple epochs.
+   
+#+begin_src python :results none
+def train_model(model: layers.Serial, data_generator: DataGenerator,
+                batch_size: int=SETTINGS.batch_size,
+                max_length: int=SETTINGS.max_length,
+                lines: list=loader.training,
+                eval_lines: list=loader.validation,
+                n_steps: int=1, output_dir='model/') -> training.Loop: 
+    """Function that trains the model
+
+    Args:
+      model: GRU model.
+      data_generator: Data generator function.
+      batch_size: Number of lines per batch.
+      max_length: Maximum length allowed for a line to be processed. 
+      lines: List of lines to use for training. Defaults to lines.
+      eval_lines: List of lines to use for evaluation.
+      n_steps: Number of steps to train.
+      output_dir: Relative path of directory to save model.
+
+    Returns:
+      Training loop for the model.
+    """
+    # this is the broken version for submission, I'll make a separate one for local running.
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    bare_train_generator = data_generator(batch_size, max_length, lines,
+     line_to_tensor)
+    infinite_train_generator = itertools.cycle(bare_train_generator)
+
+    bare_eval_generator = data_generator(batch_size, max_length,
+                                         eval_lines,
+                                         line_to_tensor)
+
+    infinite_eval_generator = itertools.cycle(bare_eval_generator)
+
+    # the notebook code is out of date so we need to have one for them and one for us... damnit
+    # this first one is theirs
+    train_task = training.TrainTask(
+        labeled_data=infinite_train_generator,
+        loss_layer=tl.CrossEntropyLoss(),   # Don't forget to instantiate this object
+        optimizer=trax.optimizers.Adam(learning_rate=0.0005)     # Don't forget to add the learning rate parameter
+    )
+
+    eval_task = training.EvalTask(
+        labeled_data=infinite_eval_generator,
+        metrics=[tl.CrossEntropyLoss(), tl.Accuracy()], # Don't forget to instantiate these objects
+        n_eval_batches=3      # For better evaluation accuracy in reasonable time
+    )
+    
+    training_loop = training.Loop(model,
+                                  train_task,
+                                  eval_task=eval_task,
+                                  output_dir=output_dir)
+
+    training_loop.run(n_steps=n_steps)
+    
+    ### END CODE HERE ###
+    
+    # We return this because it contains a handle to the model, which has the weights etc.
+    return training_loop
+#+end_src
+
+
+# Train the model 1 step and keep the `trax.supervised.training.Loop` object.
+#+begin_example python
+training_loop = train_model(GRULM(), data_generator)
+#+end_example
+
+
+The model was only trained for 1 step due to the constraints of this environment. Even on a GPU accelerated environment it will take many hours for it to achieve a good level of accuracy. For the rest of the assignment you will be using a pretrained model but now you should understand how the training can be done using Trax.
+** Take Two
+#+begin_src python :results none
+def take_two(model: layers.Serial,
+             training: DataGenerator,
+             evaluation: DataGenerator,
+             learning_rate: float=SETTINGS.learning_rate,
+             batches: int=1,
+             evaluation_batches: int=3,
+             steps_per_checkpoint: int=1000,
+             output_dir=SETTINGS.output) -> trax_training.Loop: 
+    """Function that trains the model
+
+    Args:
+      model: GRU model.
+      training: cycling data generator for training
+      evaluation: cycling data generator for evaluation
+      learning_rate: alpha for the optimizer
+      batches: Number of batches to train.
+      evaluation_batches: number of evaluation batches to run
+      steps_per_checkpoint: how often to stop and evaluate the model
+      output_dir: Relative path of directory to save model.
+
+    Returns:
+      Training loop for the model.
+    """
+    train_task = trax_training.TrainTask(
+        labeled_data=training,
+        loss_layer=layers.WeightedCategoryCrossEntropy(),
+        optimizer=trax.optimizers.Adam(learning_rate=learning_rate),
+        n_steps_per_checkpoint=steps_per_checkpoint
+    )
+
+    eval_task = trax_training.EvalTask(
+        labeled_data=evaluation,
+        metrics=[layers.WeightedCategoryCrossEntropy(),
+                 layers.Accuracy()],
+        n_eval_batches=evaluation_batches
+    )
+    
+    training_loop = trax_training.Loop(model,
+                                  train_task,
+                                  eval_tasks=[eval_task],
+                                  output_dir=output_dir)
+    start = datetime.now()
+    training_loop.run(n_steps=batches)
+    print(f"Elapsed: {datetime.now() - start}")
+    return training_loop
+#+end_src
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, batches=1000)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Step      1: Total number of trainable weights: 3411200
+Step      1: Ran 1 train steps in 2.64 secs
+Step      1: train WeightedCategoryCrossEntropy |  5.54519987
+Step      1: eval  WeightedCategoryCrossEntropy |  5.54099703
+Step      1: eval                      Accuracy |  0.15382584
+
+Step   1000: Ran 999 train steps in 38.68 secs
+Step   1000: train WeightedCategoryCrossEntropy |  2.28923297
+Step   1000: eval  WeightedCategoryCrossEntropy |  1.82684219
+Step   1000: eval                      Accuracy |  0.45511819
+Elapsed: 0:00:41.796167
+#+end_example
+
+Now let's see what the history tells us.
+
+**Note:** As of January 9, 2021 the version of trax on pypi (1.3.7) doesn't have a =History= object (and it isn't documented) so to use this I had to install trax from the master branch of the [[https://github.com/google/trax/][GitHub Repsitory]].
+
+#+begin_src python :results output :exports both
+print(loop.history.modes)
+print(f"Evaluation metrics: {loop.history.metrics_for_mode('eval')}")
+print(f"Training Metrics: {loop.history.metrics_for_mode('train')}")
+
+print(f"Evaluation Accuracy: {loop.history.get('eval', 'metrics/Accuracy')}")
+#+end_src
+
+#+RESULTS:
+: ['eval', 'train']
+: Evaluation metrics: ['metrics/Accuracy', 'metrics/WeightedCategoryCrossEntropy']
+: Training Metrics: ['metrics/WeightedCategoryCrossEntropy', 'training/gradients_l2', 'training/learning_rate', 'training/loss', 'training/steps per second', 'training/weights_l2']
+: Evaluation Accuracy: [(1, 0.15382583936055502), (1000, 0.45511818925539654)]
+
+It made a pretty remarkable improvement after a thousand batches, especially considering it only took forty-seconds or so. Let's up the number of batches.
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, batches=1000)
+#+end_src
+
+#+RESULTS:
+: 
+: Step   2000: Ran 1000 train steps in 39.75 secs
+: Step   2000: train WeightedCategoryCrossEntropy |  1.66551745
+: Step   2000: eval  WeightedCategoryCrossEntropy |  1.65215000
+: Step   2000: eval                      Accuracy |  0.49342343
+: Elapsed: 0:00:40.189560
+
+Well, I forgot to up the number of batches. This time though...
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, batches=10000)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Step   3000: Ran 1000 train steps in 39.81 secs
+Step   3000: train WeightedCategoryCrossEntropy |  1.49474919
+Step   3000: eval  WeightedCategoryCrossEntropy |  1.50722202
+Step   3000: eval                      Accuracy |  0.53727521
+
+Step   4000: Ran 1000 train steps in 38.82 secs
+Step   4000: train WeightedCategoryCrossEntropy |  1.40773308
+Step   4000: eval  WeightedCategoryCrossEntropy |  1.44813490
+Step   4000: eval                      Accuracy |  0.54536728
+
+Step   5000: Ran 1000 train steps in 38.90 secs
+Step   5000: train WeightedCategoryCrossEntropy |  1.35936761
+Step   5000: eval  WeightedCategoryCrossEntropy |  1.40560397
+Step   5000: eval                      Accuracy |  0.55885768
+
+Step   6000: Ran 1000 train steps in 38.88 secs
+Step   6000: train WeightedCategoryCrossEntropy |  1.33801484
+Step   6000: eval  WeightedCategoryCrossEntropy |  1.36113369
+Step   6000: eval                      Accuracy |  0.57642752
+
+Step   7000: Ran 1000 train steps in 38.86 secs
+Step   7000: train WeightedCategoryCrossEntropy |  1.32240558
+Step   7000: eval  WeightedCategoryCrossEntropy |  1.38307476
+Step   7000: eval                      Accuracy |  0.56590829
+
+Step   8000: Ran 1000 train steps in 38.90 secs
+Step   8000: train WeightedCategoryCrossEntropy |  1.30228114
+Step   8000: eval  WeightedCategoryCrossEntropy |  1.38889817
+Step   8000: eval                      Accuracy |  0.56193008
+
+Step   9000: Ran 1000 train steps in 38.88 secs
+Step   9000: train WeightedCategoryCrossEntropy |  1.28101051
+Step   9000: eval  WeightedCategoryCrossEntropy |  1.36015956
+Step   9000: eval                      Accuracy |  0.56561601
+
+Step  10000: Ran 1000 train steps in 38.86 secs
+Step  10000: train WeightedCategoryCrossEntropy |  1.27505744
+Step  10000: eval  WeightedCategoryCrossEntropy |  1.36137756
+Step  10000: eval                      Accuracy |  0.57053447
+
+Step  11000: Ran 1000 train steps in 38.85 secs
+Step  11000: train WeightedCategoryCrossEntropy |  1.27052534
+Step  11000: eval  WeightedCategoryCrossEntropy |  1.34181790
+Step  11000: eval                      Accuracy |  0.57359161
+
+Step  12000: Ran 1000 train steps in 38.85 secs
+Step  12000: train WeightedCategoryCrossEntropy |  1.25399101
+Step  12000: eval  WeightedCategoryCrossEntropy |  1.34485857
+Step  12000: eval                      Accuracy |  0.57139154
+Elapsed: 0:06:30.471829
+#+end_example
+
+It seems to be plateauing.
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, batches=50000)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Step  13000: Ran 1000 train steps in 39.74 secs
+Step  13000: train WeightedCategoryCrossEntropy |  1.28382349
+Step  13000: eval  WeightedCategoryCrossEntropy |  1.34152850
+Step  13000: eval                      Accuracy |  0.56759004
+
+Step  14000: Ran 1000 train steps in 38.70 secs
+Step  14000: train WeightedCategoryCrossEntropy |  1.24999321
+Step  14000: eval  WeightedCategoryCrossEntropy |  1.31848574
+Step  14000: eval                      Accuracy |  0.58393063
+
+Step  15000: Ran 1000 train steps in 38.64 secs
+Step  15000: train WeightedCategoryCrossEntropy |  1.23975933
+Step  15000: eval  WeightedCategoryCrossEntropy |  1.31624317
+Step  15000: eval                      Accuracy |  0.58447830
+
+Step  16000: Ran 1000 train steps in 38.64 secs
+Step  16000: train WeightedCategoryCrossEntropy |  1.21947169
+Step  16000: eval  WeightedCategoryCrossEntropy |  1.28875721
+Step  16000: eval                      Accuracy |  0.57887546
+
+Step  17000: Ran 1000 train steps in 38.62 secs
+Step  17000: train WeightedCategoryCrossEntropy |  1.21219873
+Step  17000: eval  WeightedCategoryCrossEntropy |  1.33571080
+Step  17000: eval                      Accuracy |  0.57712994
+
+Step  18000: Ran 1000 train steps in 38.66 secs
+Step  18000: train WeightedCategoryCrossEntropy |  1.21026635
+Step  18000: eval  WeightedCategoryCrossEntropy |  1.32456430
+Step  18000: eval                      Accuracy |  0.58517017
+
+Step  19000: Ran 1000 train steps in 38.64 secs
+Step  19000: train WeightedCategoryCrossEntropy |  1.21169627
+Step  19000: eval  WeightedCategoryCrossEntropy |  1.32556013
+Step  19000: eval                      Accuracy |  0.58419540
+
+Step  20000: Ran 1000 train steps in 38.71 secs
+Step  20000: train WeightedCategoryCrossEntropy |  1.18635964
+Step  20000: eval  WeightedCategoryCrossEntropy |  1.29579870
+Step  20000: eval                      Accuracy |  0.58305796
+
+Step  21000: Ran 1000 train steps in 38.64 secs
+Step  21000: train WeightedCategoryCrossEntropy |  1.18904626
+Step  21000: eval  WeightedCategoryCrossEntropy |  1.30543160
+Step  21000: eval                      Accuracy |  0.58511112
+
+Step  22000: Ran 1000 train steps in 38.66 secs
+Step  22000: train WeightedCategoryCrossEntropy |  1.19396818
+Step  22000: eval  WeightedCategoryCrossEntropy |  1.29183892
+Step  22000: eval                      Accuracy |  0.58100422
+
+Step  23000: Ran 1000 train steps in 38.71 secs
+Step  23000: train WeightedCategoryCrossEntropy |  1.19577324
+Step  23000: eval  WeightedCategoryCrossEntropy |  1.31765648
+Step  23000: eval                      Accuracy |  0.57812850
+
+Step  24000: Ran 1000 train steps in 38.77 secs
+Step  24000: train WeightedCategoryCrossEntropy |  1.16455758
+Step  24000: eval  WeightedCategoryCrossEntropy |  1.30760705
+Step  24000: eval                      Accuracy |  0.58308929
+
+Step  25000: Ran 1000 train steps in 38.68 secs
+Step  25000: train WeightedCategoryCrossEntropy |  1.17373812
+Step  25000: eval  WeightedCategoryCrossEntropy |  1.33733491
+Step  25000: eval                      Accuracy |  0.58254947
+
+Step  26000: Ran 1000 train steps in 38.73 secs
+Step  26000: train WeightedCategoryCrossEntropy |  1.17703664
+Step  26000: eval  WeightedCategoryCrossEntropy |  1.30382776
+Step  26000: eval                      Accuracy |  0.59271948
+
+Step  27000: Ran 1000 train steps in 38.77 secs
+Step  27000: train WeightedCategoryCrossEntropy |  1.17249799
+Step  27000: eval  WeightedCategoryCrossEntropy |  1.29767748
+Step  27000: eval                      Accuracy |  0.59217713
+
+Step  28000: Ran 1000 train steps in 38.70 secs
+Step  28000: train WeightedCategoryCrossEntropy |  1.15188992
+Step  28000: eval  WeightedCategoryCrossEntropy |  1.27955910
+Step  28000: eval                      Accuracy |  0.60145231
+
+Step  29000: Ran 1000 train steps in 38.71 secs
+Step  29000: train WeightedCategoryCrossEntropy |  1.15883470
+Step  29000: eval  WeightedCategoryCrossEntropy |  1.32158053
+Step  29000: eval                      Accuracy |  0.58393308
+
+Step  30000: Ran 1000 train steps in 38.69 secs
+Step  30000: train WeightedCategoryCrossEntropy |  1.16402268
+Step  30000: eval  WeightedCategoryCrossEntropy |  1.28583026
+Step  30000: eval                      Accuracy |  0.59060840
+
+Step  31000: Ran 1000 train steps in 38.76 secs
+Step  31000: train WeightedCategoryCrossEntropy |  1.15244710
+Step  31000: eval  WeightedCategoryCrossEntropy |  1.31478047
+Step  31000: eval                      Accuracy |  0.58421228
+
+Step  32000: Ran 1000 train steps in 38.74 secs
+Step  32000: train WeightedCategoryCrossEntropy |  1.13865745
+Step  32000: eval  WeightedCategoryCrossEntropy |  1.30897808
+Step  32000: eval                      Accuracy |  0.58211388
+
+Step  33000: Ran 1000 train steps in 38.70 secs
+Step  33000: train WeightedCategoryCrossEntropy |  1.14797425
+Step  33000: eval  WeightedCategoryCrossEntropy |  1.28837899
+Step  33000: eval                      Accuracy |  0.59355628
+
+Step  34000: Ran 1000 train steps in 38.71 secs
+Step  34000: train WeightedCategoryCrossEntropy |  1.15177202
+Step  34000: eval  WeightedCategoryCrossEntropy |  1.26875858
+Step  34000: eval                      Accuracy |  0.59396426
+
+Step  35000: Ran 1000 train steps in 38.74 secs
+Step  35000: train WeightedCategoryCrossEntropy |  1.13462234
+Step  35000: eval  WeightedCategoryCrossEntropy |  1.33155421
+Step  35000: eval                      Accuracy |  0.58831197
+
+Step  36000: Ran 1000 train steps in 38.76 secs
+Step  36000: train WeightedCategoryCrossEntropy |  1.12743652
+Step  36000: eval  WeightedCategoryCrossEntropy |  1.31895538
+Step  36000: eval                      Accuracy |  0.57935937
+
+Step  37000: Ran 1000 train steps in 38.76 secs
+Step  37000: train WeightedCategoryCrossEntropy |  1.13511860
+Step  37000: eval  WeightedCategoryCrossEntropy |  1.34238366
+Step  37000: eval                      Accuracy |  0.58156353
+
+Step  38000: Ran 1000 train steps in 38.72 secs
+Step  38000: train WeightedCategoryCrossEntropy |  1.14187491
+Step  38000: eval  WeightedCategoryCrossEntropy |  1.30659600
+Step  38000: eval                      Accuracy |  0.58288614
+
+Step  39000: Ran 1000 train steps in 38.76 secs
+Step  39000: train WeightedCategoryCrossEntropy |  1.12084019
+Step  39000: eval  WeightedCategoryCrossEntropy |  1.28768833
+Step  39000: eval                      Accuracy |  0.60021923
+
+Step  40000: Ran 1000 train steps in 38.71 secs
+Step  40000: train WeightedCategoryCrossEntropy |  1.11764979
+Step  40000: eval  WeightedCategoryCrossEntropy |  1.33905506
+Step  40000: eval                      Accuracy |  0.57679999
+
+Step  41000: Ran 1000 train steps in 38.74 secs
+Step  41000: train WeightedCategoryCrossEntropy |  1.12686217
+Step  41000: eval  WeightedCategoryCrossEntropy |  1.32088705
+Step  41000: eval                      Accuracy |  0.58238810
+
+Step  42000: Ran 1000 train steps in 38.75 secs
+Step  42000: train WeightedCategoryCrossEntropy |  1.13109481
+Step  42000: eval  WeightedCategoryCrossEntropy |  1.31838973
+Step  42000: eval                      Accuracy |  0.58213743
+
+Step  43000: Ran 1000 train steps in 38.79 secs
+Step  43000: train WeightedCategoryCrossEntropy |  1.10290754
+Step  43000: eval  WeightedCategoryCrossEntropy |  1.31488041
+Step  43000: eval                      Accuracy |  0.59099247
+
+Step  44000: Ran 1000 train steps in 38.75 secs
+Step  44000: train WeightedCategoryCrossEntropy |  1.11154807
+Step  44000: eval  WeightedCategoryCrossEntropy |  1.32115630
+Step  44000: eval                      Accuracy |  0.58481665
+
+Step  45000: Ran 1000 train steps in 38.74 secs
+Step  45000: train WeightedCategoryCrossEntropy |  1.11626506
+Step  45000: eval  WeightedCategoryCrossEntropy |  1.32583074
+Step  45000: eval                      Accuracy |  0.58425963
+
+Step  46000: Ran 1000 train steps in 38.75 secs
+Step  46000: train WeightedCategoryCrossEntropy |  1.12253380
+Step  46000: eval  WeightedCategoryCrossEntropy |  1.28128795
+Step  46000: eval                      Accuracy |  0.59816724
+
+Step  47000: Ran 1000 train steps in 38.78 secs
+Step  47000: train WeightedCategoryCrossEntropy |  1.08949089
+Step  47000: eval  WeightedCategoryCrossEntropy |  1.31317608
+Step  47000: eval                      Accuracy |  0.58273973
+
+Step  48000: Ran 1000 train steps in 38.75 secs
+Step  48000: train WeightedCategoryCrossEntropy |  1.10382092
+Step  48000: eval  WeightedCategoryCrossEntropy |  1.35037680
+Step  48000: eval                      Accuracy |  0.58653913
+
+Step  49000: Ran 1000 train steps in 38.74 secs
+Step  49000: train WeightedCategoryCrossEntropy |  1.10920715
+Step  49000: eval  WeightedCategoryCrossEntropy |  1.34068878
+Step  49000: eval                      Accuracy |  0.57137036
+
+Step  50000: Ran 1000 train steps in 38.78 secs
+Step  50000: train WeightedCategoryCrossEntropy |  1.10644996
+Step  50000: eval  WeightedCategoryCrossEntropy |  1.32040668
+Step  50000: eval                      Accuracy |  0.58469077
+
+Step  51000: Ran 1000 train steps in 38.73 secs
+Step  51000: train WeightedCategoryCrossEntropy |  1.08133543
+Step  51000: eval  WeightedCategoryCrossEntropy |  1.31978738
+Step  51000: eval                      Accuracy |  0.58491902
+
+Step  52000: Ran 1000 train steps in 38.73 secs
+Step  52000: train WeightedCategoryCrossEntropy |  1.09691930
+Step  52000: eval  WeightedCategoryCrossEntropy |  1.32925705
+Step  52000: eval                      Accuracy |  0.58861417
+
+Step  53000: Ran 1000 train steps in 38.68 secs
+Step  53000: train WeightedCategoryCrossEntropy |  1.10452163
+Step  53000: eval  WeightedCategoryCrossEntropy |  1.29868329
+Step  53000: eval                      Accuracy |  0.60251764
+
+Step  54000: Ran 1000 train steps in 38.74 secs
+Step  54000: train WeightedCategoryCrossEntropy |  1.09207809
+Step  54000: eval  WeightedCategoryCrossEntropy |  1.35772077
+Step  54000: eval                      Accuracy |  0.57129671
+
+Step  55000: Ran 1000 train steps in 38.72 secs
+Step  55000: train WeightedCategoryCrossEntropy |  1.07641542
+Step  55000: eval  WeightedCategoryCrossEntropy |  1.36485183
+Step  55000: eval                      Accuracy |  0.58672802
+
+Step  56000: Ran 1000 train steps in 38.72 secs
+Step  56000: train WeightedCategoryCrossEntropy |  1.08802187
+Step  56000: eval  WeightedCategoryCrossEntropy |  1.30784667
+Step  56000: eval                      Accuracy |  0.59716912
+
+Step  57000: Ran 1000 train steps in 38.71 secs
+Step  57000: train WeightedCategoryCrossEntropy |  1.09764445
+Step  57000: eval  WeightedCategoryCrossEntropy |  1.35429418
+Step  57000: eval                      Accuracy |  0.57975992
+
+Step  58000: Ran 1000 train steps in 38.74 secs
+Step  58000: train WeightedCategoryCrossEntropy |  1.07809854
+Step  58000: eval  WeightedCategoryCrossEntropy |  1.32458742
+Step  58000: eval                      Accuracy |  0.57735123
+
+Step  59000: Ran 1000 train steps in 38.72 secs
+Step  59000: train WeightedCategoryCrossEntropy |  1.07255101
+Step  59000: eval  WeightedCategoryCrossEntropy |  1.28845433
+Step  59000: eval                      Accuracy |  0.59338196
+
+Step  60000: Ran 1000 train steps in 38.73 secs
+Step  60000: train WeightedCategoryCrossEntropy |  1.08358848
+Step  60000: eval  WeightedCategoryCrossEntropy |  1.31605566
+Step  60000: eval                      Accuracy |  0.58012034
+
+Step  61000: Ran 1000 train steps in 38.70 secs
+Step  61000: train WeightedCategoryCrossEntropy |  1.08817053
+Step  61000: eval  WeightedCategoryCrossEntropy |  1.32721674
+Step  61000: eval                      Accuracy |  0.58768902
+
+Step  62000: Ran 1000 train steps in 38.73 secs
+Step  62000: train WeightedCategoryCrossEntropy |  1.06626439
+Step  62000: eval  WeightedCategoryCrossEntropy |  1.33657344
+Step  62000: eval                      Accuracy |  0.58727795
+Elapsed: 0:32:19.629778
+#+end_example
+
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, batches=100000)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Step  63000: Ran 1000 train steps in 39.93 secs
+Step  63000: train WeightedCategoryCrossEntropy |  1.16796327
+Step  63000: eval  WeightedCategoryCrossEntropy |  1.36395303
+Step  63000: eval                      Accuracy |  0.57032533
+
+Step  64000: Ran 1000 train steps in 38.89 secs
+Step  64000: train WeightedCategoryCrossEntropy |  1.11666918
+Step  64000: eval  WeightedCategoryCrossEntropy |  1.32780838
+Step  64000: eval                      Accuracy |  0.57505075
+
+Step  65000: Ran 1000 train steps in 38.90 secs
+Step  65000: train WeightedCategoryCrossEntropy |  1.10621011
+Step  65000: eval  WeightedCategoryCrossEntropy |  1.33678579
+Step  65000: eval                      Accuracy |  0.57886046
+
+Step  66000: Ran 1000 train steps in 38.93 secs
+Step  66000: train WeightedCategoryCrossEntropy |  1.06902885
+Step  66000: eval  WeightedCategoryCrossEntropy |  1.33837553
+Step  66000: eval                      Accuracy |  0.58116663
+
+Step  67000: Ran 1000 train steps in 38.86 secs
+Step  67000: train WeightedCategoryCrossEntropy |  1.07529819
+Step  67000: eval  WeightedCategoryCrossEntropy |  1.34368738
+Step  67000: eval                      Accuracy |  0.58368655
+
+Step  68000: Ran 1000 train steps in 38.88 secs
+Step  68000: train WeightedCategoryCrossEntropy |  1.08158481
+Step  68000: eval  WeightedCategoryCrossEntropy |  1.31722498
+Step  68000: eval                      Accuracy |  0.58705380
+
+Step  69000: Ran 1000 train steps in 38.95 secs
+Step  69000: train WeightedCategoryCrossEntropy |  1.08769965
+Step  69000: eval  WeightedCategoryCrossEntropy |  1.31406136
+Step  69000: eval                      Accuracy |  0.58490791
+
+Step  70000: Ran 1000 train steps in 38.88 secs
+Step  70000: train WeightedCategoryCrossEntropy |  1.04882610
+Step  70000: eval  WeightedCategoryCrossEntropy |  1.38410521
+Step  70000: eval                      Accuracy |  0.56796430
+
+Step  71000: Ran 1000 train steps in 38.90 secs
+Step  71000: train WeightedCategoryCrossEntropy |  1.06316447
+Step  71000: eval  WeightedCategoryCrossEntropy |  1.30895372
+Step  71000: eval                      Accuracy |  0.58984526
+
+Step  72000: Ran 1000 train steps in 38.91 secs
+Step  72000: train WeightedCategoryCrossEntropy |  1.07383156
+Step  72000: eval  WeightedCategoryCrossEntropy |  1.38230101
+Step  72000: eval                      Accuracy |  0.56828884
+
+Step  73000: Ran 1000 train steps in 38.94 secs
+Step  73000: train WeightedCategoryCrossEntropy |  1.07366288
+Step  73000: eval  WeightedCategoryCrossEntropy |  1.29979046
+Step  73000: eval                      Accuracy |  0.59334222
+
+Step  74000: Ran 1000 train steps in 38.89 secs
+Step  74000: train WeightedCategoryCrossEntropy |  1.04150283
+Step  74000: eval  WeightedCategoryCrossEntropy |  1.39114801
+Step  74000: eval                      Accuracy |  0.56706931
+
+Step  75000: Ran 1000 train steps in 38.89 secs
+Step  75000: train WeightedCategoryCrossEntropy |  1.06011724
+Step  75000: eval  WeightedCategoryCrossEntropy |  1.31870242
+Step  75000: eval                      Accuracy |  0.58975877
+
+Step  76000: Ran 1000 train steps in 38.93 secs
+Step  76000: train WeightedCategoryCrossEntropy |  1.06862414
+Step  76000: eval  WeightedCategoryCrossEntropy |  1.33027065
+Step  76000: eval                      Accuracy |  0.58500228
+
+Step  77000: Ran 1000 train steps in 38.92 secs
+Step  77000: train WeightedCategoryCrossEntropy |  1.05721939
+Step  77000: eval  WeightedCategoryCrossEntropy |  1.36938119
+Step  77000: eval                      Accuracy |  0.57774687
+
+Step  78000: Ran 1000 train steps in 38.86 secs
+Step  78000: train WeightedCategoryCrossEntropy |  1.04032123
+Step  78000: eval  WeightedCategoryCrossEntropy |  1.35787050
+Step  78000: eval                      Accuracy |  0.58307936
+
+Step  79000: Ran 1000 train steps in 38.89 secs
+Step  79000: train WeightedCategoryCrossEntropy |  1.05514109
+Step  79000: eval  WeightedCategoryCrossEntropy |  1.34510783
+Step  79000: eval                      Accuracy |  0.59036636
+
+Step  80000: Ran 1000 train steps in 38.91 secs
+Step  80000: train WeightedCategoryCrossEntropy |  1.06119215
+Step  80000: eval  WeightedCategoryCrossEntropy |  1.35925500
+Step  80000: eval                      Accuracy |  0.58475639
+
+Step  81000: Ran 1000 train steps in 38.93 secs
+Step  81000: train WeightedCategoryCrossEntropy |  1.04676783
+Step  81000: eval  WeightedCategoryCrossEntropy |  1.36667589
+Step  81000: eval                      Accuracy |  0.57690132
+
+Step  82000: Ran 1000 train steps in 38.88 secs
+Step  82000: train WeightedCategoryCrossEntropy |  1.03751075
+Step  82000: eval  WeightedCategoryCrossEntropy |  1.34715915
+Step  82000: eval                      Accuracy |  0.58315720
+
+Step  83000: Ran 1000 train steps in 38.88 secs
+Step  83000: train WeightedCategoryCrossEntropy |  1.05128062
+Step  83000: eval  WeightedCategoryCrossEntropy |  1.39356836
+Step  83000: eval                      Accuracy |  0.57512679
+
+Step  84000: Ran 1000 train steps in 38.89 secs
+Step  84000: train WeightedCategoryCrossEntropy |  1.05902994
+Step  84000: eval  WeightedCategoryCrossEntropy |  1.33182939
+Step  84000: eval                      Accuracy |  0.57415217
+
+Step  85000: Ran 1000 train steps in 38.93 secs
+Step  85000: train WeightedCategoryCrossEntropy |  1.03327870
+Step  85000: eval  WeightedCategoryCrossEntropy |  1.35110184
+Step  85000: eval                      Accuracy |  0.57771309
+
+Step  86000: Ran 1000 train steps in 38.81 secs
+Step  86000: train WeightedCategoryCrossEntropy |  1.03494859
+Step  86000: eval  WeightedCategoryCrossEntropy |  1.38251416
+Step  86000: eval                      Accuracy |  0.57844079
+
+Step  87000: Ran 1000 train steps in 38.95 secs
+Step  87000: train WeightedCategoryCrossEntropy |  1.04720616
+Step  87000: eval  WeightedCategoryCrossEntropy |  1.39008860
+Step  87000: eval                      Accuracy |  0.57346765
+
+Step  88000: Ran 1000 train steps in 38.92 secs
+Step  88000: train WeightedCategoryCrossEntropy |  1.05683839
+Step  88000: eval  WeightedCategoryCrossEntropy |  1.34061221
+Step  88000: eval                      Accuracy |  0.57800055
+
+Step  89000: Ran 1000 train steps in 38.96 secs
+Step  89000: train WeightedCategoryCrossEntropy |  1.02072740
+Step  89000: eval  WeightedCategoryCrossEntropy |  1.36288555
+Step  89000: eval                      Accuracy |  0.57487903
+
+Step  90000: Ran 1000 train steps in 38.94 secs
+Step  90000: train WeightedCategoryCrossEntropy |  1.03256643
+Step  90000: eval  WeightedCategoryCrossEntropy |  1.33989787
+Step  90000: eval                      Accuracy |  0.58749672
+
+Step  91000: Ran 1000 train steps in 38.90 secs
+Step  91000: train WeightedCategoryCrossEntropy |  1.04493618
+Step  91000: eval  WeightedCategoryCrossEntropy |  1.33348036
+Step  91000: eval                      Accuracy |  0.58970133
+
+Step  92000: Ran 1000 train steps in 38.88 secs
+Step  92000: train WeightedCategoryCrossEntropy |  1.05325651
+Step  92000: eval  WeightedCategoryCrossEntropy |  1.37317479
+Step  92000: eval                      Accuracy |  0.57510771
+
+Step  93000: Ran 1000 train steps in 38.92 secs
+Step  93000: train WeightedCategoryCrossEntropy |  1.01199973
+Step  93000: eval  WeightedCategoryCrossEntropy |  1.34816321
+Step  93000: eval                      Accuracy |  0.58193330
+
+Step  94000: Ran 1000 train steps in 38.84 secs
+Step  94000: train WeightedCategoryCrossEntropy |  1.03259039
+Step  94000: eval  WeightedCategoryCrossEntropy |  1.40019397
+Step  94000: eval                      Accuracy |  0.57431702
+
+Step  95000: Ran 1000 train steps in 38.88 secs
+Step  95000: train WeightedCategoryCrossEntropy |  1.04201376
+Step  95000: eval  WeightedCategoryCrossEntropy |  1.39143252
+Step  95000: eval                      Accuracy |  0.57650570
+
+Step  96000: Ran 1000 train steps in 39.04 secs
+Step  96000: train WeightedCategoryCrossEntropy |  1.04046071
+Step  96000: eval  WeightedCategoryCrossEntropy |  1.39077107
+Step  96000: eval                      Accuracy |  0.56915913
+
+Step  97000: Ran 1000 train steps in 38.87 secs
+Step  97000: train WeightedCategoryCrossEntropy |  1.01071739
+Step  97000: eval  WeightedCategoryCrossEntropy |  1.36615340
+Step  97000: eval                      Accuracy |  0.58579030
+
+Step  98000: Ran 1000 train steps in 38.88 secs
+Step  98000: train WeightedCategoryCrossEntropy |  1.02754629
+Step  98000: eval  WeightedCategoryCrossEntropy |  1.37784847
+Step  98000: eval                      Accuracy |  0.56786172
+
+Step  99000: Ran 1000 train steps in 38.86 secs
+Step  99000: train WeightedCategoryCrossEntropy |  1.04122782
+Step  99000: eval  WeightedCategoryCrossEntropy |  1.35543263
+Step  99000: eval                      Accuracy |  0.57437052
+
+Step  100000: Ran 1000 train steps in 38.91 secs
+Step  100000: train WeightedCategoryCrossEntropy |  1.02983260
+Step  100000: eval  WeightedCategoryCrossEntropy |  1.37780102
+Step  100000: eval                      Accuracy |  0.57324133
+
+Step  101000: Ran 1000 train steps in 38.87 secs
+Step  101000: train WeightedCategoryCrossEntropy |  1.01030552
+Step  101000: eval  WeightedCategoryCrossEntropy |  1.36497653
+Step  101000: eval                      Accuracy |  0.58740668
+
+Step  102000: Ran 1000 train steps in 38.90 secs
+Step  102000: train WeightedCategoryCrossEntropy |  1.02731681
+Step  102000: eval  WeightedCategoryCrossEntropy |  1.35321331
+Step  102000: eval                      Accuracy |  0.57775164
+
+Step  103000: Ran 1000 train steps in 38.91 secs
+Step  103000: train WeightedCategoryCrossEntropy |  1.03641915
+Step  103000: eval  WeightedCategoryCrossEntropy |  1.34763209
+Step  103000: eval                      Accuracy |  0.58446699
+
+Step  104000: Ran 1000 train steps in 38.94 secs
+Step  104000: train WeightedCategoryCrossEntropy |  1.01956904
+Step  104000: eval  WeightedCategoryCrossEntropy |  1.36184053
+Step  104000: eval                      Accuracy |  0.57803359
+
+Step  105000: Ran 1000 train steps in 38.89 secs
+Step  105000: train WeightedCategoryCrossEntropy |  1.01011324
+Step  105000: eval  WeightedCategoryCrossEntropy |  1.38106732
+Step  105000: eval                      Accuracy |  0.57777325
+
+Step  106000: Ran 1000 train steps in 38.89 secs
+Step  106000: train WeightedCategoryCrossEntropy |  1.02553248
+Step  106000: eval  WeightedCategoryCrossEntropy |  1.35610406
+Step  106000: eval                      Accuracy |  0.57794044
+
+Step  107000: Ran 1000 train steps in 38.82 secs
+Step  107000: train WeightedCategoryCrossEntropy |  1.03704548
+Step  107000: eval  WeightedCategoryCrossEntropy |  1.42385058
+Step  107000: eval                      Accuracy |  0.56722079
+
+Step  108000: Ran 1000 train steps in 38.95 secs
+Step  108000: train WeightedCategoryCrossEntropy |  1.00718296
+Step  108000: eval  WeightedCategoryCrossEntropy |  1.31863145
+Step  108000: eval                      Accuracy |  0.58128174
+
+Step  109000: Ran 1000 train steps in 38.88 secs
+Step  109000: train WeightedCategoryCrossEntropy |  1.01074588
+Step  109000: eval  WeightedCategoryCrossEntropy |  1.38885832
+Step  109000: eval                      Accuracy |  0.57076645
+
+Step  110000: Ran 1000 train steps in 38.89 secs
+Step  110000: train WeightedCategoryCrossEntropy |  1.02346790
+Step  110000: eval  WeightedCategoryCrossEntropy |  1.38532333
+Step  110000: eval                      Accuracy |  0.56799785
+
+Step  111000: Ran 1000 train steps in 38.91 secs
+Step  111000: train WeightedCategoryCrossEntropy |  1.03170466
+Step  111000: eval  WeightedCategoryCrossEntropy |  1.43979116
+Step  111000: eval                      Accuracy |  0.55651154
+
+Step  112000: Ran 1000 train steps in 38.91 secs
+Step  112000: train WeightedCategoryCrossEntropy |  0.99752879
+Step  112000: eval  WeightedCategoryCrossEntropy |  1.40813621
+Step  112000: eval                      Accuracy |  0.57297881
+
+Step  113000: Ran 1000 train steps in 38.86 secs
+Step  113000: train WeightedCategoryCrossEntropy |  1.00867105
+Step  113000: eval  WeightedCategoryCrossEntropy |  1.40307196
+Step  113000: eval                      Accuracy |  0.57566841
+
+Step  114000: Ran 1000 train steps in 38.90 secs
+Step  114000: train WeightedCategoryCrossEntropy |  1.02337575
+Step  114000: eval  WeightedCategoryCrossEntropy |  1.44530074
+Step  114000: eval                      Accuracy |  0.55467153
+
+Step  115000: Ran 1000 train steps in 38.87 secs
+Step  115000: train WeightedCategoryCrossEntropy |  1.03222477
+Step  115000: eval  WeightedCategoryCrossEntropy |  1.41283929
+Step  115000: eval                      Accuracy |  0.57396744
+
+Step  116000: Ran 1000 train steps in 38.91 secs
+Step  116000: train WeightedCategoryCrossEntropy |  0.98707652
+Step  116000: eval  WeightedCategoryCrossEntropy |  1.38734619
+Step  116000: eval                      Accuracy |  0.57764675
+
+Step  117000: Ran 1000 train steps in 38.88 secs
+Step  117000: train WeightedCategoryCrossEntropy |  1.00943744
+Step  117000: eval  WeightedCategoryCrossEntropy |  1.35685408
+Step  117000: eval                      Accuracy |  0.58032387
+
+Step  118000: Ran 1000 train steps in 38.91 secs
+Step  118000: train WeightedCategoryCrossEntropy |  1.02165031
+Step  118000: eval  WeightedCategoryCrossEntropy |  1.41391091
+Step  118000: eval                      Accuracy |  0.55870849
+
+Step  119000: Ran 1000 train steps in 38.94 secs
+Step  119000: train WeightedCategoryCrossEntropy |  1.02332592
+Step  119000: eval  WeightedCategoryCrossEntropy |  1.37008909
+Step  119000: eval                      Accuracy |  0.58312436
+
+Step  120000: Ran 1000 train steps in 38.87 secs
+Step  120000: train WeightedCategoryCrossEntropy |  0.99027425
+Step  120000: eval  WeightedCategoryCrossEntropy |  1.39020562
+Step  120000: eval                      Accuracy |  0.56893224
+
+Step  121000: Ran 1000 train steps in 38.91 secs
+Step  121000: train WeightedCategoryCrossEntropy |  1.01001906
+Step  121000: eval  WeightedCategoryCrossEntropy |  1.34898885
+Step  121000: eval                      Accuracy |  0.58765940
+
+Step  122000: Ran 1000 train steps in 38.91 secs
+Step  122000: train WeightedCategoryCrossEntropy |  1.01810360
+Step  122000: eval  WeightedCategoryCrossEntropy |  1.31699550
+Step  122000: eval                      Accuracy |  0.59351979
+
+Step  123000: Ran 1000 train steps in 38.94 secs
+Step  123000: train WeightedCategoryCrossEntropy |  1.00846207
+Step  123000: eval  WeightedCategoryCrossEntropy |  1.36349829
+Step  123000: eval                      Accuracy |  0.58220035
+
+Step  124000: Ran 1000 train steps in 38.90 secs
+Step  124000: train WeightedCategoryCrossEntropy |  0.99121541
+Step  124000: eval  WeightedCategoryCrossEntropy |  1.36115118
+Step  124000: eval                      Accuracy |  0.58584205
+
+Step  125000: Ran 1000 train steps in 38.95 secs
+Step  125000: train WeightedCategoryCrossEntropy |  1.00830889
+Step  125000: eval  WeightedCategoryCrossEntropy |  1.40724500
+Step  125000: eval                      Accuracy |  0.56920058
+
+Step  126000: Ran 1000 train steps in 38.90 secs
+Step  126000: train WeightedCategoryCrossEntropy |  1.01781940
+Step  126000: eval  WeightedCategoryCrossEntropy |  1.36977708
+Step  126000: eval                      Accuracy |  0.58009328
+
+Step  127000: Ran 1000 train steps in 38.96 secs
+Step  127000: train WeightedCategoryCrossEntropy |  1.00031054
+Step  127000: eval  WeightedCategoryCrossEntropy |  1.41326904
+Step  127000: eval                      Accuracy |  0.57243240
+
+Step  128000: Ran 1000 train steps in 38.92 secs
+Step  128000: train WeightedCategoryCrossEntropy |  0.99219322
+Step  128000: eval  WeightedCategoryCrossEntropy |  1.44404384
+Step  128000: eval                      Accuracy |  0.57395190
+
+Step  129000: Ran 1000 train steps in 38.99 secs
+Step  129000: train WeightedCategoryCrossEntropy |  1.00709093
+Step  129000: eval  WeightedCategoryCrossEntropy |  1.41958042
+Step  129000: eval                      Accuracy |  0.57267843
+
+Step  130000: Ran 1000 train steps in 38.99 secs
+Step  130000: train WeightedCategoryCrossEntropy |  1.01912773
+Step  130000: eval  WeightedCategoryCrossEntropy |  1.33912981
+Step  130000: eval                      Accuracy |  0.59197128
+
+Step  131000: Ran 1000 train steps in 39.00 secs
+Step  131000: train WeightedCategoryCrossEntropy |  0.98723483
+Step  131000: eval  WeightedCategoryCrossEntropy |  1.41522125
+Step  131000: eval                      Accuracy |  0.57427963
+
+Step  132000: Ran 1000 train steps in 38.94 secs
+Step  132000: train WeightedCategoryCrossEntropy |  0.99342090
+Step  132000: eval  WeightedCategoryCrossEntropy |  1.41465898
+Step  132000: eval                      Accuracy |  0.57029406
+
+Step  133000: Ran 1000 train steps in 38.88 secs
+Step  133000: train WeightedCategoryCrossEntropy |  1.00727808
+Step  133000: eval  WeightedCategoryCrossEntropy |  1.38130502
+Step  133000: eval                      Accuracy |  0.57192655
+
+Step  134000: Ran 1000 train steps in 38.91 secs
+Step  134000: train WeightedCategoryCrossEntropy |  1.01677108
+Step  134000: eval  WeightedCategoryCrossEntropy |  1.37716194
+Step  134000: eval                      Accuracy |  0.57707018
+
+Step  135000: Ran 1000 train steps in 38.98 secs
+Step  135000: train WeightedCategoryCrossEntropy |  0.98251414
+Step  135000: eval  WeightedCategoryCrossEntropy |  1.43346206
+Step  135000: eval                      Accuracy |  0.56802229
+
+Step  136000: Ran 1000 train steps in 38.94 secs
+Step  136000: train WeightedCategoryCrossEntropy |  0.99259746
+Step  136000: eval  WeightedCategoryCrossEntropy |  1.40438286
+Step  136000: eval                      Accuracy |  0.56927029
+
+Step  137000: Ran 1000 train steps in 38.95 secs
+Step  137000: train WeightedCategoryCrossEntropy |  1.00365269
+Step  137000: eval  WeightedCategoryCrossEntropy |  1.39464525
+Step  137000: eval                      Accuracy |  0.56577289
+
+Step  138000: Ran 1000 train steps in 38.94 secs
+Step  138000: train WeightedCategoryCrossEntropy |  1.01699519
+Step  138000: eval  WeightedCategoryCrossEntropy |  1.38829728
+Step  138000: eval                      Accuracy |  0.56793642
+
+Step  139000: Ran 1000 train steps in 38.95 secs
+Step  139000: train WeightedCategoryCrossEntropy |  0.97175646
+Step  139000: eval  WeightedCategoryCrossEntropy |  1.41113611
+Step  139000: eval                      Accuracy |  0.57514930
+
+Step  140000: Ran 1000 train steps in 38.90 secs
+Step  140000: train WeightedCategoryCrossEntropy |  0.99368864
+Step  140000: eval  WeightedCategoryCrossEntropy |  1.37815968
+Step  140000: eval                      Accuracy |  0.57881431
+
+Step  141000: Ran 1000 train steps in 38.89 secs
+Step  141000: train WeightedCategoryCrossEntropy |  1.00594318
+Step  141000: eval  WeightedCategoryCrossEntropy |  1.37036717
+Step  141000: eval                      Accuracy |  0.58198376
+
+Step  142000: Ran 1000 train steps in 38.90 secs
+Step  142000: train WeightedCategoryCrossEntropy |  1.00673234
+Step  142000: eval  WeightedCategoryCrossEntropy |  1.40482660
+Step  142000: eval                      Accuracy |  0.58230907
+
+Step  143000: Ran 1000 train steps in 38.90 secs
+Step  143000: train WeightedCategoryCrossEntropy |  0.97389799
+Step  143000: eval  WeightedCategoryCrossEntropy |  1.39242669
+Step  143000: eval                      Accuracy |  0.58056428
+
+Step  144000: Ran 1000 train steps in 38.92 secs
+Step  144000: train WeightedCategoryCrossEntropy |  0.99413979
+Step  144000: eval  WeightedCategoryCrossEntropy |  1.41043913
+Step  144000: eval                      Accuracy |  0.56678424
+
+Step  145000: Ran 1000 train steps in 38.95 secs
+Step  145000: train WeightedCategoryCrossEntropy |  1.00447440
+Step  145000: eval  WeightedCategoryCrossEntropy |  1.36656562
+Step  145000: eval                      Accuracy |  0.57477281
+
+Step  146000: Ran 1000 train steps in 38.99 secs
+Step  146000: train WeightedCategoryCrossEntropy |  0.99580330
+Step  146000: eval  WeightedCategoryCrossEntropy |  1.48764821
+Step  146000: eval                      Accuracy |  0.55135592
+
+Step  147000: Ran 1000 train steps in 38.92 secs
+Step  147000: train WeightedCategoryCrossEntropy |  0.97624487
+Step  147000: eval  WeightedCategoryCrossEntropy |  1.40377279
+Step  147000: eval                      Accuracy |  0.58196793
+
+Step  148000: Ran 1000 train steps in 38.91 secs
+Step  148000: train WeightedCategoryCrossEntropy |  0.99337947
+Step  148000: eval  WeightedCategoryCrossEntropy |  1.38602730
+Step  148000: eval                      Accuracy |  0.56986465
+
+Step  149000: Ran 1000 train steps in 38.88 secs
+Step  149000: train WeightedCategoryCrossEntropy |  1.00641680
+Step  149000: eval  WeightedCategoryCrossEntropy |  1.39816805
+Step  149000: eval                      Accuracy |  0.57870026
+
+Step  150000: Ran 1000 train steps in 38.92 secs
+Step  150000: train WeightedCategoryCrossEntropy |  0.98345733
+Step  150000: eval  WeightedCategoryCrossEntropy |  1.42259351
+Step  150000: eval                      Accuracy |  0.56833545
+
+Step  151000: Ran 1000 train steps in 38.91 secs
+Step  151000: train WeightedCategoryCrossEntropy |  0.97820592
+Step  151000: eval  WeightedCategoryCrossEntropy |  1.38016677
+Step  151000: eval                      Accuracy |  0.57927004
+
+Step  152000: Ran 1000 train steps in 38.92 secs
+Step  152000: train WeightedCategoryCrossEntropy |  0.99465126
+Step  152000: eval  WeightedCategoryCrossEntropy |  1.40752935
+Step  152000: eval                      Accuracy |  0.57599767
+
+Step  153000: Ran 1000 train steps in 38.91 secs
+Step  153000: train WeightedCategoryCrossEntropy |  1.00440490
+Step  153000: eval  WeightedCategoryCrossEntropy |  1.38850121
+Step  153000: eval                      Accuracy |  0.57887087
+
+Step  154000: Ran 1000 train steps in 38.98 secs
+Step  154000: train WeightedCategoryCrossEntropy |  0.97649008
+Step  154000: eval  WeightedCategoryCrossEntropy |  1.40402273
+Step  154000: eval                      Accuracy |  0.57060033
+
+Step  155000: Ran 1000 train steps in 38.91 secs
+Step  155000: train WeightedCategoryCrossEntropy |  0.97934151
+Step  155000: eval  WeightedCategoryCrossEntropy |  1.48141162
+Step  155000: eval                      Accuracy |  0.56002742
+
+Step  156000: Ran 1000 train steps in 38.92 secs
+Step  156000: train WeightedCategoryCrossEntropy |  0.99469137
+Step  156000: eval  WeightedCategoryCrossEntropy |  1.36240538
+Step  156000: eval                      Accuracy |  0.57810269
+
+Step  157000: Ran 1000 train steps in 38.91 secs
+Step  157000: train WeightedCategoryCrossEntropy |  1.00433600
+Step  157000: eval  WeightedCategoryCrossEntropy |  1.39899556
+Step  157000: eval                      Accuracy |  0.57247500
+
+Step  158000: Ran 1000 train steps in 38.93 secs
+Step  158000: train WeightedCategoryCrossEntropy |  0.96986669
+Step  158000: eval  WeightedCategoryCrossEntropy |  1.40644030
+Step  158000: eval                      Accuracy |  0.57322383
+
+Step  159000: Ran 1000 train steps in 38.92 secs
+Step  159000: train WeightedCategoryCrossEntropy |  0.98071331
+Step  159000: eval  WeightedCategoryCrossEntropy |  1.44401983
+Step  159000: eval                      Accuracy |  0.57154638
+
+Step  160000: Ran 1000 train steps in 38.93 secs
+Step  160000: train WeightedCategoryCrossEntropy |  0.99308157
+Step  160000: eval  WeightedCategoryCrossEntropy |  1.41375522
+Step  160000: eval                      Accuracy |  0.57750905
+
+Step  161000: Ran 1000 train steps in 38.97 secs
+Step  161000: train WeightedCategoryCrossEntropy |  1.00366378
+Step  161000: eval  WeightedCategoryCrossEntropy |  1.40615169
+Step  161000: eval                      Accuracy |  0.57685037
+
+Step  162000: Ran 1000 train steps in 39.03 secs
+Step  162000: train WeightedCategoryCrossEntropy |  0.96036094
+Step  162000: eval  WeightedCategoryCrossEntropy |  1.40110429
+Step  162000: eval                      Accuracy |  0.57392023
+Elapsed: 1:04:57.283108
+#+end_example
+
+#+begin_src python :results output :exports both
+loop = take_two(gru.model, training_generator, evaluation, epochs=10000)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Step   7200: Ran 100 train steps in 49.91 secs
+Step   7200: train WeightedCategoryCrossEntropy |  1.40845227
+Step   7200: eval  WeightedCategoryCrossEntropy |  1.53364094
+Step   7200: eval                      Accuracy |  0.53398244
+
+Step   7300: Ran 100 train steps in 46.69 secs
+Step   7300: train WeightedCategoryCrossEntropy |  1.37220216
+Step   7300: eval  WeightedCategoryCrossEntropy |  1.42109434
+Step   7300: eval                      Accuracy |  0.55498699
+
+Step   7400: Ran 100 train steps in 46.79 secs
+Step   7400: train WeightedCategoryCrossEntropy |  1.34160054
+Step   7400: eval  WeightedCategoryCrossEntropy |  1.42887247
+Step   7400: eval                      Accuracy |  0.54843716
+
+Step   7500: Ran 100 train steps in 46.75 secs
+Step   7500: train WeightedCategoryCrossEntropy |  1.33687389
+Step   7500: eval  WeightedCategoryCrossEntropy |  1.39091337
+Step   7500: eval                      Accuracy |  0.56296345
+
+Step   7600: Ran 100 train steps in 46.73 secs
+Step   7600: train WeightedCategoryCrossEntropy |  1.32682574
+Step   7600: eval  WeightedCategoryCrossEntropy |  1.36574340
+Step   7600: eval                      Accuracy |  0.56962399
+
+Step   7700: Ran 100 train steps in 47.18 secs
+Step   7700: train WeightedCategoryCrossEntropy |  1.31113505
+Step   7700: eval  WeightedCategoryCrossEntropy |  1.37930723
+Step   7700: eval                      Accuracy |  0.56413543
+
+Step   7800: Ran 100 train steps in 46.63 secs
+Step   7800: train WeightedCategoryCrossEntropy |  1.30171084
+Step   7800: eval  WeightedCategoryCrossEntropy |  1.40999524
+Step   7800: eval                      Accuracy |  0.56547354
+
+Step   7900: Ran 100 train steps in 46.62 secs
+Step   7900: train WeightedCategoryCrossEntropy |  1.29436350
+Step   7900: eval  WeightedCategoryCrossEntropy |  1.33792806
+Step   7900: eval                      Accuracy |  0.58449248
+
+Step   8000: Ran 100 train steps in 46.63 secs
+Step   8000: train WeightedCategoryCrossEntropy |  1.29799175
+Step   8000: eval  WeightedCategoryCrossEntropy |  1.33296335
+Step   8000: eval                      Accuracy |  0.57597931
+
+Step   8100: Ran 100 train steps in 46.70 secs
+Step   8100: train WeightedCategoryCrossEntropy |  1.28517950
+Step   8100: eval  WeightedCategoryCrossEntropy |  1.40022814
+Step   8100: eval                      Accuracy |  0.55829932
+
+Step   8200: Ran 100 train steps in 46.64 secs
+Step   8200: train WeightedCategoryCrossEntropy |  1.28536940
+Step   8200: eval  WeightedCategoryCrossEntropy |  1.37004666
+Step   8200: eval                      Accuracy |  0.56932286
+
+Step   8300: Ran 100 train steps in 46.59 secs
+Step   8300: train WeightedCategoryCrossEntropy |  1.28937984
+Step   8300: eval  WeightedCategoryCrossEntropy |  1.39467760
+Step   8300: eval                      Accuracy |  0.55672725
+
+Step   8400: Ran 100 train steps in 46.59 secs
+Step   8400: train WeightedCategoryCrossEntropy |  1.28266370
+Step   8400: eval  WeightedCategoryCrossEntropy |  1.40646402
+Step   8400: eval                      Accuracy |  0.56549414
+
+Step   8500: Ran 100 train steps in 46.58 secs
+Step   8500: train WeightedCategoryCrossEntropy |  1.28980207
+Step   8500: eval  WeightedCategoryCrossEntropy |  1.35758976
+Step   8500: eval                      Accuracy |  0.57382486
+
+Step   8600: Ran 100 train steps in 46.59 secs
+Step   8600: train WeightedCategoryCrossEntropy |  1.28626430
+Step   8600: eval  WeightedCategoryCrossEntropy |  1.39424094
+Step   8600: eval                      Accuracy |  0.55458832
+
+Step   8700: Ran 100 train steps in 46.55 secs
+Step   8700: train WeightedCategoryCrossEntropy |  1.27769840
+Step   8700: eval  WeightedCategoryCrossEntropy |  1.34323144
+Step   8700: eval                      Accuracy |  0.57333910
+
+Step   8800: Ran 100 train steps in 46.56 secs
+Step   8800: train WeightedCategoryCrossEntropy |  1.27631617
+Step   8800: eval  WeightedCategoryCrossEntropy |  1.36277807
+Step   8800: eval                      Accuracy |  0.57450738
+
+Step   8900: Ran 100 train steps in 46.63 secs
+Step   8900: train WeightedCategoryCrossEntropy |  1.27718043
+Step   8900: eval  WeightedCategoryCrossEntropy |  1.37657404
+Step   8900: eval                      Accuracy |  0.56594115
+
+Step   9000: Ran 100 train steps in 46.56 secs
+Step   9000: train WeightedCategoryCrossEntropy |  1.27473545
+Step   9000: eval  WeightedCategoryCrossEntropy |  1.33857087
+Step   9000: eval                      Accuracy |  0.57156471
+
+Step   9100: Ran 100 train steps in 46.60 secs
+Step   9100: train WeightedCategoryCrossEntropy |  1.27636838
+Step   9100: eval  WeightedCategoryCrossEntropy |  1.32985719
+Step   9100: eval                      Accuracy |  0.58792001
+
+Step   9200: Ran 100 train steps in 46.57 secs
+Step   9200: train WeightedCategoryCrossEntropy |  1.27704740
+Step   9200: eval  WeightedCategoryCrossEntropy |  1.33943196
+Step   9200: eval                      Accuracy |  0.57151316
+
+Step   9300: Ran 100 train steps in 46.60 secs
+Step   9300: train WeightedCategoryCrossEntropy |  1.27908921
+Step   9300: eval  WeightedCategoryCrossEntropy |  1.35788206
+Step   9300: eval                      Accuracy |  0.56833035
+
+Step   9400: Ran 100 train steps in 46.59 secs
+Step   9400: train WeightedCategoryCrossEntropy |  1.27476656
+Step   9400: eval  WeightedCategoryCrossEntropy |  1.37336095
+Step   9400: eval                      Accuracy |  0.57279189
+
+Step   9500: Ran 100 train steps in 46.64 secs
+Step   9500: train WeightedCategoryCrossEntropy |  1.27277946
+Step   9500: eval  WeightedCategoryCrossEntropy |  1.38834250
+Step   9500: eval                      Accuracy |  0.55810201
+
+Step   9600: Ran 100 train steps in 46.67 secs
+Step   9600: train WeightedCategoryCrossEntropy |  1.26448727
+Step   9600: eval  WeightedCategoryCrossEntropy |  1.39491995
+Step   9600: eval                      Accuracy |  0.55545733
+
+Step   9700: Ran 100 train steps in 46.71 secs
+Step   9700: train WeightedCategoryCrossEntropy |  1.26453817
+Step   9700: eval  WeightedCategoryCrossEntropy |  1.31964866
+Step   9700: eval                      Accuracy |  0.58797077
+
+Step   9800: Ran 100 train steps in 46.63 secs
+Step   9800: train WeightedCategoryCrossEntropy |  1.26623130
+Step   9800: eval  WeightedCategoryCrossEntropy |  1.33691669
+Step   9800: eval                      Accuracy |  0.58117094
+
+Step   9900: Ran 100 train steps in 46.61 secs
+Step   9900: train WeightedCategoryCrossEntropy |  1.26877284
+Step   9900: eval  WeightedCategoryCrossEntropy |  1.35668564
+Step   9900: eval                      Accuracy |  0.56906497
+
+Step  10000: Ran 100 train steps in 46.91 secs
+Step  10000: train WeightedCategoryCrossEntropy |  1.27724636
+Step  10000: eval  WeightedCategoryCrossEntropy |  1.37475316
+Step  10000: eval                      Accuracy |  0.57083255
+
+Step  10100: Ran 100 train steps in 46.64 secs
+Step  10100: train WeightedCategoryCrossEntropy |  1.27599573
+Step  10100: eval  WeightedCategoryCrossEntropy |  1.39496668
+Step  10100: eval                      Accuracy |  0.55946493
+
+Step  10200: Ran 100 train steps in 46.66 secs
+Step  10200: train WeightedCategoryCrossEntropy |  1.26500976
+Step  10200: eval  WeightedCategoryCrossEntropy |  1.30219173
+Step  10200: eval                      Accuracy |  0.58777571
+
+Step  10300: Ran 100 train steps in 46.64 secs
+Step  10300: train WeightedCategoryCrossEntropy |  1.26295793
+Step  10300: eval  WeightedCategoryCrossEntropy |  1.34939114
+Step  10300: eval                      Accuracy |  0.58265235
+
+Step  10400: Ran 100 train steps in 46.71 secs
+Step  10400: train WeightedCategoryCrossEntropy |  1.26094663
+Step  10400: eval  WeightedCategoryCrossEntropy |  1.34398154
+Step  10400: eval                      Accuracy |  0.58220708
+
+Step  10500: Ran 100 train steps in 46.64 secs
+Step  10500: train WeightedCategoryCrossEntropy |  1.26208460
+Step  10500: eval  WeightedCategoryCrossEntropy |  1.33290792
+Step  10500: eval                      Accuracy |  0.57700493
+
+Step  10600: Ran 100 train steps in 46.64 secs
+Step  10600: train WeightedCategoryCrossEntropy |  1.26667988
+Step  10600: eval  WeightedCategoryCrossEntropy |  1.35851014
+Step  10600: eval                      Accuracy |  0.56506201
+
+Step  10700: Ran 100 train steps in 46.68 secs
+Step  10700: train WeightedCategoryCrossEntropy |  1.26337409
+Step  10700: eval  WeightedCategoryCrossEntropy |  1.33711513
+Step  10700: eval                      Accuracy |  0.56967231
+
+Step  10800: Ran 100 train steps in 46.71 secs
+Step  10800: train WeightedCategoryCrossEntropy |  1.26840901
+Step  10800: eval  WeightedCategoryCrossEntropy |  1.34306133
+Step  10800: eval                      Accuracy |  0.57760129
+
+Step  10900: Ran 100 train steps in 46.68 secs
+Step  10900: train WeightedCategoryCrossEntropy |  1.26851952
+Step  10900: eval  WeightedCategoryCrossEntropy |  1.36890825
+Step  10900: eval                      Accuracy |  0.56626668
+
+Step  11000: Ran 100 train steps in 46.60 secs
+Step  11000: train WeightedCategoryCrossEntropy |  1.26771557
+Step  11000: eval  WeightedCategoryCrossEntropy |  1.33610710
+Step  11000: eval                      Accuracy |  0.58137830
+
+Step  11100: Ran 100 train steps in 46.61 secs
+Step  11100: train WeightedCategoryCrossEntropy |  1.26955628
+Step  11100: eval  WeightedCategoryCrossEntropy |  1.31183930
+Step  11100: eval                      Accuracy |  0.58702825
+
+Step  11200: Ran 100 train steps in 46.51 secs
+Step  11200: train WeightedCategoryCrossEntropy |  1.25960994
+Step  11200: eval  WeightedCategoryCrossEntropy |  1.35415089
+Step  11200: eval                      Accuracy |  0.57303894
+
+Step  11300: Ran 100 train steps in 46.57 secs
+Step  11300: train WeightedCategoryCrossEntropy |  1.26471293
+Step  11300: eval  WeightedCategoryCrossEntropy |  1.35277263
+Step  11300: eval                      Accuracy |  0.57152595
+
+Step  11400: Ran 100 train steps in 46.53 secs
+Step  11400: train WeightedCategoryCrossEntropy |  1.25756633
+Step  11400: eval  WeightedCategoryCrossEntropy |  1.30689363
+Step  11400: eval                      Accuracy |  0.58587994
+
+Step  11500: Ran 100 train steps in 46.72 secs
+Step  11500: train WeightedCategoryCrossEntropy |  1.26152885
+Step  11500: eval  WeightedCategoryCrossEntropy |  1.35160565
+Step  11500: eval                      Accuracy |  0.57004086
+
+Step  11600: Ran 100 train steps in 46.56 secs
+Step  11600: train WeightedCategoryCrossEntropy |  1.23939836
+Step  11600: eval  WeightedCategoryCrossEntropy |  1.31620030
+Step  11600: eval                      Accuracy |  0.57880658
+
+Step  11700: Ran 100 train steps in 46.58 secs
+Step  11700: train WeightedCategoryCrossEntropy |  1.23543918
+Step  11700: eval  WeightedCategoryCrossEntropy |  1.36910570
+Step  11700: eval                      Accuracy |  0.56298707
+
+Step  11800: Ran 100 train steps in 46.54 secs
+Step  11800: train WeightedCategoryCrossEntropy |  1.24286366
+Step  11800: eval  WeightedCategoryCrossEntropy |  1.36233894
+Step  11800: eval                      Accuracy |  0.57290844
+
+Step  11900: Ran 100 train steps in 46.57 secs
+Step  11900: train WeightedCategoryCrossEntropy |  1.23808372
+Step  11900: eval  WeightedCategoryCrossEntropy |  1.35872213
+Step  11900: eval                      Accuracy |  0.57846189
+
+Step  12000: Ran 100 train steps in 46.53 secs
+Step  12000: train WeightedCategoryCrossEntropy |  1.23670936
+Step  12000: eval  WeightedCategoryCrossEntropy |  1.32247432
+Step  12000: eval                      Accuracy |  0.57690984
+
+Step  12100: Ran 100 train steps in 46.55 secs
+Step  12100: train WeightedCategoryCrossEntropy |  1.24116862
+Step  12100: eval  WeightedCategoryCrossEntropy |  1.34740726
+Step  12100: eval                      Accuracy |  0.57368577
+
+Step  12200: Ran 100 train steps in 46.56 secs
+Step  12200: train WeightedCategoryCrossEntropy |  1.23870814
+Step  12200: eval  WeightedCategoryCrossEntropy |  1.34412030
+Step  12200: eval                      Accuracy |  0.57441618
+
+Step  12300: Ran 100 train steps in 46.51 secs
+Step  12300: train WeightedCategoryCrossEntropy |  1.23964739
+Step  12300: eval  WeightedCategoryCrossEntropy |  1.31778471
+Step  12300: eval                      Accuracy |  0.59404006
+
+Step  12400: Ran 100 train steps in 46.57 secs
+Step  12400: train WeightedCategoryCrossEntropy |  1.23977387
+Step  12400: eval  WeightedCategoryCrossEntropy |  1.36329297
+Step  12400: eval                      Accuracy |  0.56865372
+
+Step  12500: Ran 100 train steps in 46.56 secs
+Step  12500: train WeightedCategoryCrossEntropy |  1.24057162
+Step  12500: eval  WeightedCategoryCrossEntropy |  1.32396106
+Step  12500: eval                      Accuracy |  0.57749913
+
+Step  12600: Ran 100 train steps in 46.57 secs
+Step  12600: train WeightedCategoryCrossEntropy |  1.23996282
+Step  12600: eval  WeightedCategoryCrossEntropy |  1.35980467
+Step  12600: eval                      Accuracy |  0.57681503
+
+Step  12700: Ran 100 train steps in 46.53 secs
+Step  12700: train WeightedCategoryCrossEntropy |  1.23197782
+Step  12700: eval  WeightedCategoryCrossEntropy |  1.35620030
+Step  12700: eval                      Accuracy |  0.56576115
+
+Step  12800: Ran 100 train steps in 46.54 secs
+Step  12800: train WeightedCategoryCrossEntropy |  1.23929477
+Step  12800: eval  WeightedCategoryCrossEntropy |  1.32664406
+Step  12800: eval                      Accuracy |  0.57836610
+
+Step  12900: Ran 100 train steps in 46.53 secs
+Step  12900: train WeightedCategoryCrossEntropy |  1.24684954
+Step  12900: eval  WeightedCategoryCrossEntropy |  1.35356160
+Step  12900: eval                      Accuracy |  0.57247027
+
+Step  13000: Ran 100 train steps in 46.54 secs
+Step  13000: train WeightedCategoryCrossEntropy |  1.23555624
+Step  13000: eval  WeightedCategoryCrossEntropy |  1.30849167
+Step  13000: eval                      Accuracy |  0.58658669
+
+Step  13100: Ran 100 train steps in 46.54 secs
+Step  13100: train WeightedCategoryCrossEntropy |  1.23514199
+Step  13100: eval  WeightedCategoryCrossEntropy |  1.32829968
+Step  13100: eval                      Accuracy |  0.57877260
+
+Step  13200: Ran 100 train steps in 46.57 secs
+Step  13200: train WeightedCategoryCrossEntropy |  1.24334764
+Step  13200: eval  WeightedCategoryCrossEntropy |  1.32007960
+Step  13200: eval                      Accuracy |  0.58390542
+
+Step  13300: Ran 100 train steps in 46.50 secs
+Step  13300: train WeightedCategoryCrossEntropy |  1.23758221
+Step  13300: eval  WeightedCategoryCrossEntropy |  1.33836234
+Step  13300: eval                      Accuracy |  0.57748077
+
+Step  13400: Ran 100 train steps in 46.53 secs
+Step  13400: train WeightedCategoryCrossEntropy |  1.23699570
+Step  13400: eval  WeightedCategoryCrossEntropy |  1.28857458
+Step  13400: eval                      Accuracy |  0.59427991
+
+Step  13500: Ran 100 train steps in 46.56 secs
+Step  13500: train WeightedCategoryCrossEntropy |  1.24157882
+Step  13500: eval  WeightedCategoryCrossEntropy |  1.33362718
+Step  13500: eval                      Accuracy |  0.57985461
+
+Step  13600: Ran 100 train steps in 46.57 secs
+Step  13600: train WeightedCategoryCrossEntropy |  1.24225903
+Step  13600: eval  WeightedCategoryCrossEntropy |  1.33033669
+Step  13600: eval                      Accuracy |  0.58468521
+
+Step  13700: Ran 100 train steps in 46.56 secs
+Step  13700: train WeightedCategoryCrossEntropy |  1.24346125
+Step  13700: eval  WeightedCategoryCrossEntropy |  1.31333911
+Step  13700: eval                      Accuracy |  0.58795037
+
+Step  13800: Ran 100 train steps in 46.56 secs
+Step  13800: train WeightedCategoryCrossEntropy |  1.24078453
+Step  13800: eval  WeightedCategoryCrossEntropy |  1.34135834
+Step  13800: eval                      Accuracy |  0.57634938
+
+Step  13900: Ran 100 train steps in 46.67 secs
+Step  13900: train WeightedCategoryCrossEntropy |  1.23734236
+Step  13900: eval  WeightedCategoryCrossEntropy |  1.36791305
+Step  13900: eval                      Accuracy |  0.56584058
+
+Step  14000: Ran 100 train steps in 46.56 secs
+Step  14000: train WeightedCategoryCrossEntropy |  1.23029447
+Step  14000: eval  WeightedCategoryCrossEntropy |  1.36097904
+Step  14000: eval                      Accuracy |  0.56552213
+
+Step  14100: Ran 100 train steps in 46.66 secs
+Step  14100: train WeightedCategoryCrossEntropy |  1.23631048
+Step  14100: eval  WeightedCategoryCrossEntropy |  1.32405988
+Step  14100: eval                      Accuracy |  0.57309214
+
+Step  14200: Ran 100 train steps in 46.68 secs
+Step  14200: train WeightedCategoryCrossEntropy |  1.22712052
+Step  14200: eval  WeightedCategoryCrossEntropy |  1.37027800
+Step  14200: eval                      Accuracy |  0.55948075
+
+Step  14300: Ran 100 train steps in 46.63 secs
+Step  14300: train WeightedCategoryCrossEntropy |  1.23570395
+Step  14300: eval  WeightedCategoryCrossEntropy |  1.30359221
+Step  14300: eval                      Accuracy |  0.59196734
+
+Step  14400: Ran 100 train steps in 46.63 secs
+Step  14400: train WeightedCategoryCrossEntropy |  1.23788667
+Step  14400: eval  WeightedCategoryCrossEntropy |  1.30524611
+Step  14400: eval                      Accuracy |  0.58691663
+
+Step  14500: Ran 100 train steps in 46.69 secs
+Step  14500: train WeightedCategoryCrossEntropy |  1.23419011
+Step  14500: eval  WeightedCategoryCrossEntropy |  1.36804922
+Step  14500: eval                      Accuracy |  0.56866386
+
+Step  14600: Ran 100 train steps in 46.65 secs
+Step  14600: train WeightedCategoryCrossEntropy |  1.23835301
+Step  14600: eval  WeightedCategoryCrossEntropy |  1.29339818
+Step  14600: eval                      Accuracy |  0.59275184
+
+Step  14700: Ran 100 train steps in 46.65 secs
+Step  14700: train WeightedCategoryCrossEntropy |  1.23351562
+Step  14700: eval  WeightedCategoryCrossEntropy |  1.32991219
+Step  14700: eval                      Accuracy |  0.58760637
+
+Step  14800: Ran 100 train steps in 46.64 secs
+Step  14800: train WeightedCategoryCrossEntropy |  1.23453915
+Step  14800: eval  WeightedCategoryCrossEntropy |  1.33311164
+Step  14800: eval                      Accuracy |  0.57431032
+
+Step  14900: Ran 100 train steps in 46.68 secs
+Step  14900: train WeightedCategoryCrossEntropy |  1.23706901
+Step  14900: eval  WeightedCategoryCrossEntropy |  1.34093809
+Step  14900: eval                      Accuracy |  0.57359574
+
+Step  15000: Ran 100 train steps in 46.61 secs
+Step  15000: train WeightedCategoryCrossEntropy |  1.23998272
+Step  15000: eval  WeightedCategoryCrossEntropy |  1.33679171
+Step  15000: eval                      Accuracy |  0.57252198
+
+Step  15100: Ran 100 train steps in 46.58 secs
+Step  15100: train WeightedCategoryCrossEntropy |  1.23732710
+Step  15100: eval  WeightedCategoryCrossEntropy |  1.29972788
+Step  15100: eval                      Accuracy |  0.58468580
+
+Step  15200: Ran 100 train steps in 46.60 secs
+Step  15200: train WeightedCategoryCrossEntropy |  1.23871386
+Step  15200: eval  WeightedCategoryCrossEntropy |  1.35088738
+Step  15200: eval                      Accuracy |  0.57375431
+
+Step  15300: Ran 100 train steps in 46.73 secs
+Step  15300: train WeightedCategoryCrossEntropy |  1.23521864
+Step  15300: eval  WeightedCategoryCrossEntropy |  1.30088254
+Step  15300: eval                      Accuracy |  0.58499869
+
+Step  15400: Ran 100 train steps in 46.65 secs
+Step  15400: train WeightedCategoryCrossEntropy |  1.21270466
+Step  15400: eval  WeightedCategoryCrossEntropy |  1.32416697
+Step  15400: eval                      Accuracy |  0.58676630
+
+Step  15500: Ran 100 train steps in 46.60 secs
+Step  15500: train WeightedCategoryCrossEntropy |  1.20742071
+Step  15500: eval  WeightedCategoryCrossEntropy |  1.31221966
+Step  15500: eval                      Accuracy |  0.57679959
+
+Step  15600: Ran 100 train steps in 46.54 secs
+Step  15600: train WeightedCategoryCrossEntropy |  1.21754849
+Step  15600: eval  WeightedCategoryCrossEntropy |  1.35318093
+Step  15600: eval                      Accuracy |  0.57858366
+
+Step  15700: Ran 100 train steps in 46.59 secs
+Step  15700: train WeightedCategoryCrossEntropy |  1.20770407
+Step  15700: eval  WeightedCategoryCrossEntropy |  1.33204349
+Step  15700: eval                      Accuracy |  0.57040226
+
+Step  15800: Ran 100 train steps in 46.58 secs
+Step  15800: train WeightedCategoryCrossEntropy |  1.21227086
+Step  15800: eval  WeightedCategoryCrossEntropy |  1.32108204
+Step  15800: eval                      Accuracy |  0.58142904
+
+Step  15900: Ran 100 train steps in 46.66 secs
+Step  15900: train WeightedCategoryCrossEntropy |  1.20630026
+Step  15900: eval  WeightedCategoryCrossEntropy |  1.34532928
+Step  15900: eval                      Accuracy |  0.57363081
+
+Step  16000: Ran 100 train steps in 46.58 secs
+Step  16000: train WeightedCategoryCrossEntropy |  1.21732092
+Step  16000: eval  WeightedCategoryCrossEntropy |  1.34888089
+Step  16000: eval                      Accuracy |  0.57829400
+
+Step  16100: Ran 100 train steps in 46.57 secs
+Step  16100: train WeightedCategoryCrossEntropy |  1.20914495
+Step  16100: eval  WeightedCategoryCrossEntropy |  1.34065656
+Step  16100: eval                      Accuracy |  0.57866746
+
+Step  16200: Ran 100 train steps in 46.57 secs
+Step  16200: train WeightedCategoryCrossEntropy |  1.21117663
+Step  16200: eval  WeightedCategoryCrossEntropy |  1.32027900
+Step  16200: eval                      Accuracy |  0.58533911
+
+Step  16300: Ran 100 train steps in 46.58 secs
+Step  16300: train WeightedCategoryCrossEntropy |  1.21760499
+Step  16300: eval  WeightedCategoryCrossEntropy |  1.30371308
+Step  16300: eval                      Accuracy |  0.59620357
+
+Step  16400: Ran 100 train steps in 46.52 secs
+Step  16400: train WeightedCategoryCrossEntropy |  1.20953822
+Step  16400: eval  WeightedCategoryCrossEntropy |  1.31595250
+Step  16400: eval                      Accuracy |  0.58975597
+
+Step  16500: Ran 100 train steps in 46.51 secs
+Step  16500: train WeightedCategoryCrossEntropy |  1.22410822
+Step  16500: eval  WeightedCategoryCrossEntropy |  1.33057849
+Step  16500: eval                      Accuracy |  0.58313890
+
+Step  16600: Ran 100 train steps in 46.57 secs
+Step  16600: train WeightedCategoryCrossEntropy |  1.21633768
+Step  16600: eval  WeightedCategoryCrossEntropy |  1.34370232
+Step  16600: eval                      Accuracy |  0.56324571
+
+Step  16700: Ran 100 train steps in 46.50 secs
+Step  16700: train WeightedCategoryCrossEntropy |  1.21109343
+Step  16700: eval  WeightedCategoryCrossEntropy |  1.34736327
+Step  16700: eval                      Accuracy |  0.55796552
+
+Step  16800: Ran 100 train steps in 46.53 secs
+Step  16800: train WeightedCategoryCrossEntropy |  1.22027659
+Step  16800: eval  WeightedCategoryCrossEntropy |  1.34284500
+Step  16800: eval                      Accuracy |  0.58001840
+
+Step  16900: Ran 100 train steps in 46.49 secs
+Step  16900: train WeightedCategoryCrossEntropy |  1.21650743
+Step  16900: eval  WeightedCategoryCrossEntropy |  1.31663891
+Step  16900: eval                      Accuracy |  0.58754251
+
+Step  17000: Ran 100 train steps in 46.52 secs
+Step  17000: train WeightedCategoryCrossEntropy |  1.21804380
+Step  17000: eval  WeightedCategoryCrossEntropy |  1.32078075
+Step  17000: eval                      Accuracy |  0.57559681
+
+Step  17100: Ran 100 train steps in 46.54 secs
+Step  17100: train WeightedCategoryCrossEntropy |  1.22012901
+Step  17100: eval  WeightedCategoryCrossEntropy |  1.28926949
+Step  17100: eval                      Accuracy |  0.59518562
+#+end_example
+
+It looks like it's stuck.
+*** Plotting Accuracy
+#+begin_src python :results none
+frame = pandas.DataFrame(loop.history.get("eval", "metrics/Accuracy"),
+                         columns="Batch Accuracy".split())
+maximum = frame.loc[frame.Accuracy.idxmax()]
+vline = holoviews.VLine(maximum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(maximum.Accuracy).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="Accuracy").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+                                   width=PLOT.width, height=PLOT.height, title="Evaluation Batch Accuracy",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_accuracy")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_accuracy.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+*** Plotting Loss
+#+begin_src python :results none
+frame = pandas.DataFrame(loop.history.get("eval", "metrics/WeightedCategoryCrossEntropy")
+                         , columns="Batch Loss".split())
+minimum = frame.loc[frame.Loss.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.Loss).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="Loss").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+                                   width=PLOT.width, height=PLOT.height, title="Evaluation Batch Cross Entropy",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_cross_entropy")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+: <object type="text/html" data="evaluation_cross_entropy.html" style="width:100%" height=800>
+:   <p>Figure Missing</p>
+: </object>
+#+end_export
+
+Well, it looks like it's getting worse, not better. I'm probably overfitting. I guess this model isn't good enough to do better.
