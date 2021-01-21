@@ -11,135 +11,250 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9974ba11-9b71-4b8e-8dc9-4b5779900b41-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-31230fc3-119f-4c27-9dbf-87ade3b6be9c-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Beginning
+* Training the Model
   - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
   - {{% lancelot title="The Previous Post" %}}ner-building-the-model{{% /lancelot %}}    
-  - {{% lancelot title="The Next Post" %}}ner-evaluating-the-model{{% /lancelot %}}    
-* Raw
-#+begin_example python
-# # Part 3:  Train the Model 
-# 
-# This section will train your model.
-# 
-# Before you start, you need to create the data generators for training and validation data. It is important that you mask padding in the loss weights of your data, which can be done using the `id_to_mask` argument of `trax.supervised.inputs.add_loss_weights`.
+  - {{% lancelot title="The Next Post" %}}ner-evaluating-the-model{{% /lancelot %}}
+** Imports
+#+begin_src python :results none
+# from python
+from collections import namedtuple
+from functools import partial
+from tempfile import TemporaryFile
 
-# In[ ]:
+import random
+import sys
 
-
+# from pypi
+from holoviews import opts
+from trax import layers
 from trax.supervised import training
 
-rnd.seed(33)
+import holoviews
+import hvplot.pandas
+import pandas
+import trax
 
-batch_size = 64
+# this project
+from neurotic.nlp.named_entity_recognition import (DataGenerator,
+                                                   NER,
+                                                   NERData,
+                                                   TOKEN)
+# another project
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** Plotting
+#+begin_src python :results none
+slug = "ner-training-the-model"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{slug}")
 
-# Create training data, mask pad id=35180 for training.
-train_generator = trax.supervised.inputs.add_loss_weights(
-    data_generator(batch_size, t_sentences, t_labels, vocab['<PAD>'], True),
-    id_to_mask=vocab['<PAD>'])
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src    
+*** Data    
+#+begin_src python :results none
+ner = NERData()
 
-# Create validation data, mask pad id=35180 for training.
-eval_generator = trax.supervised.inputs.add_loss_weights(
-    data_generator(batch_size, v_sentences, v_labels, vocab['<PAD>'], True),
-    id_to_mask=vocab['<PAD>'])
+Settings = namedtuple("Settings", ["seed", "batch_size", "embedding_size", "learning_rate"])
+SETTINGS = Settings(seed=33, batch_size=64, embedding_size=50, learning_rate=0.01)
+trainee = NER(vocabulary_size=len(ner.data.vocabulary),
+              tag_count=len(ner.data.tags))
+random.seed(SETTINGS.seed)
 
-# ### 3.1 Training the model
-# 
-# You will now write a function that takes in your model and trains it.
-# 
-# As you've seen in the previous assignments, you will first create the [TrainTask](https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.TrainTask) and [EvalTask](https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.EvalTask) using your data generator. Then you will use the `training.Loop` to train your model.
-# 
-# <a name="ex03"></a>
-# ### Exercise 03
-# 
-# **Instructions:** Implement the `train_model` program below to train the neural network above. Here is a list of things you should do: 
-# - Create the trainer object by calling [`trax.supervised.training.Loop`](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop) and pass in the following:
-# 
-#     - model = [NER](#ex02)
-#     - [training task](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask) that uses the train data generator defined in the cell above
-#         - loss_layer = [tl.CrossEntropyLoss()](https://github.com/google/trax/blob/22765bb18608d376d8cd660f9865760e4ff489cd/trax/layers/metrics.py#L71)
-#         - optimizer = [trax.optimizers.Adam(0.01)](https://github.com/google/trax/blob/03cb32995e83fc1455b0c8d1c81a14e894d0b7e3/trax/optimizers/adam.py#L23)
-#     - [evaluation task](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask) that uses the validation data generator defined in the cell above
-#         - metrics for `EvalTask`: `tl.CrossEntropyLoss()` and `tl.Accuracy()`
-#         - in `EvalTask` set `n_eval_batches=10` for better evaluation accuracy
-#     - output_dir = output_dir
-# 
-# You'll be using a [cross entropy loss](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss), with an [Adam optimizer](https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html#trax.optimizers.adam.Adam). Please read the [trax](https://trax-ml.readthedocs.io/en/latest/trax.html) documentation to get a full understanding. The [trax GitHub](https://github.com/google/trax) also contains some useful information and a link to a colab notebook.
+training_generator = DataGenerator(x=ner.data.data_sets.x_train,
+                                   y=ner.data.data_sets.y_train,
+                                   batch_size=SETTINGS.batch_size,
+                                   padding=ner.data.vocabulary[TOKEN.pad])
 
-# In[ ]:
+validation_generator = DataGenerator(x=ner.data.data_sets.x_validate,
+                                     y=ner.data.data_sets.y_validate,
+                                     batch_size=SETTINGS.batch_size,
+                                     padding=ner.data.vocabulary[TOKEN.pad])
 
+TIMER = Timer(speak=False)
+#+end_src
+* Middle
+** The Data Generators
+ Before we start, we need to create the data generators for training and validation data. It is important that you mask padding in the loss weights of your data, which can be done using the =id_to_mask= argument of =trax.supervised.inputs.add_loss_weights=.
 
+#+begin_src python :results none
+# this is the old version, the code was moved to something called trax.data
+train_generator = trax.data.inputs.add_loss_weights(
+    training_generator,
+    id_to_mask=ner.data.vocabulary[TOKEN.pad])
+
+evaluate_generator = trax.data.inputs.add_loss_weights(
+    validation_generator,
+    id_to_mask=ner.data.vocabulary[TOKEN.pad])
+#+end_src
+** Training The Model
+ You will now write a function that takes in your model and trains it.
+ 
+ As you've seen in the previous assignments, you will first create the [[https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.TrainTask][TrainTask]] and [[https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.EvalTask][EvalTask]] using your data generator. Then you will use the =training.Loop= to train your model.
+
+ **Instructions:** Implement the =train_model= program below to train the neural network above. Here is a list of things you should do: 
+ - Create the trainer object by calling [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop][=trax.supervised.training.Loop=]] and pass in the following:
+     - model = NER
+     - [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask][training task]] that uses the train data generator defined in the cell above
+     - loss_layer = [[https://github.com/google/trax/blob/22765bb18608d376d8cd660f9865760e4ff489cd/trax/layers/metrics.py#L71][tl.CrossEntropyLoss()]]
+     - optimizer = [[https://github.com/google/trax/blob/03cb32995e83fc1455b0c8d1c81a14e894d0b7e3/trax/optimizers/adam.py#L23][trax.optimizers.Adam(0.01)]]
+     - [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask][evaluation task]] that uses the validation data generator defined in the cell above
+      + metrics for =EvalTask=: =tl.CrossEntropyLoss()= and =tl.Accuracy()=
+      + in =EvalTask= set =n_eval_batches=10= for better evaluation accuracy
+     - output_dir = output_dir
+
+You'll be using a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.metrics.CrossEntropyLoss][cross entropy loss]], with an [[https://trax-ml.readthedocs.io/en/latest/trax.optimizers.html#trax.optimizers.adam.Adam][Adam optimizer]]. Please read the [[https://trax-ml.readthedocs.io/en/latest/trax.html][trax]] documentation to get a full understanding. The [[https://github.com/google/trax][trax GitHub]] also contains some useful information and a link to a colab notebook.
+
+#+begin_src python :results none
 # UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: train_model
-def train_model(NER, train_generator, eval_generator, train_steps=1, output_dir='model'):
-    '''
-    Input: 
-        NER - the model you are building
-        train_generator - The data generator for training examples
-        eval_generator - The data generator for validation examples,
-        train_steps - number of training steps
-        output_dir - folder to save your model
-    Output:
-        training_loop - a trax supervised training Loop
-    '''
-    ### START CODE HERE (Replace instances of 'None' with your code) ###
+def train_model(NER: trax.layers.Serial,
+                train_generator: type,
+                eval_generator: type,
+                train_steps: int=1,
+                steps_per_checkpoint: int=100,
+                learning_rate: float=SETTINGS.learning_rate,
+                verbose: bool=False,
+                output_dir="~/models/ner/") -> training.Loop:
+    """Train the Named Entity Recognition Model
+    Args: 
+      NER: the model you are building
+      train_generator: The data generator for training examples
+      eval_generator: The data generator for validation examples,
+      train_steps: number of training steps
+      output_dir: folder to save your model
+
+    Returns:
+      training_loop: a trax supervised training Loop
+    """
     train_task = training.TrainTask(
-      None, # A train data generator
-      loss_layer = None, # A cross-entropy loss function
-      optimizer = None,  # The adam optimizer
+        labeled_data=train_generator,
+        loss_layer = layers.WeightedCategoryCrossEntropy(),
+        optimizer = trax.optimizers.Adam(learning_rate),
+        n_steps_per_checkpoint=steps_per_checkpoint,
     )
 
     eval_task = training.EvalTask(
-      labeled_data = None, # A labeled data generator
-      metrics = [None, None], # Evaluate with cross-entropy loss and accuracy
-      n_eval_batches = None # Number of batches to use on each evaluation
+      labeled_data = eval_generator,
+      metrics = [layers.WeightedCategoryCrossEntropy(),
+                 layers.Accuracy()],
+      n_eval_batches = SETTINGS.batch_size
     )
 
     training_loop = training.Loop(
-        None, # A model to train
-        None, # A train task
-        eval_task = None, # The evaluation task
-        output_dir = None) # The output directory
+        NER,
+        train_task,
+        eval_tasks=[eval_task],
+        output_dir=output_dir)
 
     # Train with train_steps
-    training_loop.run(n_steps = None)
+    if verbose:
+        print(f"Running {train_steps} steps")
+    training_loop.run(n_steps = train_steps)
     ### END CODE HERE ###
     return training_loop
+#+end_src
+
+ On your local machine, you can run this training for 1000 train_steps and get your own model. This training takes about 5 to 10 minutes to run.
+
+For some reason they don't give you the option to turn off the print statements so I'm going to suppress all stdout.
+
+#+begin_src python :results none
+training_steps = 1500
+real_stdout = sys.stdout
+
+TIMER.emit = False
+TIMER.start()
+with TemporaryFile("w") as temp_file:
+    sys.stdout = temp_file
+    training_loop = train_model(trainee.model, train_generator,
+                                evaluate_generator,
+                                steps_per_checkpoint=10,
+                                train_steps=training_steps,
+                                verbose=False)
+TIMER.stop()
+sys.stdout = real_stdout
+#+end_src
 
 
-# On your local machine, you can run this training for 1000 train_steps and get your own model. This training takes about 5 to 10 minutes to run.
+#+begin_src python :results output :exports both
+print(f"{TIMER.ended - TIMER.started}")
+#+end_src
 
-# In[ ]:
-
-
-train_steps = 100            # In coursera we can only train 100 steps
-get_ipython().system("rm -f 'model/model.pkl.gz'  # Remove old model.pkl if it exists")
-
-# Train the model
-training_loop = train_model(NER(), train_generator, eval_generator, train_steps)
+#+RESULTS:
+: 0:03:51.538599
 
 
-# **Expected output (Approximately)**
-# 
-# ```
-# ...
-# Step      1: train CrossEntropyLoss |  2.94375849
-# Step      1: eval  CrossEntropyLoss |  1.93172036
-# Step      1: eval          Accuracy |  0.78727312
-# Step    100: train CrossEntropyLoss |  0.57727730
-# Step    100: eval  CrossEntropyLoss |  0.36356260
-# Step    100: eval          Accuracy |  0.90943187
-# ...
-# ```
-# This value may change between executions, but it must be around 90% of accuracy on train and validations sets, after 100 training steps.
+** Plotting the Metrics
+*** Accuracy
+#+begin_src python :results none
+history = training_loop.history
+frame = pandas.DataFrame(history.get("eval", "metrics/Accuracy"),
+                         columns="Batch Accuracy".split())
+maximum = frame.loc[frame.Accuracy.idxmax()]
+vline = holoviews.VLine(maximum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(maximum.Accuracy).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch",
+                    y="Accuracy").opts(
+                        opts.Curve(color=PLOT.blue))
 
-# We have trained the model longer, and we give you such a trained model. In that way, we ensure you can continue with the rest of the assignment even if you had some troubles up to here, and also we are sure that everybody will get the same outputs for the last example. However, you are free to try your model, as well. 
+plot = (line * hline * vline).opts(
+    width=PLOT.width,
+    height=PLOT.height, title="Evaluation Batch Accuracy",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_accuracy")()
+#+end_src
 
-# In[ ]:
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
 
+#+RESULTS:
+#+begin_export html
+ <object type="text/html" data="evaluation_accuracy.html" style="width:100%" height=800>
+   <p>Figure Missing</p>
+ </object>
+#+end_export
 
-#+end_example
+*** Plotting Loss
+#+begin_src python :results none
+frame = pandas.DataFrame(history.get("eval",
+                                     "metrics/WeightedCategoryCrossEntropy"),
+                         columns="Batch Loss".split())
+minimum = frame.loc[frame.Loss.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.Loss).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="Loss").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+    width=PLOT.width, height=PLOT.height,
+    title="Evaluation Batch Cross Entropy",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_cross_entropy")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_cross_entropy.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+So it looks like I passed the best point again and am probably overfitting. I wonder if they have a callback to grab the best model like pytorch does? I'm surprised at how fast these models train.

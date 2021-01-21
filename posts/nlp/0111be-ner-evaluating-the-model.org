@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9974ba11-9b71-4b8e-8dc9-4b5779900b41-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-31230fc3-119f-4c27-9dbf-87ade3b6be9c-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -19,105 +19,135 @@
 * Beginning
   - {{% lancelot title="The First Post" %}}named-entity-recognition{{% /lancelot %}}
   - {{% lancelot title="The Previous Post" %}}ner-training-the-model{{% /lancelot %}}       
-  - {{% lancelot title="The Next Post" %}}ner-testing-the-model{{% /lancelot %}}    
-* Raw
-#+begin_example python
-# # Part 4:  Compute Accuracy
-# 
-# You will now evaluate in the test set. Previously, you have seen the accuracy on the training set and the validation (noted as eval) set. You will now evaluate on your test set. To get a good evaluation, you will need to create a mask to avoid counting the padding tokens when computing the accuracy. 
-# 
-# <a name="ex04"></a>
-# ### Exercise 04
-# 
-# **Instructions:** Write a program that takes in your model and uses it to evaluate on the test set. You should be able to get an accuracy of 95%.  
-# 
-
-# 
-# <details>    
-# <summary>
-#     <font size="3" color="darkgreen"><b>More Detailed Instructions </b></font>
-# </summary>
-# 
-# * *Step 1*: model(sentences) will give you the predicted output. 
-# 
-# * *Step 2*: Prediction will produce an output with an added dimension. For each sentence, for each word, there will be a vector of probabilities for each tag type. For each sentence,word, you need to pick the maximum valued tag. This will require `np.argmax` and careful use of the `axis` argument.
-# * *Step 3*: Create a mask to prevent counting pad characters. It has the same dimension as output. An example below on matrix comparison provides a hint.
-# * *Step 4*: Compute the accuracy metric by comparing your outputs against your test labels. Take the sum of that and divide by the total number of **unpadded** tokens. Use your mask value to mask the padded tokens. Return the accuracy. 
-# </detail>
-
-# In[ ]:
+  - {{% lancelot title="The Next Post" %}}ner-testing-the-model{{% /lancelot %}}
 
 
-#Example of a comparision on a matrix 
-a = np.array([1, 2, 3, 4])
-a == 2
+Now we'll evaluate our model using the test set. To do this we'll need to create a mask to avoid counting the padding tokens when computing the accuracy. 
 
 
-# In[ ]:
+ - *Step 1*: Calling =model(sentences)= will give us the predicted output. 
+ - *Step 2*: The output will be the prediction with an added dimension. For each word in each sentence there will be a vector of probabilities for each tag type. For each word in each sentence we'll need to pick the maximum valued tag. This will require [[https://numpy.org/doc/stable/reference/generated/numpy.argmax.html][=np.argmax=]] and careful use of the =axis= argument.
+ - *Step 3*: Create a mask to prevent counting pad characters. It will have the same dimensions as the output.
+ - *Step 4*: Compute the accuracy metric by comparing the outputs against the test labels. Take the sum of that and divide by the total number of **unpadded** tokens. Use the mask value to mask the padded tokens.
 
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from pathlib import Path
 
-# create the evaluation inputs
-x, y = next(data_generator(len(test_sentences), test_sentences, test_labels, vocab['<PAD>']))
-print("input shapes", x.shape, y.shape)
+# pypi
+import jax
+import numpy
+import trax
 
+# this project
+from neurotic.nlp.named_entity_recognition import (DataGenerator,
+                                                   NER,
+                                                   NERData,
+                                                   TOKEN)
 
-# In[ ]:
+#+end_src
+** Set Up
+#+begin_src python :results output :exports both
+data = NERData().data
+model = NER(vocabulary_size=len(data.vocabulary),
+            tag_count=len(data.tags)).model
 
+Settings = namedtuple("Settings", ["batch_size", "padding_id", "seed"])
+SETTINGS = Settings(batch_size=64,
+                    padding_id=data.vocabulary[TOKEN.pad],
+                    seed=33)
 
-# sample prediction
-tmp_pred = model(x)
-print(type(tmp_pred))
-print(f"tmp_pred has shape: {tmp_pred.shape}")
+model.init_from_file(Path("~/models/ner/model.pkl.gz").expanduser())
+print(model)
 
+random.seed(SETTINGS.seed)
 
-# Note that the model's prediction has 3 axes: 
-# - the number of examples
-# - the number of words in each example (padded to be as long as the longest sentence in the batch)
-# - the number of possible targets (the 17 named entity tags).
+test_generator = DataGenerator(x=ner.data.data_sets.x_test,
+                                   y=data.data_sets.y_test,
+                                   batch_size=SETTINGS.batch_size,
+                                   padding=SETTINGS.padding_id)
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: Serial[
+:   Embedding_35180_50
+:   LSTM_50
+:   Dense_18
+:   LogSoftmax
+: ]
 
+* Middle
+  As a reminder, here's what happens when you apply a boolean comparison to a numpy array.
+#+begin_src python :results output :exports both
+a = numpy.array([1, 2, 3, 4])
+print(a == 2)
+#+end_src  
 
+#+RESULTS:
+: [False  True False False]
+
+** A Test Input
+#+begin_src python :results output :exports both
+x, y = next(test_generator)
+print(f"x's shape: {x.shape} y's shape: {y.shape}")
+
+predictions = model(x)
+print(type(predictions))
+print(f"predictions has shape: {predictions.shape}")
+#+end_src
+
+#+RESULTS:
+: x's shape: (64, 44) y's shape: (64, 44)
+: <class 'jax.interpreters.xla._DeviceArray'>
+: predictions has shape: (64, 44, 18)
+
+**Note:** the model's prediction has 3 axes:
+ - the number of examples
+ - the number of words in each example (padded to be as long as the longest sentence in the batch)
+ - the number of possible targets (the 17 named entity tags).
+
+#+begin_src python :results none
 # UNQ_C4 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
 # GRADED FUNCTION: evaluate_prediction
-def evaluate_prediction(pred, labels, pad):
-    """
-    Inputs:
-        pred: prediction array with shape 
+def evaluate_prediction(pred: jax.interpreters.xla._DeviceArray,
+                        labels: numpy.ndarray,
+                        pad: int=SETTINGS.padding_id) -> float:
+    """Calculates the accuracy of a prediction
+    
+    Args:
+      pred: prediction array with shape 
             (num examples, max sentence length in batch, num of classes)
-        labels: array of size (batch_size, seq_len)
-        pad: integer representing pad character
-    Outputs:
-        accuracy: float
+      labels: array of size (batch_size, seq_len)
+      pad: integer representing pad character
+
+    Returns:
+      accuracy: fraction of correct predictions
     """
     ### START CODE HERE (Replace instances of 'None' with your code) ###
-## step 1 ##
-    outputs = None
+    ## step 1 ##
+    outputs = numpy.argmax(pred, axis=-1)
     print("outputs shape:", outputs.shape)
 
 ## step 2 ##
-    mask = None
+    mask = y != pad
     print("mask shape:", mask.shape, "mask[0][20:30]:", mask[0][20:30])
 ## step 3 ##
-    accuracy = None
+    accuracy = numpy.sum((outputs==y)[mask])/numpy.sum(mask)
     ### END CODE HERE ###
     return accuracy
+#+end_src
 
-
-# In[ ]:
-
-
-accuracy = evaluate_prediction(model(x), y, vocab['<PAD>'])
+#+begin_src python :results output :exports both
+accuracy = evaluate_prediction(model(x), y, SETTINGS.padding_id)
 print("accuracy: ", accuracy)
 
+#+end_src
 
-# **Expected output (Approximately)**   
-# ```
-# outputs shape: (7194, 70)
-# mask shape: (7194, 70) mask[0][20:30]: [ True  True  True False False False False False False False]
-# accuracy:  0.9543761281155191
-# ```
-# 
+#+RESULTS:
+: outputs shape: (64, 44)
+: mask shape: (64, 44) mask[0][20:30]: [ True False False False False False False False False False]
+: accuracy:  0.9636752
 
-
-#+end_example
+Hmm, does pretty good.
