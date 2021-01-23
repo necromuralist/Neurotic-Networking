@@ -11,106 +11,162 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e104e86f-dbf2-448e-a848-f69de722695d-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-47d0a694-bb35-4ad9-bdc0-4beabf25c000-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Raw
-#+begin_example python
-# # Creating a Siamese model using Trax: Ungraded Lecture Notebook
+* Beginning
+** Imports
+#+begin_src python :results none
+# pypi
+from jax.interpreters.xla import _DeviceArray as DeviceArray
+from trax import layers
 
-# In[ ]:
-
-
-import trax
-from trax import layers as tl
-import trax.fastmath.numpy as np
 import numpy
+import trax
+import trax.fastmath.numpy as fast_numpy
+#+end_src
+* Middle
+** L2 Normalization
 
-# Setting random seeds
-trax.supervised.trainer_lib.init_random_number_generators(10)
-numpy.random.seed(10)
+ Before building the model you will need to define a function that applies L2 normalization to a tensor. Luckily this is pretty straightforward.
+
+#+begin_src python :results none
+def normalize(x: numpy.ndarray) -> DeviceArray:
+    """L2 Normalization
+
+    Args:
+     x: the data to normalize
+
+    Returns:
+     normalized version of x
+    """
+    return x / fast_numpy.sqrt(fast_numpy.sum(x * x, axis=-1, keepdims=True))
+#+end_src
 
 
-# ## L2 Normalization
+The denominator can be replaced by =np.linalg.norm(x, axis=-1, keepdims=True)= to achieve the same result.
 
-# Before building the model you will need to define a function that applies L2 normalization to a tensor. This is very important because in this week's assignment you will create a custom loss function which expects the tensors it receives to be normalized. Luckily this is pretty straightforward:
-
-# In[ ]:
-
-
-def normalize(x):
-    return x / np.sqrt(np.sum(x * x, axis=-1, keepdims=True))
-
-
-# Notice that the denominator can be replaced by `np.linalg.norm(x, axis=-1, keepdims=True)` to achieve the same results and that Trax's numpy is being used within the function.
-
-# In[ ]:
-
-
+#+begin_src python :results output :exports both
 tensor = numpy.random.random((2,5))
 print(f'The tensor is of type: {type(tensor)}\n\nAnd looks like this:\n\n {tensor}')
+#+end_src
+
+#+RESULTS:
+: The tensor is of type: <class 'numpy.ndarray'>
+: 
+: And looks like this:
+: 
+:  [[0.68535982 0.95339335 0.00394827 0.51219226 0.81262096]
+:  [0.61252607 0.72175532 0.29187607 0.91777412 0.71457578]]
 
 
-# In[ ]:
-
-
+#+begin_src python :results output :exports both
 norm_tensor = normalize(tensor)
 print(f'The normalized tensor is of type: {type(norm_tensor)}\n\nAnd looks like this:\n\n {norm_tensor}')
+#+end_src
+
+#+RESULTS:
+: The normalized tensor is of type: <class 'jax.interpreters.xla._DeviceArray'>
+: 
+: And looks like this:
+: 
+:  [[0.45177674 0.6284596  0.00260263 0.33762783 0.535665  ]
+:  [0.40091467 0.47240815 0.1910407  0.6007077  0.46770892]]
+
+Notice that the initial tensor was converted from a numpy array to a jax array in the process.
+
+** The Siamese Model
+
+To create a =Siamese= model you will first need to create a LSTM model using the =Serial= combinator layer and then use another combinator layer called =Parallel= to create the Siamese model. You should be familiar with the following layers:
 
 
-# Notice that the initial tensor was converted from a numpy array to a jax array in the process.
+ -  [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial][=Serial=]] : A combinator layer that allows to stack layers serially using functioncomposition.
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][=Embedding=]] : Maps discrete tokens to vectors. It will have shape =(vocabulary length X dimension of output vectors)=. The dimension of output vectors (also called =d_feature=) is the number of elements in the word embedding. 
+ -[[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][=LSTM=]] : The LSTM layer. It leverages another Trax layer called [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTMCell][=LSTMCell=]]. The number of units should be specified and should match the number of elements in the word embedding.
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Mean][=Mean=]] Computes the mean across a desired axis. Mean uses one tensor axis to form groups of values and replaces each group with the mean value of that group.
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.base.Fn][=Fn=]] Layer with no weights that applies the function f, which should be specified using a lambda syntax. 
+ - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Parallel][=Parallel=]] It is a combinator layer (like =Serial=) that applies a list of layers in parallel to its inputs.
 
-# ## Siamese Model
+Putting everything together the Siamese model looks like this:
 
-# To create a `Siamese` model you will first need to create a LSTM model using the `Serial` combinator layer and then use another combinator layer called `Parallel` to create the Siamese model. You should be familiar with the following layers (notice each layer can be clicked to go to the docs):
-#    - [`Serial`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial) A combinator layer that allows to stack layers serially using function composition.
-#    - [`Embedding`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding) Maps discrete tokens to vectors. It will have shape `(vocabulary length X dimension of output vectors)`. The dimension of output vectors (also called `d_feature`) is the number of elements in the word embedding.
-#    - [`LSTM`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM) The LSTM layer. It leverages another Trax layer called [`LSTMCell`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTMCell). The number of units should be specified and should match the number of elements in the word embedding.
-#    - [`Mean`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Mean) Computes the mean across a desired axis. Mean uses one tensor axis to form groups of values and replaces each group with the mean value of that group.
-#    - [`Fn`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.base.Fn) Layer with no weights that applies the function f, which should be specified using a lambda syntax. 
-#    - [`Parallel`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Parallel) It is a combinator layer (like `Serial`) that applies a list of layers in parallel to its inputs.
-# 
-# Putting everything together the Siamese model will look like this:
-
-# In[ ]:
-
-
+#+begin_src python :results none
 vocab_size = 500
 model_dimension = 128
 
 # Define the LSTM model
-LSTM = tl.Serial(
-        tl.Embedding(vocab_size=vocab_size, d_feature=model_dimension),
-        tl.LSTM(model_dimension),
-        tl.Mean(axis=1),
-        tl.Fn('Normalize', lambda x: normalize(x))
+LSTM = layers.Serial(
+        layers.Embedding(vocab_size=vocab_size, d_feature=model_dimension),
+        layers.LSTM(model_dimension),
+        layers.Mean(axis=1),
+        layers.Fn('Normalize', lambda x: normalize(x))
     )
 
 # Use the Parallel combinator to create a Siamese model out of the LSTM 
-Siamese = tl.Parallel(LSTM, LSTM)
+Siamese = layers.Parallel(LSTM, LSTM)
+#+end_src
 
+Next is a helper function that prints information for every layer (sublayer within =Serial=):
 
-# Next is a helper function that prints information for every layer (sublayer within `Serial`):
-
-# In[ ]:
-
-
+#+begin_src python :results none
 def show_layers(model, layer_prefix):
     print(f"Total layers: {len(model.sublayers)}\n")
     for i in range(len(model.sublayers)):
         print('========')
         print(f'{layer_prefix}_{i}: {model.sublayers[i]}\n')
+#+end_src
 
+#+begin_src python :results output :exports both
 print('Siamese model:\n')
 show_layers(Siamese, 'Parallel.sublayers')
+#+end_src
 
+#+RESULTS:
+#+begin_example
+Siamese model:
+
+Total layers: 2
+
+========
+Parallel.sublayers_0: Serial[
+  Embedding_500_128
+  LSTM_128
+  Mean
+  Normalize
+]
+
+========
+Parallel.sublayers_1: Serial[
+  Embedding_500_128
+  LSTM_128
+  Mean
+  Normalize
+]
+#+end_example
+
+#+begin_src python :results output :exports both
 print('Detail of LSTM models:\n')
 show_layers(LSTM, 'Serial.sublayers')
+#+end_src
 
+#+RESULTS:
+#+begin_example
+Detail of LSTM models:
 
-# Try changing the parameters defined before the Siamese model and see how it changes!
-# 
-# You will actually train this model in this week's assignment. For now you should be more familiarized with creating Siamese models using Trax. **Keep it up!**
+Total layers: 4
+
+========
+Serial.sublayers_0: Embedding_500_128
+
+========
+Serial.sublayers_1: LSTM_128
+
+========
+Serial.sublayers_2: Mean
+
+========
+Serial.sublayers_3: Normalize
 #+end_example
+
+* End
