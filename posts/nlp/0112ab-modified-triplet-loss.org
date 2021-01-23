@@ -7,167 +7,227 @@
 .. link: 
 .. description: The Modified Triplet Loss Metric.
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e104e86f-dbf2-448e-a848-f69de722695d-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-760aeeed-96fe-4fbb-a80b-eb92804ccf1e-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Raw
-#+begin_example python
-# #  Modified Triplet Loss : Ungraded Lecture Notebook
-# In this notebook you'll see how to calculate the full triplet loss, step by step, including the mean negative and the closest negative. You'll also calculate the matrix of similarity scores.
-# 
-# ## Background
-# This is the original triplet loss function:
-# 
-# $\mathcal{L_\mathrm{Original}} = \max{(\mathrm{s}(A,N) -\mathrm{s}(A,P) +\alpha, 0)}$
-# 
-# It can be improved by including the mean negative and the closest negative, to create a new full loss function. The inputs are the Anchor $\mathrm{A}$, Positive $\mathrm{P}$ and Negative $\mathrm{N}$.
-# 
-# $\mathcal{L_\mathrm{1}} = \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# $\mathcal{L_\mathrm{2}} = \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# $\mathcal{L_\mathrm{Full}} = \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}$
-# 
-# Let me show you what that means exactly, and how to calculate each step.
-# 
-# ## Imports
+* Beginning
+  We'll be looking at how to calculate the full triplet loss as well as a matrix of similarity scores.
+** Background
+This is the original triplet loss function:
 
-# In[ ]:
+\[
+\mathcal{L_\mathrm{Original}} = \max{(\mathrm{s}(A,N) -\mathrm{s}(A,P) +\alpha, 0)}
+\]
 
+It can be improved by including the mean negative and the closest negative, to create a new full loss function. The inputs are the Anchor \(\mathrm{A}\), Positive \(\mathrm{P}\) and Negative \(\mathrm{N}\).
 
-import numpy as np
+\begin{align}
+\mathcal{L_\mathrm{1}} &= \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\mathcal{L_\mathrm{2}} &= \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\mathcal{L_\mathrm{Full}} &= \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}\\
+\end{align}
 
+** Imports
+#+begin_src python :results none
+# from pypi
+import numpy
+#+end_src
+* Middle
+** Similarity Scores
+The first step is to calculate the matrix of similarity scores using cosine similarity so that you can look up \(\mathrm{s}(A,P)\), \(\mathrm{s}(A,N)\) as needed for the loss formulas.
 
-# ## Similarity Scores
-# The first step is to calculate the matrix of similarity scores using cosine similarity so that you can look up $\mathrm{s}(A,P)$, $\mathrm{s}(A,N)$ as needed for the loss formulas.
-# 
-# ### Two Vectors
-# First I'll show you how to calculate the similarity score, using cosine similarity, for 2 vectors.
-# 
-# $\mathrm{s}(v_1,v_2) = \mathrm{cosine \ similarity}(v_1,v_2) = \frac{v_1 \cdot v_2}{||v_1||~||v_2||}$
-# * Try changing the values in the second vector to see how it changes the cosine similarity.
-# 
-# 
-# 
+*** Two Vectors
+First, this is how to calculate the similarity score, using cosine similarity, for 2 vectors.
 
-# In[ ]:
+\[
+\mathrm{s}(v_1,v_2) = \mathrm{cosine \ similarity}(v_1,v_2) = \frac{v_1 \cdot v_2}{||v_1||~||v_2||}
+\]
 
 
-# Two vector example
-# Input data
-print("-- Inputs --")
-v1 = np.array([1, 2, 3], dtype=float)
-v2 = np.array([1, 2, 3.5])  # notice the 3rd element is offset by 0.5
-### START CODE HERE ###
-# Try modifying the vector v2 to see how it impacts the cosine similarity
-# v2 = v1                   # identical vector
-# v2 = v1 * -1              # opposite vector
-# v2 = np.array([0,-42,1])  # random example
-### END CODE HERE ###
-print("v1 :", v1)
-print("v2 :", v2, "\n")
+*** Similarity score
 
-# Similarity score
-def cosine_similarity(v1, v2):
-    numerator = np.dot(v1, v2)
-    denominator = np.sqrt(np.dot(v1, v1)) * np.sqrt(np.dot(v2, v2))
+#+begin_src python :results none
+def cosine_similarity(v1: numpy.ndarray, v2: numpy.ndarray) -> float:
+    """Calculates the cosine similarity between two vectors
+
+    Args:
+     v1: first vector
+     v2: vector to compare to v1
+
+    Returns:
+     the cosine similarity between v1 and v2
+    """
+    numerator = numpy.dot(v1, v2)
+    denominator = numpy.sqrt(numpy.dot(v1, v1)) * numpy.sqrt(numpy.dot(v2, v2))
     return numerator / denominator
+#+end_src
 
-print("-- Outputs --")
-print("cosine similarity :", cosine_similarity(v1, v2))
+**** Similar vectors
 
+#+begin_src python :results output :exports both
+v1 = numpy.array([1, 2, 3], dtype=float)
+v2 = numpy.array([1, 2, 3.5])
 
-# ### Two Batches of Vectors
-# Now i'll show you how to calculate the similarity scores, using cosine similarity, for 2 batches of vectors. These are rows of individual vectors, just like in the example above, but stacked vertically into a matrix. They would look like the image below for a batch size (row count) of 4 and embedding size (column count) of 5.
-# 
-# The data is setup so that $v_{1\_1}$ and $v_{2\_1}$ represent duplicate inputs, but they are not duplicates with any other rows in the batch. This means $v_{1\_1}$ and $v_{2\_1}$ (green and green) have more similar vectors than say $v_{1\_1}$ and $v_{2\_2}$ (green and magenta).
-# 
-# I'll show you two different methods for calculating the matrix of similarities from 2 batches of vectors.
-# 
-# <img src = 'v1v2_stacked.png' width="width" height="height" style="height:250px;"/>
+print(f"cosine similarity : {cosine_similarity(v1, v2):0.4f}")
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: cosine similarity : 0.9974
 
+**** Identical Vectors
+#+begin_src python :results output :exports both
+v2 = v1
+print(f"cosine similarity : {cosine_similarity(v1, v2):0.4f}")
+#+end_src
 
-# Two batches of vectors example
-# Input data
-print("-- Inputs --")
-v1_1 = np.array([1, 2, 3])
-v1_2 = np.array([9, 8, 7])
-v1_3 = np.array([-1, -4, -2])
-v1_4 = np.array([1, -7, 2])
-v1 = np.vstack([v1_1, v1_2, v1_3, v1_4])
+#+RESULTS:
+: cosine similarity : 1.0000
+**** Opposite Vectors
+#+begin_src python :results output :exports both
+v2 = -v1
+print(f"cosine similarity : {cosine_similarity(v1, v2):0.4f}")
+#+end_src
+
+#+RESULTS:
+: cosine similarity : -1.0000
+
+**** Dissimilar Vectors
+#+begin_src python :results output :exports both
+v2 = numpy.array([0,-42,1])
+print(f"cosine similarity : {cosine_similarity(v1, v2):0.4f}")
+#+end_src
+
+#+RESULTS:
+: cosine similarity : -0.5153
+
+** Two Batches of Vectors
+Now let's look at how to calculate the similarity scores, using cosine similarity, for 2 batches of vectors. These are rows of individual vectors, just like in the example above, but stacked vertically into a matrix. They would look like the image below for a batch size (row count) of 4 and embedding size (column count) of 5.
+
+ The data is setup so that \(v_{1\_1}\) and \(v_{2\_1}\) represent duplicate inputs, but they are not duplicates with any other rows in the batch. This means \(v_{1\_1}\) and \(v_{2\_1}\) (green and green) have more similar vectors than say \(v_{1\_1}\) and \(v_{2\_2}\) (green and magenta).
+
+We'll use two different methods for calculating the matrix of similarities from 2 batches of vectors.
+
+The Input data.
+
+#+begin_src python :results output :exports both
+v1_1 = numpy.array([1, 2, 3])
+v1_2 = numpy.array([9, 8, 7])
+v1_3 = numpy.array([-1, -4, -2])
+v1_4 = numpy.array([1, -7, 2])
+v1 = numpy.vstack([v1_1, v1_2, v1_3, v1_4])
 print("v1 :")
 print(v1, "\n")
-v2_1 = v1_1 + np.random.normal(0, 2, 3)  # add some noise to create approximate duplicate
-v2_2 = v1_2 + np.random.normal(0, 2, 3)
-v2_3 = v1_3 + np.random.normal(0, 2, 3)
-v2_4 = v1_4 + np.random.normal(0, 2, 3)
-v2 = np.vstack([v2_1, v2_2, v2_3, v2_4])
+v2_1 = v1_1 + numpy.random.normal(0, 2, 3)  # add some noise to create approximate duplicate
+v2_2 = v1_2 + numpy.random.normal(0, 2, 3)
+v2_3 = v1_3 + numpy.random.normal(0, 2, 3)
+v2_4 = v1_4 + numpy.random.normal(0, 2, 3)
+v2 = numpy.vstack([v2_1, v2_2, v2_3, v2_4])
 print("v2 :")
 print(v2, "\n")
+#+end_src
 
-# Batch sizes must match
-b = len(v1)
-print("batch sizes match :", b == len(v2), "\n")
+#+RESULTS:
+#+begin_example
+v1 :
+[[ 1  2  3]
+ [ 9  8  7]
+ [-1 -4 -2]
+ [ 1 -7  2]] 
 
-# Similarity scores
-print("-- Outputs --")
-# Option 1 : nested loops and the cosine similarity function
-sim_1 = np.zeros([b, b])  # empty array to take similarity scores
-# Loop
-for row in range(0, sim_1.shape[0]):
-    for col in range(0, sim_1.shape[1]):
-        sim_1[row, col] = cosine_similarity(v1[row], v2[col])
+v2 :
+[[ 1.34263076  1.18510671  1.04373534]
+ [ 8.96692933  6.50763316  7.03243982]
+ [-3.4497247  -6.08808183 -4.54327564]
+ [-0.77144774 -9.08449817  4.4633513 ]] 
+#+end_example
 
-print("option 1 : loop")
-print(sim_1, "\n")
+For this to work the batch sizes must match.
 
-# Option 2 : vector normalization and dot product
-def norm(x):
-    return x / np.sqrt(np.sum(x * x, axis=1, keepdims=True))
+#+begin_src python :results none
+assert len(v1) == len(v2)
+#+end_src
 
-sim_2 = np.dot(norm(v1), norm(v2).T)
+Now let's look at the similarity scores.
 
-print("option 2 : vec norm & dot product")
-print(sim_2, "\n")
+**** Option 1 : nested loops and the cosine similarity function
+#+begin_src python :results output :exports both
+batch_size, columns = v1.shape
+scores_1 = numpy.zeros([batch_size, batch_size])
 
-# Check
-print("outputs are the same :", np.allclose(sim_1, sim_2))
+rows, columns = scores_1.shape
 
+for row in range(rows):
+    for column in range(columns):
+        scores_1[row, column] = cosine_similarity(v1[row], v2[column])
 
-# ## Hard Negative Mining
-# 
-# I'll now show you how to calculate the mean negative $mean\_neg$ and the closest negative $close\_neg$ used in calculating $\mathcal{L_\mathrm{1}}$ and $\mathcal{L_\mathrm{2}}$.
-# 
-# 
-# $\mathcal{L_\mathrm{1}} = \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# $\mathcal{L_\mathrm{2}} = \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# You'll do this using the matrix of similarity scores you already know how to make, like the example below for a batch size of 4. The diagonal of the matrix contains all the $\mathrm{s}(A,P)$ values, similarities from duplicate question pairs (aka Positives). This is an important attribute for the calculations to follow.
-# 
-# <img src = 'ss_matrix.png' width="width" height="height" style="height:250px;"/>
-# 
-# 
-# ### Mean Negative
-# $mean\_neg$ is the average of the off diagonals, the $\mathrm{s}(A,N)$ values, for each row.
-# 
-# ### Closest Negative
-# $closest\_neg$ is the largest off diagonal value, $\mathrm{s}(A,N)$, that is smaller than the diagonal $\mathrm{s}(A,P)$ for each row.
-# * Try using a different matrix of similarity scores. 
+print("Option 1 : Loop")
+print(scores_1)
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: Option 1 : Loop
+: [[ 0.88245143  0.87735873 -0.93717609 -0.14613242]
+:  [ 0.99999485  0.99567656 -0.95998199 -0.34214656]
+:  [-0.86016573 -0.81584759  0.96484391  0.60584372]
+:  [-0.31943701 -0.23354642  0.49063636  0.96181686]]
 
+**** Option 2 : Vector Normalization and the Dot Product
 
-# Hardcoded matrix of similarity scores
-sim_hardcoded = np.array(
+#+begin_src python :results none
+def norm(x: numpy.ndarray) -> numpy.ndarray:
+    """Normalize x"""
+    return x / numpy.sqrt(numpy.sum(x * x, axis=1, keepdims=True))
+#+end_src     
+
+#+begin_src python :results output :exports both
+scores_2 = numpy.dot(norm(v1), norm(v2).T)
+
+print("Option 2 : Vector Norm & dot product")
+print(scores_2)
+#+end_src
+
+#+RESULTS:
+: Option 2 : Vector Norm & dot product
+: [[ 0.88245143  0.87735873 -0.93717609 -0.14613242]
+:  [ 0.99999485  0.99567656 -0.95998199 -0.34214656]
+:  [-0.86016573 -0.81584759  0.96484391  0.60584372]
+:  [-0.31943701 -0.23354642  0.49063636  0.96181686]] 
+: 
+
+*** Check
+    Let's make sure we get the same answer in both cases.
+    
+#+begin_src python :results none
+assert numpy.allclose(scores_1, scores_2)
+#+end_src    
+
+** Hard Negative Mining
+
+Now we'll calculate the mean negative \(mean\_neg\) and the closest negative \(close\_neg\) used in calculating \(\mathcal{L_\mathrm{1}}\) and \(\mathcal{L_\mathrm{2}}\).
+
+\begin{align}
+\mathcal{L_\mathrm{1}} &= \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\mathcal{L_\mathrm{2}} &= \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\end{align}
+
+We'll do this using the matrix of similarity scores for a batch size of 4. The diagonal of the matrix contains all the \(\mathrm{s}(A,P)\) values, similarities from duplicate question pairs (aka Positives). This is an important attribute for the calculations to follow.
+
+*** Mean Negative
+/mean_neg/ is the average of the off diagonals, the \(\mathrm{s}(A,N)\) values, for each row.
+
+*** Closest Negative
+/closest_neg/ is the largest off diagonal value, \(\mathrm{s}(A,N)\), that is smaller than the diagonal \(\mathrm{s}(A,P)\) for each row.
+
+We'll start with some hand-made similarity scores.
+
+#+begin_src python :results none
+similarity_scores = numpy.array(
     [
         [0.9, -0.8, 0.3, -0.5],
         [-0.4, 0.5, 0.1, -0.1],
@@ -175,88 +235,123 @@ sim_hardcoded = np.array(
         [-0.5, -0.2, -0.7, 0.5],
     ]
 )
+#+end_src
 
-sim = sim_hardcoded
-### START CODE HERE ###
-# Try using different values for the matrix of similarity scores
-# sim = 2 * np.random.random_sample((b,b)) -1   # random similarity scores between -1 and 1
-# sim = sim_2                                   # the matrix calculated previously
-### END CODE HERE ###
+*** Positives
+ All the /s(A,P)/ values are similarities from duplicate question pairs (aka Positives).
+ These are along the diagonal.
 
-# Batch size
-b = sim.shape[0]
+#+begin_src python :results output :exports both
+sim_ap = numpy.diag(similarity_scores)
+print("s(A, P) :\n")
+print(numpy.diag(sim_ap))
+#+end_src 
 
-print("-- Inputs --")
-print("sim :")
-print(sim)
-print("shape :", sim.shape, "\n")
+#+RESULTS:
+: s(A, P) :
+: 
+: [[ 0.9  0.   0.   0. ]
+:  [ 0.   0.5  0.   0. ]
+:  [ 0.   0.  -0.4  0. ]
+:  [ 0.   0.   0.   0.5]]
 
-# Positives
-# All the s(A,P) values : similarities from duplicate question pairs (aka Positives)
-# These are along the diagonal
-sim_ap = np.diag(sim)
-print("sim_ap :")
-print(np.diag(sim_ap), "\n")
+*** Negatives
+All the /s(A,N)/ values are similarities the non duplicate question pairs (aka Negatives).
+ These are in the cells not on the diagonal.
 
-# Negatives
-# all the s(A,N) values : similarities the non duplicate question pairs (aka Negatives)
-# These are in the off diagonals
-sim_an = sim - np.diag(sim_ap)
-print("sim_an :")
-print(sim_an, "\n")
+#+begin_src python :results output :exports both
+sim_an = similarity_scores - numpy.diag(sim_ap)
+print("s(A, N) :\n")
+print(sim_an)
+#+end_src 
 
-print("-- Outputs --")
-# Mean negative
-# Average of the s(A,N) values for each row
-mean_neg = np.sum(sim_an, axis=1, keepdims=True) / (b - 1)
-print("mean_neg :")
-print(mean_neg, "\n")
+#+RESULTS:
+: s(A, N) :
+: 
+: [[ 0.  -0.8  0.3 -0.5]
+:  [-0.4  0.   0.1 -0.1]
+:  [ 0.3  0.1  0.  -0.8]
+:  [-0.5 -0.2 -0.7  0. ]]
 
-# Closest negative
-# Max s(A,N) that is <= s(A,P) for each row
-mask_1 = np.identity(b) == 1            # mask to exclude the diagonal
-mask_2 = sim_an > sim_ap.reshape(b, 1)  # mask to exclude sim_an > sim_ap
+*** Mean negative
+This is the  average of the /s(A,N)/ values for each row.
+
+#+begin_src python :results output :exports both
+batch_size = similarity_scores.shape[0]
+mean_neg = numpy.sum(sim_an, axis=1, keepdims=True) / (batch_size - 1)
+print("mean_neg :\n")
+print(mean_neg)
+#+end_src
+
+#+RESULTS:
+: mean_neg :
+: 
+: [[-0.33333333]
+:  [-0.13333333]
+:  [-0.13333333]
+:  [-0.46666667]]
+
+*** Closest negative
+These are the Max /s(A,N)/ that is <= s(A,P) for each row.
+
+#+begin_src python :results output :exports both
+mask_1 = numpy.identity(batch_size) == 1            # mask to exclude the diagonal
+mask_2 = sim_an > sim_ap.reshape(batch_size, 1)  # mask to exclude sim_an > sim_ap
 mask = mask_1 | mask_2
-sim_an_masked = np.copy(sim_an)         # create a copy to preserve sim_an
+sim_an_masked = numpy.copy(sim_an)         # create a copy to preserve sim_an
 sim_an_masked[mask] = -2
 
-closest_neg = np.max(sim_an_masked, axis=1, keepdims=True)
-print("closest_neg :")
-print(closest_neg, "\n")
+closest_neg = numpy.max(sim_an_masked, axis=1, keepdims=True)
+print("Closest Negative :\n")
+print(closest_neg)
+#+end_src
+
+#+RESULTS:
+: Closest Negative :
+: 
+: [[ 0.3]
+:  [ 0.1]
+:  [-0.8]
+:  [-0.2]]
+
+** The Loss Functions
+
+ The last step is to calculate the loss functions.
+
+\begin{align}
+\mathcal{L_\mathrm{1}} &= \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\mathcal{L_\mathrm{2}} &= \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}\\
+\mathcal{L_\mathrm{Full}} &= \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}\\
+\end{align}
 
 
-# ## The Loss Functions
-# 
-# The last step is to calculate the loss functions.
-# 
-# $\mathcal{L_\mathrm{1}} = \max{(mean\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# $\mathcal{L_\mathrm{2}} = \max{(closest\_neg -\mathrm{s}(A,P)  +\alpha, 0)}$
-# 
-# $\mathcal{L_\mathrm{Full}} = \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}$
+The Alpha margin.
 
-# In[ ]:
-
-
-# Alpha margin
+#+begin_src python :results none
 alpha = 0.25
+#+end_src
 
-# Modified triplet loss
-# Loss 1
-l_1 = np.maximum(mean_neg - sim_ap.reshape(b, 1) + alpha, 0)
-# Loss 2
-l_2 = np.maximum(closest_neg - sim_ap.reshape(b, 1) + alpha, 0)
-# Loss full
-l_full = l_1 + l_2
-# Cost
-cost = np.sum(l_full)
+*** Modified triplet loss
+#+begin_src python :results none
+loss_1 = numpy.maximum(mean_neg - sim_ap.reshape(batch_size, 1) + alpha, 0)
+loss_2 = numpy.maximum(closest_neg - sim_ap.reshape(batch_size, 1) + alpha, 0)
+loss_full = loss_1 + loss_2
+#+end_src
 
-print("-- Outputs --")
-print("loss full :")
-print(l_full, "\n")
-print("cost :", "{:.3f}".format(cost))
+*** Cost
+#+begin_src python :results output :exports both
+cost = numpy.sum(loss_full)
+print("Loss Full :\n")
+print(loss_full)
+print(f"\ncost : {cost:.3f}")
+#+end_src    
 
-
-# ## Summary
-# There were a lot of steps in there, so well done. You now know how to calculate a modified triplet loss, incorporating the mean negative and the closest negative. You also learned how to create a matrix of similarity scores based on cosine similarity.
-#+end_example  
+#+RESULTS:
+: Loss Full :
+: 
+: [[0.        ]
+:  [0.        ]
+:  [0.51666667]
+:  [0.        ]]
+: 
+: cost : 0.517
