@@ -1,0 +1,132 @@
+#+BEGIN_COMMENT
+.. title: Siamese Networks: Defining the Model
+.. slug: siamese-networks-defining-the-model
+.. date: 2021-01-25 19:36:23 UTC-08:00
+.. tags: 
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+* Raw
+#+begin_example python
+# # Part 2: Defining the Siamese model
+# 
+# <a name='2.1'></a>
+# 
+# ### 2.1 Understanding Siamese Network 
+# A Siamese network is a neural network which uses the same weights while working in tandem on two different input vectors to compute comparable output vectors.The Siamese network you are about to implement looks like this:
+# 
+# <img src = "siamese.png" style="width:600px;height:300px;"/>
+# 
+# You get the question embedding, run it through an LSTM layer, normalize $v_1$ and $v_2$, and finally use a triplet loss (explained below) to get the corresponding cosine similarity for each pair of questions. As usual, you will start by importing the data set. The triplet loss makes use of a baseline (anchor) input that is compared to a positive (truthy) input and a negative (falsy) input. The distance from the baseline (anchor) input to the positive (truthy) input is minimized, and the distance from the baseline (anchor) input to the negative (falsy) input is maximized. In math equations, you are trying to maximize the following.
+# 
+# $$\mathcal{L}(A, P, N)=\max \left(\|\mathrm{f}(A)-\mathrm{f}(P)\|^{2}-\|\mathrm{f}(A)-\mathrm{f}(N)\|^{2}+\alpha, 0\right)$$
+# 
+# $A$ is the anchor input, for example $q1_1$, $P$ the duplicate input, for example, $q2_1$, and $N$ the negative input (the non duplicate question), for example $q2_2$.<br>
+# $\alpha$ is a margin; you can think about it as a safety net, or by how much you want to push the duplicates from the non duplicates. 
+# <br>
+# 
+# <a name='ex02'></a>
+# ### Exercise 02
+# 
+# **Instructions:** Implement the `Siamese` function below. You should be using all the objects explained below. 
+# 
+# To implement this model, you will be using `trax`. Concretely, you will be using the following functions.
+# 
+# 
+# - `tl.Serial`: Combinator that applies layers serially (by function composition) allows you set up the overall structure of the feedforward. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial) / [source code](https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/combinators.py#L26)
+#     - You can pass in the layers as arguments to `Serial`, separated by commas. 
+#     - For example: `tl.Serial(tl.Embeddings(...), tl.Mean(...), tl.Dense(...), tl.LogSoftmax(...))` 
+# 
+# 
+# -  `tl.Embedding`: Maps discrete tokens to vectors. It will have shape (vocabulary length X dimension of output vectors). The dimension of output vectors (also called d_feature) is the number of elements in the word embedding. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding) / [source code](https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L113)
+#     - `tl.Embedding(vocab_size, d_feature)`.
+#     - `vocab_size` is the number of unique words in the given vocabulary.
+#     - `d_feature` is the number of elements in the word embedding (some choices for a word embedding size range from 150 to 300, for example).
+# 
+# 
+# -  `tl.LSTM` The LSTM layer. It leverages another Trax layer called [`LSTMCell`](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTMCell). The number of units should be specified and should match the number of elements in the word embedding. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM) / [source code](https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/rnn.py#L87)
+#     - `tl.LSTM(n_units)` Builds an LSTM layer of n_units.
+#     
+#     
+# - `tl.Mean`: Computes the mean across a desired axis. Mean uses one tensor axis to form groups of values and replaces each group with the mean value of that group. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Mean) / [source code](https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/core.py#L276)
+#     - `tl.Mean(axis=1)` mean over columns.
+# 
+# 
+# - `tl.Fn` Layer with no weights that applies the function f, which should be specified using a lambda syntax. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.base.Fn) / [source doce](https://github.com/google/trax/blob/70f5364dcaf6ec11aabbd918e5f5e4b0f5bfb995/trax/layers/base.py#L576)
+#     - $x$ -> This is used for cosine similarity.
+#     - `tl.Fn('Normalize', lambda x: normalize(x))` Returns a layer with no weights that applies the function `f`
+#     
+#     
+# - `tl.parallel`: It is a combinator layer (like `Serial`) that applies a list of layers in parallel to its inputs. [docs](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Parallel) / [source code](https://github.com/google/trax/blob/37aba571a89a8ad86be76a569d0ec4a46bdd8642/trax/layers/combinators.py#L152)
+# 
+
+# In[ ]:
+
+
+# UNQ_C2 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: Siamese
+def Siamese(vocab_size=len(vocab), d_model=128, mode='train'):
+    """Returns a Siamese model.
+
+    Args:
+        vocab_size (int, optional): Length of the vocabulary. Defaults to len(vocab).
+        d_model (int, optional): Depth of the model. Defaults to 128.
+        mode (str, optional): 'train', 'eval' or 'predict', predict mode is for fast inference. Defaults to 'train'.
+
+    Returns:
+        trax.layers.combinators.Parallel: A Siamese model. 
+    """
+
+    def normalize(x):  # normalizes the vectors to have L2 norm 1
+        return x / fastnp.sqrt(fastnp.sum(x * x, axis=-1, keepdims=True))
+    
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    q_processor = tl.Serial(  # Processor will run on Q1 and Q2.
+        None, # Embedding layer
+        None, # LSTM layer
+        None, # Mean over columns
+        None  # Apply normalize function
+    )  # Returns one vector of shape [batch_size, d_model].
+    
+    ### END CODE HERE ###
+    
+    # Run on Q1 and Q2 in parallel.
+    model = tl.Parallel(q_processor, q_processor)
+    return model
+
+
+# Setup the Siamese network model
+
+# In[ ]:
+
+
+# check your model
+model = Siamese()
+print(model)
+
+
+# **Expected output:**  
+# 
+# ```CPP
+# Parallel_in2_out2[
+#   Serial[
+#     Embedding_41699_128
+#     LSTM_128
+#     Mean
+#     Normalize
+#   ]
+#   Serial[
+#     Embedding_41699_128
+#     LSTM_128
+#     Mean
+#     Normalize
+#   ]
+# ]
+# ```
+
+# <a name='2.2'></a>
+
+#+end_example

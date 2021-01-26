@@ -1,0 +1,141 @@
+#+BEGIN_COMMENT
+.. title: Siamese Networks: Hard Negative Mining
+.. slug: siamese-networks-hard-negative-mining
+.. date: 2021-01-25 19:37:28 UTC-08:00
+.. tags: 
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+* Raw
+#+begin_example python
+# ### 2.2 Hard  Negative Mining
+# 
+# 
+# You will now implement the `TripletLoss`.<br>
+# As explained in the lecture, loss is composed of two terms. One term utilizes the mean of all the non duplicates, the second utilizes the *closest negative*. Our loss expression is then:
+#  
+# \begin{align}
+#  \mathcal{Loss_1(A,P,N)} &=\max \left( -cos(A,P)  + mean_{neg} +\alpha, 0\right) \\
+#  \mathcal{Loss_2(A,P,N)} &=\max \left( -cos(A,P)  + closest_{neg} +\alpha, 0\right) \\
+# \mathcal{Loss(A,P,N)} &= mean(Loss_1 + Loss_2) \\
+# \end{align}
+# 
+# 
+# Further, two sets of instructions are provided. The first set provides a brief description of the task. If that set proves insufficient, a more detailed set can be displayed.  
+# 
+# <a name='ex03'></a>
+# ### Exercise 03
+# 
+# **Instructions (Brief):** Here is a list of things you should do: <br>
+# 
+# - As this will be run inside trax, use `fastnp.xyz` when using any `xyz` numpy function
+# - Use `fastnp.dot` to calculate the similarity matrix $v_1v_2^T$ of dimension `batch_size` x `batch_size`
+# - Take the score of the duplicates on the diagonal `fastnp.diagonal`
+# - Use the `trax` functions `fastnp.eye` and `fastnp.maximum` for the identity matrix and the maximum.
+
+# <details>    
+# <summary>
+#     <font size="3" color="darkgreen"><b>More Detailed Instructions </b></font>
+# </summary>
+# We'll describe the algorithm using a detailed example. Below, V1, V2 are the output of the normalization blocks in our model. Here we will use a batch_size of 4 and a d_model of 3. As explained in lecture, the inputs, Q1, Q2 are arranged so that corresponding inputs are duplicates while non-corresponding entries are not. The outputs will have the same pattern.
+# <img src = "C3_W4_triploss1.png" style="width:1021px;height:229px;"/>
+# This testcase arranges the outputs, v1,v2, to highlight different scenarios. Here, the first two outputs V1[0], V2[0] match exactly - so the model is generating the same vector for Q1[0] and Q2[0] inputs. The second outputs differ, circled in orange, we set, V2[1] is set to match V2[**2**], simulating a model which is generating very poor results. V1[3] and V2[3] match exactly again while V1[4] and V2[4] are set to be exactly wrong - 180 degrees from each other, circled in blue. 
+# 
+# The first step is to compute the cosine similarity matrix or `score` in the code. As explained in lecture, this is $$V_1 V_2^T$$ This is generated with `fastnp.dot`.
+# <img src = "C3_W4_triploss2.png" style="width:959px;height:236px;"/>
+# The clever arrangement of inputs creates the data needed for positive *and* negative examples without having to run all pair-wise combinations. Because Q1[n] is a duplicate of only Q2[n], other combinations are explicitly created negative examples or *Hard Negative* examples. The matrix multiplication efficiently produces the cosine similarity of all positive/negative combinations as shown above on the left side of the diagram. 'Positive' are the results of duplicate examples and 'negative' are the results of explicitly created negative examples. The results for our test case are as expected, V1[0]V2[0] match producing '1' while our other 'positive' cases (in green) don't match well, as was arranged. The V2[2] was set to match V1[3] producing a poor match at `score[2,2]` and an undesired 'negative' case of a '1' shown in grey. 
+# 
+# With the similarity matrix (`score`) we can begin to implement the loss equations. First, we can extract $$cos(A,P)$$ by utilizing `fastnp.diagonal`. The goal is to grab all the green entries in the diagram above. This is `positive` in the code.
+# 
+# Next, we will create the *closest_negative*. This is the nonduplicate entry in V2 that is closest (has largest cosine similarity) to an entry in V1. Each row, n, of `score` represents all comparisons of the results of Q1[n] vs Q2[x] within a batch. A specific example in our testcase is row `score[2,:]`. It has the cosine similarity of V1[2] and V2[x]. The *closest_negative*, as was arranged, is V2[2] which has a score of 1. This is the maximum value of the 'negative' entries (blue entries in the diagram).
+# 
+# To implement this, we need to pick the maximum entry on a row of `score`, ignoring the 'positive'/green entries. To avoid selecting the 'positive'/green entries, we can make them larger negative numbers. Multiply `fastnp.eye(batch_size)` with 2.0 and subtract it out of `scores`. The result is `negative_without_positive`. Now we can use `fastnp.max`, row by row (axis=1), to select the maximum which is `closest_negative`.
+# 
+# Next, we'll create *mean_negative*. As the name suggests, this is the mean of all the 'negative'/blue values in `score` on a row by row basis. We can use `fastnp.eye(batch_size)` and a constant, this time to create a mask with zeros on the diagonal. Element-wise multiply this with `score` to get just the 'negative values. This is `negative_zero_on_duplicate` in the code. Compute the mean by using `fastnp.sum` on `negative_zero_on_duplicate` for `axis=1` and divide it by `(batch_size - 1)` . This is `mean_negative`.
+# 
+# Now, we can compute loss using the two equations above and `fastnp.maximum`. This will form `triplet_loss1` and `triplet_loss2`. 
+# 
+# `triple_loss` is the `fastnp.mean` of the sum of the two individual losses.
+# 
+# Once you have this code matching the expected results, you can clip out the section between ### START CODE HERE and ### END CODE HERE it out and insert it into TripletLoss below.
+# 
+#  
+# <\details>  
+
+# In[ ]:
+
+
+# UNQ_C3 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
+# GRADED FUNCTION: TripletLossFn
+def TripletLossFn(v1, v2, margin=0.25):
+    """Custom Loss function.
+
+    Args:
+        v1 (numpy.ndarray): Array with dimension (batch_size, model_dimension) associated to Q1.
+        v2 (numpy.ndarray): Array with dimension (batch_size, model_dimension) associated to Q2.
+        margin (float, optional): Desired margin. Defaults to 0.25.
+
+    Returns:
+        jax.interpreters.xla.DeviceArray: Triplet Loss.
+    """
+    ### START CODE HERE (Replace instances of 'None' with your code) ###
+    
+    # use fastnp to take the dot product of the two batches (don't forget to transpose the second argument)
+    scores = None  # pairwise cosine sim
+    # calculate new batch size
+    batch_size = len(scores)
+    # use fastnp to grab all postive `diagonal` entries in `scores`
+    positive = None  # the positive ones (duplicates)
+    # multiply `fastnp.eye(batch_size)` with 2.0 and subtract it out of `scores`
+    negative_without_positive = None
+    # take the row by row `max` of `negative_without_positive`. 
+    # Hint: negative_without_positive.max(axis = [?])  
+    closest_negative = None
+    # subtract `fastnp.eye(batch_size)` out of 1.0 and do element-wise multiplication with `scores`
+    negative_zero_on_duplicate = None
+    # use `fastnp.sum` on `negative_zero_on_duplicate` for `axis=1` and divide it by `(batch_size - 1)` 
+    mean_negative = None
+    # compute `fastnp.maximum` among 0.0 and `A`
+    # A = subtract `positive` from `margin` and add `closest_negative` 
+    triplet_loss1 = None
+    # compute `fastnp.maximum` among 0.0 and `B`
+    # B = subtract `positive` from `margin` and add `mean_negative`
+    triplet_loss2 = None
+    # add the two losses together and take the `fastnp.mean` of it
+    triplet_loss = None
+    
+    ### END CODE HERE ###
+    
+    return triplet_loss
+
+
+# In[ ]:
+
+
+v1 = np.array([[0.26726124, 0.53452248, 0.80178373],[0.5178918 , 0.57543534, 0.63297887]])
+v2 = np.array([[ 0.26726124,  0.53452248,  0.80178373],[-0.5178918 , -0.57543534, -0.63297887]])
+TripletLossFn(v2,v1)
+print("Triplet Loss:", TripletLossFn(v2,v1))
+
+
+# **Expected Output:**
+# ```CPP
+# Triplet Loss: 0.5
+# ```   
+
+# To make a layer out of a function with no trainable variables, use `tl.Fn`.
+
+# In[ ]:
+
+
+from functools import partial
+def TripletLoss(margin=0.25):
+    triplet_loss_fn = partial(TripletLossFn, margin=margin)
+    return tl.Fn('TripletLoss', triplet_loss_fn)
+
+
+# <a name='3'></a>
+#+end_example  

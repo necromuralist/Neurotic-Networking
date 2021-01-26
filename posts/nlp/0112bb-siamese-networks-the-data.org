@@ -1,0 +1,220 @@
+#+BEGIN_COMMENT
+.. title: Siamese Networks: The Data
+.. slug: siamese-networks-the-data
+.. date: 2021-01-25 19:32:40 UTC-08:00
+.. tags: 
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+* Raw
+#+begin_example python
+# # Part 1: Importing the Data
+# <a name='1.1'></a>
+# ### 1.1 Loading in the data
+# 
+# You will be using the Quora question answer dataset to build a model that could identify similar questions. This is a useful task because you don't want to have several versions of the same question posted. Several times when teaching I end up responding to similar questions on piazza, or on other community forums. This data set has been labeled for you. Run the cell below to import some of the packages you will be using. 
+
+# In[ ]:
+
+
+import os
+import nltk
+import trax
+from trax import layers as tl
+from trax.supervised import training
+from trax.fastmath import numpy as fastnp
+import numpy as np
+import pandas as pd
+import random as rnd
+
+# set random seeds
+trax.supervised.trainer_lib.init_random_number_generators(34)
+rnd.seed(34)
+
+
+# **Notice that for this assignment Trax's numpy is referred to as `fastnp`, while regular numpy is referred to as `np`.**
+# 
+# You will now load in the data set. We have done some preprocessing for you. If you have taken the deeplearning specialization, this is a slightly different training method than the one you have seen there. If you have not, then don't worry about it, we will explain everything. 
+
+# In[ ]:
+
+
+data = pd.read_csv("questions.csv")
+N=len(data)
+print('Number of question pairs: ', N)
+data.head()
+
+
+# We first split the data into a train and test set. The test set will be used later to evaluate our model.
+
+# In[ ]:
+
+
+N_train = 300000
+N_test  = 10*1024
+data_train = data[:N_train]
+data_test  = data[N_train:N_train+N_test]
+print("Train set:", len(data_train), "Test set:", len(data_test))
+del(data) # remove to free memory
+
+
+# As explained in the lectures, we select only the question pairs that are duplicate to train the model. <br>
+# We build two batches as input for the Siamese network and we assume that question $q1_i$ (question $i$ in the first batch) is a duplicate of $q2_i$ (question $i$ in the second batch), but all other questions in the second batch are not duplicates of $q1_i$.  
+# The test set uses the original pairs of questions and the status describing if the questions are duplicates.
+
+# In[ ]:
+
+
+td_index = (data_train['is_duplicate'] == 1).to_numpy()
+td_index = [i for i, x in enumerate(td_index) if x] 
+print('number of duplicate questions: ', len(td_index))
+print('indexes of first ten duplicate questions:', td_index[:10])
+
+
+# In[ ]:
+
+
+print(data_train['question1'][5])  #  Example of question duplicates (first one in data)
+print(data_train['question2'][5])
+print('is_duplicate: ', data_train['is_duplicate'][5])
+
+
+# In[ ]:
+
+
+Q1_train_words = np.array(data_train['question1'][td_index])
+Q2_train_words = np.array(data_train['question2'][td_index])
+
+Q1_test_words = np.array(data_test['question1'])
+Q2_test_words = np.array(data_test['question2'])
+y_test  = np.array(data_test['is_duplicate'])
+
+
+# Above, you have seen that you only took the duplicated questions for training our model. <br>You did so on purpose, because the data generator will produce batches $([q1_1, q1_2, q1_3, ...]$, $[q2_1, q2_2,q2_3, ...])$  where $q1_i$ and $q2_k$ are duplicate if and only if $i = k$.
+# 
+# <br>Let's print to see what your data looks like.
+
+# In[ ]:
+
+
+print('TRAINING QUESTIONS:\n')
+print('Question 1: ', Q1_train_words[0])
+print('Question 2: ', Q2_train_words[0], '\n')
+print('Question 1: ', Q1_train_words[5])
+print('Question 2: ', Q2_train_words[5], '\n')
+
+print('TESTING QUESTIONS:\n')
+print('Question 1: ', Q1_test_words[0])
+print('Question 2: ', Q2_test_words[0], '\n')
+print('is_duplicate =', y_test[0], '\n')
+
+
+# You will now encode each word of the selected duplicate pairs with an index. <br> Given a question, you can then just encode it as a list of numbers.  
+# 
+# First you tokenize the questions using `nltk.word_tokenize`. <br>
+# You need a python default dictionary which later, during inference, assigns the values $0$ to all Out Of Vocabulary (OOV) words.<br>
+# Then you encode each word of the selected duplicate pairs with an index. Given a question, you can then just encode it as a list of numbers. 
+
+# In[ ]:
+
+
+#create arrays
+Q1_train = np.empty_like(Q1_train_words)
+Q2_train = np.empty_like(Q2_train_words)
+
+Q1_test = np.empty_like(Q1_test_words)
+Q2_test = np.empty_like(Q2_test_words)
+
+
+# In[ ]:
+
+
+# Building the vocabulary with the train set         (this might take a minute)
+from collections import defaultdict
+
+vocab = defaultdict(lambda: 0)
+vocab['<PAD>'] = 1
+
+for idx in range(len(Q1_train_words)):
+    Q1_train[idx] = nltk.word_tokenize(Q1_train_words[idx])
+    Q2_train[idx] = nltk.word_tokenize(Q2_train_words[idx])
+    q = Q1_train[idx] + Q2_train[idx]
+    for word in q:
+        if word not in vocab:
+            vocab[word] = len(vocab) + 1
+print('The length of the vocabulary is: ', len(vocab))
+
+
+# In[ ]:
+
+
+print(vocab['<PAD>'])
+print(vocab['Astrology'])
+print(vocab['Astronomy'])  #not in vocabulary, returns 0
+
+
+# In[ ]:
+
+
+for idx in range(len(Q1_test_words)): 
+    Q1_test[idx] = nltk.word_tokenize(Q1_test_words[idx])
+    Q2_test[idx] = nltk.word_tokenize(Q2_test_words[idx])
+
+
+# In[ ]:
+
+
+print('Train set has reduced to: ', len(Q1_train) ) 
+print('Test set length: ', len(Q1_test) ) 
+
+
+# <a name='1.2'></a>
+# ### 1.2 Converting a question to a tensor
+# 
+# You will now convert every question to a tensor, or an array of numbers, using your vocabulary built above.
+
+# In[ ]:
+
+
+# Converting questions to array of integers
+for i in range(len(Q1_train)):
+    Q1_train[i] = [vocab[word] for word in Q1_train[i]]
+    Q2_train[i] = [vocab[word] for word in Q2_train[i]]
+
+        
+for i in range(len(Q1_test)):
+    Q1_test[i] = [vocab[word] for word in Q1_test[i]]
+    Q2_test[i] = [vocab[word] for word in Q2_test[i]]
+
+
+# In[ ]:
+
+
+print('first question in the train set:\n')
+print(Q1_train_words[0], '\n') 
+print('encoded version:')
+print(Q1_train[0],'\n')
+
+print('first question in the test set:\n')
+print(Q1_test_words[0], '\n')
+print('encoded version:')
+print(Q1_test[0]) 
+
+
+# You will now split your train set into a training/validation set so that you can use it to train and evaluate your Siamese model.
+
+# In[ ]:
+
+
+# Splitting the data
+cut_off = int(len(Q1_train)*.8)
+train_Q1, train_Q2 = Q1_train[:cut_off], Q2_train[:cut_off]
+val_Q1, val_Q2 = Q1_train[cut_off: ], Q2_train[cut_off:]
+print('Number of duplicate questions: ', len(Q1_train))
+print("The length of the training set is:  ", len(train_Q1))
+print("The length of the validation set is: ", len(val_Q1))
+
+#+end_example
