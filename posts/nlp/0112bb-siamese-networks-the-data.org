@@ -11,12 +11,12 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-5679aff9-f7b2-4c2b-9c1e-d7ee94663510-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-906658c6-ef43-4c25-9b90-7afa7c23234a-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Beginning
+* Transforming the Data
  We'll will be using the [[https://www.kaggle.com/c/quora-question-pairs/][Quora question answer]] dataset to build a model that could identify similar questions. This is a useful task because you don't want to have several versions of the same question posted. Several times when teaching I end up responding to similar questions on piazza, or on other community forums. This data set has been labeled for you. Run the cell below to import some of the packages you will be using. 
 ** Imports
 #+begin_src python :results none
@@ -28,6 +28,7 @@ import os
 
 # pypi
 from dotenv import load_dotenv
+from expects import expect, contain_exactly
 
 import nltk
 import numpy
@@ -131,37 +132,7 @@ print(f"There are {len(duplicates):,} duplicates for the training data.")
 #+RESULTS:
 : There are 111,473 duplicates for the training data.
 
-#+begin_src python :results none
-Q1_train_words = duplicates.question1.to_numpy()
-Q2_train_words = duplicates.question2.to_numpy()
-#+end_src
-
-#+begin_src python :results none
-Q1_test_words = testing_data.question1.to_numpy()
-Q2_test_words = testing_data.question2.to_numpy()
-y_test  = testing_data.is_duplicate.to_numpy()
-#+end_src
-
-
  We only took the duplicated questions for training our model because the data generator will produce batches \(([q1_1, q1_2, q1_3, ...]\), [q2_1, q2_2,q2_3, ...])\)  where \(q1_i\) and \(q2_k\) are duplicate if and only if \(i = k\).
-
-#+begin_src python :results output :exports both
-print('TRAINING QUESTIONS:\n')
-print('Question 1: ', Q1_train_words[0])
-print('Question 2: ', Q2_train_words[0], '\n')
-print('Question 1: ', Q1_train_words[5])
-print('Question 2: ', Q2_train_words[5], '\n')
-#+end_src
-
-#+RESULTS:
-: TRAINING QUESTIONS:
-: 
-: Question 1:  Astrology: I am a Capricorn Sun Cap moon and cap rising...what does that say about me?
-: Question 2:  I'm a triple Capricorn (Sun, Moon and ascendant in Capricorn) What does this say about me? 
-: 
-: Question 1:  What would a Trump presidency mean for current international master’s students on an F1 visa?
-: Question 2:  How will a Trump presidency affect the students presently in US or planning to study in US? 
-: 
 
 ** Encoding the Words
    Now we'll encode each word of the selected duplicate pairs with an index. Given a question, we can then just encode it as a list of numbers.
@@ -170,23 +141,14 @@ First we'll tokenize the questions using =nltk.word_tokenize=.
 
 We'll also need a python default dictionary which later, during inference, assigns the value /0/ to all Out Of Vocabulary (OOV) words.
 
-*** Create the Arrays
-    [[https://numpy.org/doc/stable/reference/generated/numpy.empty_like.html][empty_like]] creates an empty array with the same shape and data-type as the array you pass it.
-    
-#+begin_src python :results none
-Q1_train = numpy.empty_like(Q1_train_words)
-Q2_train = numpy.empty_like(Q2_train_words)
-
-Q1_test = numpy.empty_like(Q1_test_words)
-Q2_test = numpy.empty_like(Q2_test_words)
-#+end_src
-
 *** Build the Vocabulary
-    We're going to iterate through each of the rows and
+    We'll start by resetting the index. Pandas preserves the original index, but since we dropped the non-duplicates it's missing rows so resetting it will start it at 0 again. By default it normally keeps the original index as a column, but passing in ~drop=True~ prevents that.
 
 #+begin_src python :results none
 reindexed = duplicates.reset_index(drop=True)
 #+end_src
+
+Now we'll build the vocabulary by mapping the words to the "index" for that word in the dictionary.
 
 #+begin_src python :results output :exports both
 vocabulary = defaultdict(lambda: 0)
@@ -204,9 +166,9 @@ print(f"There are {len(vocabulary):,} words in the vocabulary.")
 #+end_src
 
 #+RESULTS:
-: Started: 2021-01-29 18:13:43.296513
-: Ended: 2021-01-29 18:14:02.366449
-: Elapsed: 0:00:19.069936
+: Started: 2021-01-30 18:36:26.773827
+: Ended: 2021-01-30 18:36:46.522680
+: Elapsed: 0:00:19.748853
 : There are 36,278 words in the vocabulary.
 
 
@@ -220,7 +182,7 @@ print(vocabulary['Astronomy'])
 
 #+RESULTS:
 : 1
-: 24
+: 7
 : 0
 
 
@@ -239,9 +201,9 @@ with TIMER:
 #+end_src
 
 #+RESULTS:
-: Started: 2021-01-29 18:34:51.660855
-: Ended: 2021-01-29 18:35:10.578884
-: Elapsed: 0:00:18.918029
+: Started: 2021-01-30 16:43:08.891230
+: Ended: 2021-01-30 16:43:27.954422
+: Elapsed: 0:00:19.063192
 
 ** Converting a question to a tensor
 
@@ -254,69 +216,400 @@ def words_to_index(words):
 Q1_train = question_1_train.apply(words_to_index)
 Q2_train = question_2_train.apply(words_to_index)
 
-Q1_test = Q1_test.apply(words_to_index)
-Q2_test = Q2_test.apply(words_to_index)
+Q1_test = Q1_test_words.apply(words_to_index)
+Q2_test = Q2_test_words.apply(words_to_index)
 
 print('first question in the train set:\n')
 print(question_1_train.iloc[0], '\n') 
 print('encoded version:')
 print(Q1_train.iloc[0],'\n')
-
-print('first question in the test set:\n')
-print(Q1_test_words.iloc[0], '\n')
-print('encoded version:')
-print(Q1_test.iloc[0]) 
 #+end_src
 
 #+RESULTS:
-#+begin_example
-first question in the train set:
+: first question in the train set:
+: 
+: ['Astrology', ':', 'I', 'am', 'a', 'Capricorn', 'Sun', 'Cap', 'moon', 'and', 'cap', 'rising', '...', 'what', 'does', 'that', 'say', 'about', 'me', '?'] 
+: 
+: encoded version:
+: [7, 6, 17, 26, 22, 12, 15, 14, 2, 24, 16, 19, 31, 8, 9, 21, 25, 3, 23, 29] 
+: 
 
-['Astrology', ':', 'I', 'am', 'a', 'Capricorn', 'Sun', 'Cap', 'moon', 'and', 'cap', 'rising', '...', 'what', 'does', 'that', 'say', 'about', 'me', '?'] 
+#+begin_src python :results output :exports both
+print(f"{len(vocabulary):,}")
+#+end_src
 
-encoded version:
-[24, 23, 17, 15, 9, 10, 12, 31, 4, 7, 27, 8, 16, 21, 6, 13, 30, 28, 19, 3] 
+#+RESULTS:
+: 77,068
 
-first question in the test set:
+** Validation Set
+You will now split your train set into a training/validation set so that you can use it to train and evaluate your Siamese model.
 
-['What', 'were', 'some', 'of', 'the', 'troubles', 'you', 'have', 'faced', 'during', 'and', 'after', 'your', '9', 'months', 'period', 'of', 'pregnancy', '?'] 
+#+begin_src python :results output :exports both
+TRAINING_FRACTION = 0.8
+cut_off = int(len(question_1_train) * TRAINING_FRACTION)
+train_question_1, train_question_2 = Q1_train[:cut_off], Q2_train[:cut_off]
+validation_question_1, validation_question_2 = Q1_train[cut_off: ], Q2_train[cut_off:]
+print(f"Number of duplicate questions: {len(Q1_train):,}")
+print(f"The length of the training set is:  {len(train_question_1):,}")
+print(f"The length of the validation set is: {len(validation_question_1):,}")
+#+end_src
 
-encoded version:
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-#+end_example
+#+RESULTS:
+: Number of duplicate questions: 111,473
+: The length of the training set is:  89,178
+: The length of the validation set is: 22,295
+
+* Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/siamese_networks/data_loader.py
+<<imports>>
+
+<<nltk-setup>>
+
+<<constants>>
 
 
+<<data-tokenizer>>
 
-# You will now split your train set into a training/validation set so that you can use it to train and evaluate your Siamese model.
+    <<question-1>>
 
-# In[ ]:
+    <<question-2>>
 
 
-# Splitting the data
-cut_off = int(len(Q1_train)*.8)
-train_Q1, train_Q2 = Q1_train[:cut_off], Q2_train[:cut_off]
-val_Q1, val_Q2 = Q1_train[cut_off: ], Q2_train[cut_off:]
-print('Number of duplicate questions: ', len(Q1_train))
-print("The length of the training set is:  ", len(train_Q1))
-print("The length of the validation set is: ", len(val_Q1))
+<<data-tensorizer>>
 
-* Raw
-#+begin_example python
+    <<to-index>>
+
+    <<tensorized-1>>
+
+    <<tensorized-2>>
+
+
+<<data-transformer>>
+
+    <<data-path>>
+
+    <<data>>
+
+    <<training-data>>
+
+    <<testing-data>>
+
+    <<duplicates>>
+
+    <<tokenized-train>>
+
+    <<tokenized-test>>
+
+    <<vocabulary>>
+
+    <<tensorized-train>>
+
+    <<tensorized-test>>
+
+    <<final-data>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import defaultdict, namedtuple
+from pathlib import Path
+
 import os
+
+# pypi
+from dotenv import load_dotenv
+from pathlib import Path
+
+import attr
 import nltk
-import trax
-from trax import layers as tl
-from trax.supervised import training
-from trax.fastmath import numpy as fastnp
-import numpy as np
-import pandas as pd
-import random as rnd
+import pandas
+#+end_src
+** NLTK Setup
+#+begin_src python :noweb-ref nltk-setup
+nltk.download("punkt")
+#+end_src
+** Constants and Data
+#+begin_src python :noweb-ref constants
+Tokens = namedtuple("Tokens", ["unknown", "padding", "padding_token"])
+TOKENS = Tokens(unknown=0,
+                padding=1,
+                padding_token="<PAD>")
 
-# set random seeds
-trax.supervised.trainer_lib.init_random_number_generators(34)
-rnd.seed(34)
+Question = namedtuple("Question", ["question_one", "question_two"])
+Data = namedtuple("Data", ["train", "validate", "test"])
+#+end_src
+** The Data Tokenizer
+#+begin_src python :noweb-ref data-tokenizer
+@attr.s(auto_attribs=True)
+class DataTokenizer:
+    """Converts questions to tokens
 
+    Args:
+     data: the data-frame to tokenize
+    """
+    data: pandas.DataFrame
+    _question_1: pandas.DataFrame=None
+    _question_2: pandas.DataFrame=None
+#+end_src
+*** Question 1
+#+begin_src python :noweb-ref question-1
+@property
+def question_1(self) -> pandas.Series:
+    """tokenized version of question 1"""
+    if self._question_1 is None:
+        self._question_1 = self.data.question1.apply(nltk.word_tokenize)
+    return self._question_1
+#+end_src
+*** Question 2
+#+begin_src python :noweb-ref question-2
+@property
+def question_2(self) -> pandas.Series:
+    """tokenized version of question 2"""
+    if self._question_2 is None:
+        self._question_2 = self.data.question2.apply(nltk.word_tokenize)
+    return self._question_2
+#+end_src    
+** The Data Tensorizer
+#+begin_src python :noweb-ref data-tensorizer
+@attr.s(auto_attribs=True)
+class DataTensorizer:
+    """Convert tokenized words to numbers
 
-# <a name='1.2'></a>
+    Args:
+     vocabulary: word to integer mapping
+     question_1: data to convert
+     question_2: other data to convert
+    """
+    vocabulary: dict
+    question_1: pandas.Series
+    question_2: pandas.Series
+    _tensorized_1: pandas.Series=None
+    _tensorized_2: pandas.Series=None
+#+end_src
+*** Tensorized 1
+#+begin_src python :noweb-ref tensorized-1
+@property
+def tensorized_1(self) -> pandas.Series:
+    """numeric version of question 1"""
+    if self._tensorized_1 is None:
+        self._tensorized_1 = self.question_1.apply(self.to_index)
+    return self._tensorized_1
+#+end_src
+*** Tensorized 2
+#+begin_src python :noweb-ref tensorized-2
+@property
+def tensorized_2(self) -> pandas.Series:
+    """Numeric version of question 2"""
+    if self._tensorized_2 is None:
+        self._tensorized_2 = self.question_2.apply(self.to_index)
+    return self._tensorized_2
+#+end_src    
+*** To Index
+#+begin_src python :noweb-ref to-index
+def to_index(self, words: list) -> list:
+    """Convert list of words to list of integers"""
+    return [self.vocabulary[word] for word in words]
+#+end_src    
+** The Data Transformer   
+#+begin_src python :noweb-ref data-transformer
+@attr.s(auto_attribs=True)
+class DataLoader:
+    """Loads and transforms the data
 
-#+end_example
+    Args:
+     env: The path to the .env file with the raw-data path
+     key: key in the environment with the path to the data
+     train_validation_size: number of entries for the training/validation set
+     training_fraction: what fraction of the training/valdiation set for training
+    """
+    env: str="posts/nlp/.env"
+    key: str="QUORA_TRAIN"
+    train_validation_size: int=300000
+    training_fraction: float=0.8
+    _data_path: Path=None
+    _raw_data: pandas.DataFrame=None
+    _training_data: pandas.DataFrame=None
+    _testing_data: pandas.DataFrame=None
+    _duplicates: pandas.DataFrame=None
+    _tokenized_train: DataTokenizer=None
+    _tokenized_test: DataTokenizer=None
+    _vocabulary: dict=None
+    _tensorized_train: DataTensorizer=None
+    _tensorized_test: DataTensorizer=None
+    _data: namedtuple=None
+#+end_src
+*** Data Path
+#+begin_src python :noweb-ref data-path
+@property
+def data_path(self) -> Path:
+    """Where to find the data file"""
+    if self._data_path is None:
+        load_dotenv(self.env)
+        self._data_path = Path(os.environ[self.key]).expanduser()
+    return self._data_path
+#+end_src
+*** Data
+#+begin_src python :noweb-ref data
+@property
+def raw_data(self) -> pandas.DataFrame:
+    """The raw-data"""
+    if self._raw_data is None:
+        self._raw_data = pandas.read_csv(self.data_path)
+        self._raw_data = self._raw_data[~self._raw_data.question1.isna()]
+        self._raw_data = self._raw_data[~self._raw_data.question2.isna()]        
+    return self._raw_data
+#+end_src    
+*** Training Data
+#+begin_src python :noweb-ref training-data
+@property
+def training_data(self) -> pandas.DataFrame:
+    """The training/validation part of the data"""
+    if self._training_data is None:
+        self._training_data = self.raw_data.iloc[:self.train_validation_size]
+    return self._training_data
+#+end_src
+*** Testing Data
+#+begin_src python :noweb-ref testing-data
+@property
+def testing_data(self) -> pandas.DataFrame:
+    """The testing portion of the raw data"""
+    if self._testing_data is None:
+        self._testing_data = self.raw_data.iloc[self.train_validation_size:]
+    return self._testing_data
+#+end_src
+*** Duplicates
+#+begin_src python :noweb-ref duplicates
+@property
+def duplicates(self) -> pandas.DataFrame:
+    """training-validation data that has duplicate questions"""
+    if self._duplicates is None:
+        self._duplicates = self.training_data[self.training_data.is_duplicate==1]
+    return self._duplicates
+#+end_src
+*** Train Tokenizer
+#+begin_src python :noweb-ref tokenized-train
+@property
+def tokenized_train(self) -> DataTokenizer:
+    """training tokenized    
+    """
+    if self._tokenized_train is None:
+        self._tokenized_train = DataTokenizer(self.duplicates)
+    return self._tokenized_train
+#+end_src    
+*** Test Tokenizer
+#+begin_src python :noweb-ref tokenized-test
+@property
+def tokenized_test(self) -> DataTokenizer:
+    """Test Tokenizer"""
+    if self._tokenized_test is None:
+        self._tokenized_test = DataTokenizer(
+            self.testing_data)
+    return self._tokenized_test
+#+end_src
+*** The Vocabulary
+#+begin_src python :noweb-ref vocabulary
+@property
+def vocabulary(self) -> dict:
+    """The token:index map"""
+    if self._vocabulary is None:
+        self._vocabulary = defaultdict(lambda: TOKENS.unknown)
+        self._vocabulary[TOKENS.padding_token] = TOKENS.padding
+        combined = (self.tokenized_train.question_1
+                    + self.tokenized_train.question_2)
+        for index, tokens in combined.iteritems():
+            tokens = (token for token in set(tokens)
+                      if token not in self._vocabulary)
+            for token in tokens:
+                self._vocabulary[token] = len(self._vocabulary) + 1
+    return self._vocabulary            
+#+end_src
+*** Tensorized Train
+#+begin_src python :noweb-ref tensorized-train
+@property
+def tensorized_train(self) -> DataTensorizer:
+    """Tensorizer for the training data"""
+    if self._tensorized_train is None:
+        self._tensorized_train = DataTensorizer(
+            vocabulary=self.vocabulary,
+            question_1 = self.tokenized_train.question_1,
+            question_2 = self.tokenized_train.question_2,
+        )
+    return self._tensorized_train
+#+end_src    
+*** Tensorized Test
+#+begin_src python :noweb-ref tensorized-test
+@property
+def tensorized_test(self) -> DataTensorizer:
+    """Tensorizer for the testing data"""
+    if self._tensorized_test is None:
+        self._tensorized_test = DataTensorizer(
+            vocabulary = self.vocabulary,
+            question_1 = self.tokenized_test.question_1,
+            question_2 = self.tokenized_test.question_2,
+        )
+    return self._tensorized_test
+#+end_src    
+*** The Final Data
+#+begin_src python :noweb-ref final-data
+@property
+def data(self) -> namedtuple:
+    """The final tensorized data"""
+    if self._data is None:
+        cut_off = int(len(self.duplicates) * self.training_fraction)
+        self._data = Data(
+            train=Question(
+                question_one=self.tensorized_train.tensorized_1[:cut_off].to_numpy(),
+                question_two=self.tensorized_train.tensorized_2[:cut_off].to_numpy()),
+            validate=Question(
+                question_one=self.tensorized_train.tensorized_1[cut_off:].to_numpy(),
+                question_two=self.tensorized_train.tensorized_2[cut_off:].to_numpy()),
+            test=Question(
+                question_one=self.tensorized_test.tensorized_1.to_numpy(),
+                question_two=self.tensorized_test.tensorized_2.to_numpy())
+        )
+    return self._data
+#+end_src    
+** Test It Out
+#+begin_src python :results none
+from neurotic.nlp.siamese_networks import DataLoader
+
+loader = DataLoader()
+
+data = loader.data
+#+end_src
+
+#+begin_src python :results output :exports both
+print(f"Number of duplicate questions: {len(loader.duplicates):,}")
+print(f"The length of the training set is:  {len(data.train.question_one):,}")
+print(f"The length of the validation set is: {len(data.validate.question_one):,}")
+#+end_src
+
+#+RESULTS:
+: Number of duplicate questions: 111,474
+: The length of the training set is:  89,179
+: The length of the validation set is: 22,295
+
+#+begin_src python :results output :exports both
+print('first question in the train set:\n')
+print(loader.duplicates.question1.iloc[0])
+print('encoded version:')
+print(data.train.question_one[0],'\n')
+expect(data.train.question_one[0]).to(contain_exactly(*Q1_train.iloc[0]))
+#+end_src
+
+#+RESULTS:
+: first question in the train set:
+: 
+: Astrology: I am a Capricorn Sun Cap moon and cap rising...what does that say about me?
+: encoded version:
+: [7, 6, 17, 26, 22, 12, 15, 14, 2, 24, 16, 19, 31, 8, 9, 21, 25, 3, 23, 29] 
+: 
+
+#+begin_src python :results output :exports both
+assert len(loader.vocabulary) == len(vocabulary)
+assert not set(vocabulary) - set(loader.vocabulary)
+print(f"{len(loader.vocabulary):,}")
+#+end_src
+
+#+RESULTS:
+: 77,068
