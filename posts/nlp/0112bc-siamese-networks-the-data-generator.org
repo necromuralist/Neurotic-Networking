@@ -2,44 +2,63 @@
 .. title: Siamese Networks: The Data Generator
 .. slug: siamese-networks-the-data-generator
 .. date: 2021-01-25 19:35:05 UTC-08:00
-.. tags: 
-.. category: 
+.. tags: nlp,siamese networks
+.. category: NLP
 .. link: 
-.. description: 
+.. description: Creating the Quora Question data generator.
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
-* Raw
-#+begin_example python
-# ### 1.3 Understanding the iterator 
-# 
-# Most of the time in Natural Language Processing, and AI in general we use batches when training our data sets. If you were to use stochastic gradient descent with one example at a time, it will take you forever to build a model. In this example, we show you how you can build a data generator that takes in $Q1$ and $Q2$ and returns a batch of size `batch_size`  in the following format $([q1_1, q1_2, q1_3, ...]$, $[q2_1, q2_2,q2_3, ...])$. The tuple consists of two arrays and each array has `batch_size` questions. Again, $q1_i$ and $q2_i$ are duplicates, but they are not duplicates with any other elements in the batch. 
-# 
-# <br>
-# 
-# The command ```next(data_generator)```returns the next batch. This iterator returns the data in a format that you could directly use in your model when computing the feed-forward of your algorithm. This iterator returns a pair of arrays of questions. 
-# 
-# <a name='ex01'></a>
-# ### Exercise 01
-# 
-# **Instructions:**  
-# Implement the data generator below. Here are some things you will need. 
-# 
-# - While true loop.
-# - if `index >= len_Q1`, set the `idx` to $0$.
-# - The generator should return shuffled batches of data. To achieve this without modifying the actual question lists, a list containing the indexes of the questions is created. This list can be shuffled and used to get random batches everytime the index is reset.
-# - Append elements of $Q1$ and $Q2$ to `input1` and `input2` respectively.
-# - if `len(input1) == batch_size`, determine `max_len` as the longest question in `input1` and `input2`. Ceil `max_len` to a power of $2$ (for computation purposes) using the following command:  `max_len = 2**int(np.ceil(np.log2(max_len)))`.
-# - Pad every question by `vocab['<PAD>']` until you get the length `max_len`.
-# - Use yield to return `input1, input2`. 
-# - Don't forget to reset `input1, input2`  to empty arrays at the end (data generator resumes from where it last left).
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6d0ffdcf-5ce0-4042-88c1-008b4f42348a-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+ Most of the time in Natural Language Processing, and AI in general we use batches when training our data sets. If you were to use stochastic gradient descent with one example at a time, it would take you forever to build a model. In this example, we show you how you can build a data generator that takes in \(Q1\) and \(Q2\) and returns a batch of size =batch_size=  in the following format \(([q1_1, q1_2, q1_3, ...]\), \([q2_1, q2_2,q2_3, ...])\). The tuple consists of two arrays and each array has =batch_size= questions. Again, \(q1_i\) and \(q2_i\) are duplicates, but they are not duplicates with any other elements in the batch. 
 
-# In[ ]:
+The iterator that we're going to create returns a pair of arrays of questions. 
 
+We'll implement the data generator below. Here are some things we will need. 
 
-# UNQ_C1 (UNIQUE CELL IDENTIFIER, DO NOT EDIT)
-# GRADED FUNCTION: data_generator
-def data_generator(Q1, Q2, batch_size, pad=1, shuffle=True):
+ - While true loop.
+ - if =index >= len_Q1=, set the =idx= to \(0\).
+ - The generator should return shuffled batches of data. To achieve this without modifying the actual question lists, a list containing the indexes of the questions is created. This list can be shuffled and used to get random batches everytime the index is reset.
+ - Append elements of \(Q1\) and \(Q2\) to =input1= and =input2= respectively.
+ - if =len(input1) == batch_size=, determine =max_len= as the longest question in =input1= and =input2=. Ceil =max_len= to a power of \(2\) (for computation purposes) using the following command:  =max_len = 2**int(np.ceil(np.log2(max_len)))=.
+ - Pad every question by =vocab['<PAD>']= until you get the length =max_len=.
+ - Use yield to return =input1, input2=. 
+ - Don't forget to reset =input1, input2=  to empty arrays at the end (data generator resumes from where it last left).
+** Imports
+#+begin_src python :results none
+# python
+import random
+
+# pypi
+import numpy
+
+# this project
+from neurotic.nlp.siamese_networks import DataLoader, TOKENS
+#+end_src
+** Set Up
+*** Our Data
+#+begin_src python :results none
+loader = DataLoader()
+
+data = loader.data
+#+end_src
+
+*** The Idiotic Names
+#+begin_src python :results none
+np = numpy
+rnd = random
+#+end_src    
+* Middle
+#+begin_src python :results none
+def data_generator(Q1:list, Q2:list, batch_size: int,
+                   pad: int=1, shuffle: bool=True):
     """Generator function that yields batches of data
 
     Args:
@@ -48,6 +67,7 @@ def data_generator(Q1, Q2, batch_size, pad=1, shuffle=True):
         batch_size (int): Number of elements per batch.
         pad (int, optional): Pad character from the vocab. Defaults to 1.
         shuffle (bool, optional): If the batches should be randomnized or not. Defaults to True.
+
     Yields:
         tuple: Of the form (input1, input2) with types (numpy.ndarray, numpy.ndarray)
         NOTE: input1: inputs to your model [q1a, q2a, q3a, ...] i.e. (q1a,q1b) are duplicates
@@ -58,85 +78,224 @@ def data_generator(Q1, Q2, batch_size, pad=1, shuffle=True):
     input2 = []
     idx = 0
     len_q = len(Q1)
-    question_indexes = [*range(len_q)]
+    question_indexes = list(range(len_q))
     
     if shuffle:
         rnd.shuffle(question_indexes)
-    
-    ### START CODE HERE (Replace instances of 'None' with your code) ###
     while True:
         if idx >= len_q:
             # if idx is greater than or equal to len_q, set idx accordingly 
             # (Hint: look at the instructions above)
-            idx = None
+            idx = 0
             # shuffle to get random batches if shuffle is set to True
             if shuffle:
                 rnd.shuffle(question_indexes)
         
         # get questions at the `question_indexes[idx]` position in Q1 and Q2
-        q1 = None
-        q2 = None
+        q1 = Q1[question_indexes[idx]]
+        q2 = Q2[question_indexes[idx]]
         
         # increment idx by 1
-        idx += None
+        idx += 1
         # append q1
-        input1.append(None)
+        input1.append(q1)
         # append q2
-        input2.append(None)
+        input2.append(q2)
         if len(input1) == batch_size:
             # determine max_len as the longest question in input1 & input 2
             # Hint: use the `max` function. 
             # take max of input1 & input2 and then max out of the two of them.
-            max_len = None
+            max_len = max(max(len(question) for question in input1),
+                          max(len(question) for question in input2))
+            print(max_len)
             # pad to power-of-2 (Hint: look at the instructions above)
-            max_len = None
+            max_len = 2**int(np.ceil(np.log2(max_len)))
+            print(max_len)
             b1 = []
             b2 = []
             for q1, q2 in zip(input1, input2):
                 # add [pad] to q1 until it reaches max_len
-                q1 = None
+                q1 = q1 + ((max_len - len(q1)) * [pad])
                 # add [pad] to q2 until it reaches max_len
-                q2 = None
+                q2 = q2 + ((max_len - len(q2)) * [pad])
                 # append q1
-                b1.append(None)
+                b1.append(q1)
                 # append q2
-                b2.append(None)
+                b2.append(q2)
             # use b1 and b2
-            yield np.array(None), np.array(None)
-    ### END CODE HERE ###
+            yield np.array(b1), np.array(b2)
             # reset the batches
             input1, input2 = [], []  # reset the batches
+#+end_src
 
-
-# In[ ]:
-
-
+** Try It Out
+#+begin_src python :results output :exports both
+rnd.seed(34)
 batch_size = 2
-res1, res2 = next(data_generator(train_Q1, train_Q2, batch_size))
-print("First questions  : ",'\n', res1, '\n')
-print("Second questions : ",'\n', res2)
+generator = data_generator(data.train.question_one, data.train.question_two, batch_size)
+result_1, result_2 = next(generator)
+print(f"First questions  : \n{result_1}\n")
+print(f"Second questions : \n{result_2}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+11
+16
+First questions  : 
+[[  34   37   13   50  536 1303 6428   25  924  157   28    1    1    1
+     1    1]
+ [  34   95  573 1444 2343   28    1    1    1    1    1    1    1    1
+     1    1]]
+
+Second questions : 
+[[  34   37   13  575 1303 6428   25  924  157   28    1    1    1    1
+     1    1]
+ [   9  151   25  573 5642   28    1    1    1    1    1    1    1    1
+     1    1]]
+#+end_example
+
+* Bundling It Up
+#+begin_src python :tangle ../../neurotic/nlp/siamese_networks/generator.py :exports none
+<<imports>>
 
 
-# **Note**: The following expected output is valid only if you run the above test cell **_once_** (first time). The output will change on each execution.
-# 
-# If you think your implementation is correct and it is not matching the output, make sure to restart the kernel and run all the cells from the top again. 
-# 
-# **Expected Output:**
-# ```CPP
-# First questions  :  
-#  [[  30   87   78  134 2132 1981   28   78  594   21    1    1    1    1
-#      1    1]
-#  [  30   55   78 3541 1460   28   56  253   21    1    1    1    1    1
-#      1    1]] 
-# 
-# Second questions :  
-#  [[  30  156   78  134 2132 9508   21    1    1    1    1    1    1    1
-#      1    1]
-#  [  30  156   78 3541 1460  131   56  253   21    1    1    1    1    1
-#      1    1]]
-# ```
-# Now that you have your generator, you can just call it and it will return tensors which correspond to your questions in the Quora data set.<br>Now you can go ahead and start building your neural network. 
-# 
-# 
+<<data-generator>>
 
-#+end_example  
+    <<the-data>>
+
+    <<generator-definition>>
+
+    <<generator>>
+
+    <<iterator-method>>
+
+    <<next-method>>
+#+end_src
+
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import namedtuple
+
+import random
+
+# pypi
+import attr
+import numpy
+
+# this project
+from neurotic.nlp.siamese_networks import DataLoader, TOKENS
+#+end_src
+** The Data Generator
+#+begin_src python :noweb-ref data-generator
+@attr.s(auto_attribs=True)
+class DataGenerator:
+    """Batch Generator for Quora question dataset
+
+    Args:
+     question_one: tensorized question 1
+     question_two: tensorized question 2
+     batch_size: size of generated batches
+     padding: token to use to pad the lists
+     shuffle: whether to shuffle the questions around
+    """
+    question_one: numpy.ndarray
+    question_two: numpy.ndarray
+    batch_size: int
+    padding: int=TOKENS.padding
+    shuffle: bool=True
+    _batch: iter=None
+#+end_src
+*** The Generator Definition
+#+begin_src python :noweb-ref generator-definition
+def data_generator(self):
+    """Generator function that yields batches of data
+
+    Yields:
+        tuple: (batch_question_1, batch_question_2)
+    """
+    unpadded_1 = []
+    unpadded_2 = []
+    index = 0
+    number_of_questions = len(self.question_one)
+    question_indexes = list(range(number_of_questions))
+    
+    if self.shuffle:
+        random.shuffle(question_indexes)
+
+    while True:
+        if index >= number_of_questions:
+            index = 0
+            if self.shuffle:
+                random.shuffle(question_indexes)
+        
+        unpadded_1.append(self.question_one[question_indexes[index]])
+        unpadded_2.append(self.question_two[question_indexes[index]])
+
+        index += 1
+        
+        if len(unpadded_1) == self.batch_size:
+            max_len = max(max(len(question) for question in unpadded_1),
+                          max(len(question) for question in unpadded_2))
+            max_len = 2**int(numpy.ceil(numpy.log2(max_len)))
+            padded_1 = []
+            padded_2 = []
+            for question_1, question_2 in zip(unpadded_1, unpadded_2):
+                padded_1.append(question_1 + ((max_len - len(question_1)) * [self.padding]))
+                padded_2.append(question_2 +  ((max_len - len(question_2)) * [self.padding]))
+            yield numpy.array(padded_1), numpy.array(padded_2)
+            unpadded_1, unpadded_2 = [], []
+    return
+#+end_src
+*** The Generator
+#+begin_src python :noweb-ref generator
+@property
+def batch(self):
+    """The generator instance"""
+    if self._batch is None:
+        self._batch = self.data_generator()
+    return self._batch
+#+end_src
+*** The Iter Method
+#+begin_src python :noweb-ref iterator-method
+def __iter__(self):
+    return self
+#+end_src
+*** The Next Method
+#+begin_src python :noweb-ref next-method
+def __next__(self):
+    return next(self.batch)
+#+end_src    
+** Check It Out
+#+begin_src python :results none
+from neurotic.nlp.siamese_networks import DataGenerator, DataLoader
+
+loader = DataLoader()
+data = loader.data
+generator = DataGenerator(data.train.question_one, data.train.question_two, batch_size=2)
+#+end_src
+
+#+begin_src python :results output :exports both
+random.seed(34)
+batch_size = 2
+result_1, result_2 = next(generator)
+print(f"First questions  : \n{result_1}\n")
+print(f"Second questions : \n{result_2}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+First questions  : 
+[[  34   37   13   50  536 1303 6428   25  924  157   28    1    1    1
+     1    1]
+ [  34   95  573 1444 2343   28    1    1    1    1    1    1    1    1
+     1    1]]
+
+Second questions : 
+[[  34   37   13  575 1303 6428   25  924  157   28    1    1    1    1
+     1    1]
+ [   9  151   25  573 5642   28    1    1    1    1    1    1    1    1
+     1    1]]
+#+end_example
+
