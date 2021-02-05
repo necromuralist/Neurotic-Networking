@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-e6abe104-65b5-4ea2-b249-84b5857c9632-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-06fdd9c5-dcd5-48bd-a67d-aa30e4e8da24-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -98,7 +98,7 @@ def Siamese(vocab_size=len(loader.vocabulary), d_model=128, mode='train'):
 ** Check the Model
 
 #+begin_src python :results output :exports both
-()
+model = Siamese()
 print(model)
 #+end_src
 
@@ -116,6 +116,123 @@ Parallel_in2_out2[
     LSTM_128
     Mean
     Normalize
+  ]
+]
+#+end_example
+* Bundle It Up
+#+begin_src python :tangle ../../neurotic/nlp/siamese_networks/model.py
+<<imports>>
+
+<<constants>>
+
+
+<<siamese-network>>
+
+    <<normalize>>
+
+    <<the-processor>>
+
+    <<the-model>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import namedtuple
+
+# pypi
+from trax import layers
+from trax.fastmath import numpy as fastmath_numpy
+
+import attr
+import numpy
+import trax
+#+end_src
+** Constants
+#+begin_src python :noweb-ref constants
+Axis = namedtuple("Axis", ["columns", "last"])
+Constants = namedtuple("Constants", ["model_depth", "axis"])
+
+AXIS = Axis(1, -1)
+
+CONSTANTS = Constants(128, AXIS)
+#+end_src   
+** The Siamese Model
+#+begin_src python :noweb-ref siamese-network
+@attr.s(auto_attribs=True)
+class SiameseModel:
+    """The Siamese network model
+
+    Args:
+     vocabulary_size: number of tokens in the vocabulary
+     model_depth: depth of our embedding layer
+     mode: train|eval|predict
+    """
+    vocabulary_size: int
+    model_depth: int=CONSTANTS.model_depth
+    mode: str="train"
+    _processor: trax.layers.combinators.Serial=None
+    _model: trax.layers.combinators.Parallel=None
+#+end_src
+*** Normalize
+#+begin_src python :noweb-ref normalize
+def normalize(self, x: numpy.ndarray) -> numpy.ndarray:
+    """Normalizes the vectors to have L2 norm 1
+
+    Args:
+     x: the array of vectors to normalize
+
+    Returns:
+     normalized version of x
+    """
+    return x/fastmath_numpy.sqrt(fastmath_numpy.sum(x**2,
+                                                    axis=CONSTANTS.axis.last,
+                                                    keepdims=True))
+#+end_src    
+*** The Processor
+#+begin_src python :noweb-ref the-processor
+@property
+def processor(self) -> trax.layers.Serial:
+    """The Question Processor"""
+    if self._processor is None:
+        self._processor = layers.Serial(
+            layers.Embedding(self.vocabulary_size, self.model_depth),
+            layers.LSTM(self.model_depth),
+            layers.Mean(axis=CONSTANTS.axis.columns),
+            layers.Fn("Normalize", self.normalize) 
+        ) 
+    return self._processor
+#+end_src
+*** The Model
+#+begin_src python :noweb-ref the-model
+@property
+def model(self) -> trax.layers.Parallel:
+    """The Siamese Model"""
+    if self._model is None:
+        self._model = layers.Parallel(self.processor, self.processor)
+    return self._model
+#+end_src
+** Check It Out
+#+begin_src python :results output :exports both
+from neurotic.nlp.siamese_networks import SiameseModel
+
+model = SiameseModel(len(loader.vocabulary))
+print(model.model)
+#+end_src   
+
+#+RESULTS:
+#+begin_example
+Parallel_in4_out2[
+  Serial_in2[
+    Embedding_77068_128
+    LSTM_128
+    Mean
+    Normalize_in2
+  ]
+  Serial_in2[
+    Embedding_77068_128
+    LSTM_128
+    Mean
+    Normalize_in2
   ]
 ]
 #+end_example
