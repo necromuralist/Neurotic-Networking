@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ba09a5a9-36a7-4dd6-98a1-7ab7696e98aa-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-d630f287-81d4-44ac-a84e-3fbd4fe4fdff-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -132,18 +132,22 @@ def TripletLoss(margin=0.25):
 #+end_src
 
 * Bundle It Up
+  Unfortunately trax does some kind of weirdness where it counts the arguments of the things you use as layers, so class-based stuff won't work (because it counts the =self= argument, giving it too many to expect). There might be a way to work around this, but it doesn't appear to be documented so this has to be done with only functions. That's not bad, it's just unexpected (and not well documented).
+
+  
 #+begin_src python :tangle ../../neurotic/nlp/siamese_networks/loss.py :exports none
 <<imports>>
 
 
 <<triplet-loss>>
 
-    <<layer>>
-
-    <<call-it>>
+<<triplet-loss-layer>>
 #+end_src  
 ** Imports
 #+begin_src python :noweb-ref imports
+# python
+from functools import partial
+
 # from pypi
 from trax.fastmath import numpy as fastmath_numpy
 from trax import layers
@@ -155,26 +159,8 @@ import trax
 #+end_src
 ** Triplet Loss
 #+begin_src python :noweb-ref triplet-loss
-@attr.s
-class TripletLoss:
-    """Calculates the triplet loss frow two batches
-    """
-    margin: float = 0.25
-    _layer: trax.layers.base.PureLayer=None
-#+end_src
-** Layer
-#+begin_src python :noweb-ref layer
-@property
-def layer(self) -> trax.layers.base.PureLayer:
-    """The Layer for the triplet loss"""
-    if self._layer is None:
-        self._layer = layers.Fn("TripletLoss", self.__call__)
-    return self._layer
-#+end_src   
-** Call Method
-#+begin_src python :noweb-ref call-it
-def __call__(self, v1: numpy.ndarray,
-             v2: numpy.ndarray)-> jax.interpreters.xla.DeviceArray:
+def triplet_loss(v1: numpy.ndarray,
+             v2: numpy.ndarray, margin: float=0.25)-> jax.interpreters.xla.DeviceArray:
     """Calculates the triplet loss
 
     Args:
@@ -191,25 +177,28 @@ def __call__(self, v1: numpy.ndarray,
     closest_negative = fastmath_numpy.max(negative_without_positive, axis=1)
     negative_zero_on_duplicate = (1.0 - fastmath_numpy.eye(batch_size)) * scores
     mean_negative = fastmath_numpy.sum(negative_zero_on_duplicate, axis=1)/(batch_size - 1)
-    triplet_loss1 = fastmath_numpy.maximum(0, self.margin - positive + closest_negative)
-    triplet_loss2 = fastmath_numpy.maximum(0, (self.margin - positive) + mean_negative)
+    triplet_loss1 = fastmath_numpy.maximum(0, margin - positive + closest_negative)
+    triplet_loss2 = fastmath_numpy.maximum(0, (margin - positive) + mean_negative)
     return fastmath_numpy.mean(triplet_loss1 + triplet_loss2)
-#+end_src   
-** Check It Out
-
-#+begin_src python :results none
-from neurotic.nlp.siamese_networks import TripletLoss
-
-tl = TripletLoss()
 #+end_src
 
+** Triplet Loss Layer
+   Another not well documented limitation is that the function you create the layer from isn't allowed to take have default values, so if we want to allow the =margin= to have a default, we have to use =partial= to set the value before creating the layer...
+   
+#+begin_src python :noweb-ref triplet-loss-layer 
+def triplet_loss_layer(margin: float=0.25) -> layers.Fn:
+    """Converts the triplet_loss function to a trax layer"""
+    with_margin = partial(triplet_loss, margin=margin)
+    return layers.Fn("TripletLoss", with_margin)
+#+end_src
+** Check It Out
+
 #+begin_src python :results output :exports both
-loss = tl(v2, v1)
-print(loss)
-assert loss == 0.5
-print(type(tl.layer))
+from neurotic.nlp.siamese_networks import triplet_loss_layer
+
+layer = triplet_loss_layer()
+print(type(layer))
 #+end_src
 
 #+RESULTS:
-: 0.5
 : <class 'trax.layers.base.PureLayer'>

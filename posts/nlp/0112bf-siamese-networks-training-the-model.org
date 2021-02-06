@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-470af90d-2b2e-49aa-aa8b-423a58bb3cea-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ca2ac317-ee90-4fbb-819e-377adcd9b5bb-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -20,13 +20,55 @@
  Now we are going to train the Siamese Network Model model. As usual, we have to define the cost function and the optimizer. We also have to feed in the built model. Before, going into the training, we will use a special data set up. We will define the inputs using the data generator we built above. The lambda function acts as a seed to remember the last batch that was given. Run the cell below to get the question pairs inputs. 
 ** Imports
 #+begin_src python :results none
+# python
+from collections import namedtuple
+from functools import partial
+from pathlib import Path
+from tempfile import TemporaryFile
+
+import sys
+
 # pypi
+from holoviews import opts
+
+import holoviews
+import hvplot.pandas
+import jax
+import numpy
+import pandas
 import trax
 
 # this project
-from neurotic.nlp.siamese_networks import DataGenerator, DataLoader, TOKENS
+from neurotic.nlp.siamese_networks import (
+    DataGenerator,
+    DataLoader,
+    SiameseModel,
+    TOKENS,
+    triplet_loss_layer,
+)
+
+from graeae import Timer, EmbedHoloviews
 #+end_src
 ** Set Up
+*** The Timer And Plotting
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+
+#+begin_src python :results none
+slug = "siamese-networks-training-the-model"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{slug}")
+
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src
 *** The Data
 #+begin_src python :results none
 loader = DataLoader()
@@ -74,7 +116,8 @@ lr_schedule = trax.lr.warmup_and_rsqrt_decay(400, 0.01)
 #+end_src
 
 #+begin_src python :results none
-def train_model(Siamese, TripletLoss, lr_schedule, train_generator=train_generator, val_generator=val_generator, output_dir='model/'):
+def train_model(Siamese, TripletLoss, lr_schedule, train_generator=train_generator, val_generator=validation_generator, output_dir="~/model/siamese_networks/",
+                steps_per_checkpoint=100):
     """Training the Siamese Model
 
     Args:
@@ -88,53 +131,90 @@ def train_model(Siamese, TripletLoss, lr_schedule, train_generator=train_generat
     Returns:
         trax.supervised.training.Loop: Training loop for the model.
     """
-    output_dir = os.path.expanduser(output_dir)
+    output_dir = Path(output_dir).expanduser()
 
     ### START CODE HERE (Replace instances of 'None' with your code) ###
 
-    train_task = training.TrainTask(
-        labeled_data=None,       # Use generator (train)
-        loss_layer=None,         # Use triplet loss. Don't forget to instantiate this object
-        optimizer=None,          # Don't forget to add the learning rate parameter
+    train_task = trax.supervised.training.TrainTask(
+        labeled_data=train_generator,       # Use generator (train)
+        loss_layer=TripletLoss(),         # Use triplet loss. Don't forget to instantiate this object
+        optimizer=trax.optimizers.Adam(0.01),          # Don't forget to add the learning rate parameter
         lr_schedule=lr_schedule, # Use Trax multifactor schedule function
+        n_steps_per_checkpoint=steps_per_checkpoint,
     )
 
-    eval_task = training.EvalTask(
-        labeled_data=None,       # Use generator (val)
-        metrics=[None],          # Use triplet loss. Don't forget to instantiate this object
+    eval_task = trax.supervised.training.EvalTask(
+        labeled_data=val_generator,       # Use generator (val)
+        metrics=[TripletLoss()],          # Use triplet loss. Don't forget to instantiate this object
     )
     
     ### END CODE HERE ###
 
-    training_loop = training.Loop(Siamese(),
-                                  train_task,
-                                  eval_task=eval_task,
-                                  output_dir=output_dir)
+    training_loop = trax.supervised.training.Loop(Siamese,
+                                                  [train_task],
+                                                  eval_tasks=[eval_task],
+                                                  output_dir=output_dir)
 
     return training_loop
 #+end_src
 
 #+begin_src python :results output :exports both
-train_steps = 5
-training_loop = train_model(Siamese, TripletLoss, lr_schedule)
-training_loop.run(train_steps)
+train_steps = 1500
+siamese = SiameseModel(len(loader.vocabulary))
+training_loop = train_model(siamese.model, triplet_loss_layer, lr_schedule, steps_per_checkpoint=5)
+
+real_stdout = sys.stdout
+
+TIMER.emit = False
+TIMER.start()
+with TemporaryFile("w") as temp_file:
+    sys.stdout = temp_file
+    training_loop.run(train_steps)
+TIMER.stop()
+sys.stdout = real_stdout
+print(f"{TIMER.ended - TIMER.started}")
 #+end_src
 
 #+RESULTS:
-:RESULTS:
-# [goto error]
-: ---------------------------------------------------------------------------
-: NameError                                 Traceback (most recent call last)
-: <ipython-input-15-b8ba7e43cd69> in <module>
-:       1 train_steps = 5
-: ----> 2 training_loop = train_model(Siamese, TripletLoss, lr_schedule)
-:       3 training_loop.run(train_steps)
-: 
-: NameError: name 'train_model' is not defined
-:END:
+: 0:14:51.622380
 
+#+begin_src python :results output :exports both
+for mode in training_loop.history.modes:
+    print(mode)
+    print(training_loop.history.metrics_for_mode(mode))
+#+end_src
 
-# The model was only trained for 5 steps due to the constraints of this environment. For the rest of the assignment you will be using a pretrained model but now you should understand how the training can be done using Trax.
+#+RESULTS:
+: eval
+: ['metrics/TripletLoss']
+: train
+: ['metrics/TripletLoss', 'training/gradients_l2', 'training/learning_rate', 'training/loss', 'training/steps per second', 'training/weights_l2']
 
-# <a name='4'></a>
-# 
+** Plotting the Metrics
+#+begin_src python :results none
+frame = pandas.DataFrame(training_loop.history.get("eval", "metrics/TripletLoss"), columns="Batch TripletLoss".split())
+
+minimum = frame.loc[frame.TripletLoss.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.TripletLoss).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="TripletLoss").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+    width=PLOT.width, height=PLOT.height,
+    title="Evaluation Batch Triplet Loss",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_triplet_loss")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_triplet_loss.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It looks the loss is stabilizing. If it doesn't perform well I'll re-train it.

@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-06fdd9c5-dcd5-48bd-a67d-aa30e4e8da24-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-599340bd-6db7-461b-b399-2c4db11717e4-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -125,10 +125,10 @@ Parallel_in2_out2[
 
 <<constants>>
 
+<<normalize>>
+
 
 <<siamese-network>>
-
-    <<normalize>>
 
     <<the-processor>>
 
@@ -155,7 +155,22 @@ Constants = namedtuple("Constants", ["model_depth", "axis"])
 AXIS = Axis(1, -1)
 
 CONSTANTS = Constants(128, AXIS)
-#+end_src   
+#+end_src
+** Normalize
+#+begin_src python :noweb-ref normalize
+def normalize(x: numpy.ndarray) -> numpy.ndarray:
+    """Normalizes the vectors to have L2 norm 1
+
+    Args:
+     x: the array of vectors to normalize
+
+    Returns:
+     normalized version of x
+    """
+    return x/fastmath_numpy.sqrt(fastmath_numpy.sum(x**2,
+                                                    axis=CONSTANTS.axis.last,
+                                                    keepdims=True))
+#+end_src    
 ** The Siamese Model
 #+begin_src python :noweb-ref siamese-network
 @attr.s(auto_attribs=True)
@@ -173,21 +188,6 @@ class SiameseModel:
     _processor: trax.layers.combinators.Serial=None
     _model: trax.layers.combinators.Parallel=None
 #+end_src
-*** Normalize
-#+begin_src python :noweb-ref normalize
-def normalize(self, x: numpy.ndarray) -> numpy.ndarray:
-    """Normalizes the vectors to have L2 norm 1
-
-    Args:
-     x: the array of vectors to normalize
-
-    Returns:
-     normalized version of x
-    """
-    return x/fastmath_numpy.sqrt(fastmath_numpy.sum(x**2,
-                                                    axis=CONSTANTS.axis.last,
-                                                    keepdims=True))
-#+end_src    
 *** The Processor
 #+begin_src python :noweb-ref the-processor
 @property
@@ -198,7 +198,7 @@ def processor(self) -> trax.layers.Serial:
             layers.Embedding(self.vocabulary_size, self.model_depth),
             layers.LSTM(self.model_depth),
             layers.Mean(axis=CONSTANTS.axis.columns),
-            layers.Fn("Normalize", self.normalize) 
+            layers.Fn("Normalize", normalize) 
         ) 
     return self._processor
 #+end_src
@@ -208,7 +208,14 @@ def processor(self) -> trax.layers.Serial:
 def model(self) -> trax.layers.Parallel:
     """The Siamese Model"""
     if self._model is None:
-        self._model = layers.Parallel(self.processor, self.processor)
+        processor = layers.Serial(
+            layers.Embedding(self.vocabulary_size, self.model_depth),
+            layers.LSTM(self.model_depth),
+            layers.Mean(axis=CONSTANTS.axis.columns),
+            layers.Fn("Normalize", normalize) 
+        ) 
+        
+        self._model = layers.Parallel(processor, processor)
     return self._model
 #+end_src
 ** Check It Out

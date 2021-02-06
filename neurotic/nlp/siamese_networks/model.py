@@ -16,6 +16,19 @@ AXIS = Axis(1, -1)
 
 CONSTANTS = Constants(128, AXIS)
 
+def normalize(x: numpy.ndarray) -> numpy.ndarray:
+    """Normalizes the vectors to have L2 norm 1
+
+    Args:
+     x: the array of vectors to normalize
+
+    Returns:
+     normalized version of x
+    """
+    return x/fastmath_numpy.sqrt(fastmath_numpy.sum(x**2,
+                                                    axis=CONSTANTS.axis.last,
+                                                    keepdims=True))
+
 
 @attr.s(auto_attribs=True)
 class SiameseModel:
@@ -32,19 +45,6 @@ class SiameseModel:
     _processor: trax.layers.combinators.Serial=None
     _model: trax.layers.combinators.Parallel=None
 
-    def normalize(self, x: numpy.ndarray) -> numpy.ndarray:
-        """Normalizes the vectors to have L2 norm 1
-    
-        Args:
-         x: the array of vectors to normalize
-    
-        Returns:
-         normalized version of x
-        """
-        return x/fastmath_numpy.sqrt(fastmath_numpy.sum(x**2,
-                                                        axis=CONSTANTS.axis.last,
-                                                        keepdims=True))
-
     @property
     def processor(self) -> trax.layers.Serial:
         """The Question Processor"""
@@ -53,7 +53,7 @@ class SiameseModel:
                 layers.Embedding(self.vocabulary_size, self.model_depth),
                 layers.LSTM(self.model_depth),
                 layers.Mean(axis=CONSTANTS.axis.columns),
-                layers.Fn("Normalize", self.normalize) 
+                layers.Fn("Normalize", normalize) 
             ) 
         return self._processor
 
@@ -61,5 +61,12 @@ class SiameseModel:
     def model(self) -> trax.layers.Parallel:
         """The Siamese Model"""
         if self._model is None:
-            self._model = layers.Parallel(self.processor, self.processor)
+            processor = layers.Serial(
+                layers.Embedding(self.vocabulary_size, self.model_depth),
+                layers.LSTM(self.model_depth),
+                layers.Mean(axis=CONSTANTS.axis.columns),
+                layers.Fn("Normalize", normalize) 
+            ) 
+            
+            self._model = layers.Parallel(processor, processor)
         return self._model
