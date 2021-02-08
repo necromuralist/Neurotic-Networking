@@ -20,7 +20,7 @@ TOKENS = Tokens(unknown=0,
                 padding_token="<PAD>")
 
 Question = namedtuple("Question", ["question_one", "question_two"])
-Data = namedtuple("Data", ["train", "validate", "test"])
+Data = namedtuple("Data", ["train", "validate", "test", "y_test"])
 
 
 @attr.s(auto_attribs=True)
@@ -107,6 +107,7 @@ class DataLoader:
     _vocabulary: dict=None
     _tensorized_train: DataTensorizer=None
     _tensorized_test: DataTensorizer=None
+    _test_labels: pandas.Series=None    
     _data: namedtuple=None
 
     @property
@@ -201,6 +202,17 @@ class DataLoader:
         return self._tensorized_test
 
     @property
+    def test_labels(self) -> pandas.Series:
+        """The labels for the test data
+    
+        0 : not duplicate questions
+        1 : is duplicate
+        """
+        if self._test_labels is None:
+            self._test_labels = self.testing_data.is_duplicate
+        return self._test_labels
+
+    @property
     def data(self) -> namedtuple:
         """The final tensorized data"""
         if self._data is None:
@@ -214,6 +226,7 @@ class DataLoader:
                     question_two=self.tensorized_train.tensorized_2[cut_off:].to_numpy()),
                 test=Question(
                     question_one=self.tensorized_test.tensorized_1.to_numpy(),
-                    question_two=self.tensorized_test.tensorized_2.to_numpy())
+                    question_two=self.tensorized_test.tensorized_2.to_numpy()),
+                y_test=self.test_labels
             )
         return self._data

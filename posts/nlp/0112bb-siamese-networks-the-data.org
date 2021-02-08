@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-906658c6-ef43-4c25-9b90-7afa7c23234a-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3e14416d-6e38-4d01-9db7-2337c389132b-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -306,6 +306,8 @@ print(f"The length of the validation set is: {len(validation_question_1):,}")
 
     <<tensorized-test>>
 
+    <<test-labels>>
+
     <<final-data>>
 #+end_src
 ** Imports
@@ -336,7 +338,7 @@ TOKENS = Tokens(unknown=0,
                 padding_token="<PAD>")
 
 Question = namedtuple("Question", ["question_one", "question_two"])
-Data = namedtuple("Data", ["train", "validate", "test"])
+Data = namedtuple("Data", ["train", "validate", "test", "y_test"])
 #+end_src
 ** The Data Tokenizer
 #+begin_src python :noweb-ref data-tokenizer
@@ -436,6 +438,7 @@ class DataLoader:
     _vocabulary: dict=None
     _tensorized_train: DataTensorizer=None
     _tensorized_test: DataTensorizer=None
+    _test_labels: pandas.Series=None    
     _data: namedtuple=None
 #+end_src
 *** Data Path
@@ -548,7 +551,20 @@ def tensorized_test(self) -> DataTensorizer:
             question_2 = self.tokenized_test.question_2,
         )
     return self._tensorized_test
-#+end_src    
+#+end_src
+*** Test Labels
+#+begin_src python :noweb-ref test-labels
+@property
+def test_labels(self) -> pandas.Series:
+    """The labels for the test data
+
+    0 : not duplicate questions
+    1 : is duplicate
+    """
+    if self._test_labels is None:
+        self._test_labels = self.testing_data.is_duplicate
+    return self._test_labels
+#+end_src
 *** The Final Data
 #+begin_src python :noweb-ref final-data
 @property
@@ -565,7 +581,8 @@ def data(self) -> namedtuple:
                 question_two=self.tensorized_train.tensorized_2[cut_off:].to_numpy()),
             test=Question(
                 question_one=self.tensorized_test.tensorized_1.to_numpy(),
-                question_two=self.tensorized_test.tensorized_2.to_numpy())
+                question_two=self.tensorized_test.tensorized_2.to_numpy()),
+            y_test=self.test_labels
         )
     return self._data
 #+end_src    
@@ -613,3 +630,4 @@ print(f"{len(loader.vocabulary):,}")
 
 #+RESULTS:
 : 77,068
+
