@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ca2ac317-ee90-4fbb-819e-377adcd9b5bb-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6def6cc2-3995-4a36-8e5a-be3cc3ecbfcc-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -158,8 +158,12 @@ def train_model(Siamese, TripletLoss, lr_schedule, train_generator=train_generat
     return training_loop
 #+end_src
 
+** Training
+*** Trial Two
+    *Note:* I re-ran this next code block so it's actually the second run.
+    
 #+begin_src python :results output :exports both
-train_steps = 1500
+train_steps = 2000
 siamese = SiameseModel(len(loader.vocabulary))
 training_loop = train_model(siamese.model, triplet_loss_layer, lr_schedule, steps_per_checkpoint=5)
 
@@ -176,7 +180,7 @@ print(f"{TIMER.ended - TIMER.started}")
 #+end_src
 
 #+RESULTS:
-: 0:14:51.622380
+: 0:19:46.056057
 
 #+begin_src python :results output :exports both
 for mode in training_loop.history.modes:
@@ -190,7 +194,9 @@ for mode in training_loop.history.modes:
 : train
 : ['metrics/TripletLoss', 'training/gradients_l2', 'training/learning_rate', 'training/loss', 'training/steps per second', 'training/weights_l2']
 
-** Plotting the Metrics
+**** Plotting the Metrics
+     **Note:** As of February 2021, the version of trax on pypi doesn't have a /history/ attribute - to get it you have to install the code from the github repository.
+     
 #+begin_src python :results none
 frame = pandas.DataFrame(training_loop.history.get("eval", "metrics/TripletLoss"), columns="Batch TripletLoss".split())
 
@@ -218,3 +224,58 @@ print(output)
 #+end_export
 
 It looks the loss is stabilizing. If it doesn't perform well I'll re-train it.
+
+*** Trial Three
+    Let's see if the continues going down.
+    
+#+begin_src python :results output :exports both
+train_steps = 2000
+siamese = SiameseModel(len(loader.vocabulary))
+training_loop = train_model(siamese.model, triplet_loss_layer, lr_schedule, steps_per_checkpoint=5)
+
+real_stdout = sys.stdout
+
+TIMER.emit = False
+TIMER.start()
+with TemporaryFile("w") as temp_file:
+    sys.stdout = temp_file
+    training_loop.run(train_steps)
+TIMER.stop()
+sys.stdout = real_stdout
+print(f"{TIMER.ended - TIMER.started}")
+#+end_src
+
+#+RESULTS:
+: 0:17:41.167719
+
+
+**** Plotting the Metrics
+#+begin_src python :results none
+frame = pandas.DataFrame(
+    training_loop.history.get("eval", "metrics/TripletLoss"),
+    columns="Batch TripletLoss".split())
+
+minimum = frame.loc[frame.TripletLoss.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.TripletLoss).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="TripletLoss").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+    width=PLOT.width, height=PLOT.height,
+    title="Evaluation Batch Triplet Loss (Third Run)",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_triplet_loss_third")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_triplet_loss.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It looks like it stopped improving. Probably time to stop.

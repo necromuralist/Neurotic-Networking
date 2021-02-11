@@ -31,8 +31,8 @@ class DataTokenizer:
      data: the data-frame to tokenize
     """
     data: pandas.DataFrame
-    _question_1: pandas.DataFrame=None
-    _question_2: pandas.DataFrame=None
+    _question_1: pandas.Series=None
+    _question_2: pandas.Series=None
 
     @property
     def question_1(self) -> pandas.Series:
