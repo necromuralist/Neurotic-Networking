@@ -1,0 +1,197 @@
+#+BEGIN_COMMENT
+.. title: Siamese Networks: Evaluating the Model
+.. slug: siamese-networks-evaluating-the-model
+.. date: 2021-01-25 19:39:59 UTC-08:00
+.. tags: neural networks,nlp,siamese networks
+.. category: NLP
+.. link: 
+.. description: Evaluating our trained Siamese model.
+.. type: text
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2f57c002-0b24-4c20-a77c-73a5ae6e9d2c-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Evaluating the Siamese Network
+** Force CPU Use
+   For some reason the model eats up more and more memory on the GPU until it runs out. Seems like a memory leak. Anyway, for reasons that I don't know, the way that tensorflow tells you to disable using the GPU doesn't work (it's in the second code block) so to get this to work I have to essentially break the CUDA settings.
+   
+#+begin_src python :results none
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+#+end_src
+
+This is the way they tell you to do it.
+
+#+begin_src python :results none
+import tensorflow
+tensorflow.config.set_visible_devices([], "GPU")
+#+end_src   
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from pathlib import Path
+
+# pypi
+import numpy
+import trax
+
+# this project
+from neurotic.nlp.siamese_networks import (
+    DataGenerator,
+    DataLoader,
+    SiameseModel,
+ )
+
+# other
+from graeae import Timer
+#+end_src
+** Set Up
+*** The Data
+#+begin_src python :results none
+loader = DataLoader()
+data = loader.data
+
+vocabulary_length = len(loader.vocabulary)
+y_test = data.y_test
+testing = data.test
+
+del(loader)
+del(data)
+#+end_src
+
+*** The Timer
+#+begin_src python :results none
+TIMER = Timer()
+#+end_src
+*** The Model
+#+begin_src python :results none
+siamese = SiameseModel(vocabulary_length)
+path = Path("~/models/siamese_networks/model.pkl.gz").expanduser()
+weights = siamese.model.init_from_file(path, weights_only=True)
+#+end_src
+
+* Classify
+ To determine the accuracy of the model, we will utilize the test set that was configured earlier. While in training we used only positive examples, the test data, Q1_test, Q2_test and y_test, is setup as pairs of questions, some of which are duplicates some are not. 
+
+ This routine will run all the test question pairs through the model, compute the cosine simlarity of each pair, threshold it and compare the result to  y_test - the correct response from the data set. The results are accumulated to produce an accuracy.
+
+ **Instructions**  
+  - Loop through the incoming data in batch_size chunks
+  - Use the data generator to load q1, q2 a batch at a time. **Don't forget to set shuffle=False!**
+  - copy a batch_size chunk of y into y_test
+  - compute v1, v2 using the model
+  - for each element of the batch
+         - compute the cos similarity of each pair of entries, v1[j],v2[j]
+         - determine if d > threshold
+         - increment accuracy if that result matches the expected results (y_test[j])
+  - compute the final accuracy and return
+  
+#+begin_src python :results none
+Outcome = namedtuple("Outcome", ["accuracy", "true_positive",
+                                 "true_negative", "false_positive",
+                                 "false_negative"])
+
+def classify(data_generator: iter,
+             y: numpy.ndarray,
+             threshold: float,
+             model: trax.layers.Parallel):
+    """Function to test the accuracy of the model.
+
+    Args:
+      data_generator: batch generator,
+      y: Array of actual target.
+      threshold: minimum distance to be considered the same
+      model: The Siamese model.
+    Returns:
+        float: Accuracy of the model.
+    """
+    accuracy = 0
+    true_positive = false_positive = true_negative = false_negative = 0
+    batch_start = 0
+
+    for batch_one, batch_two in data_generator:
+        batch_size = len(batch_one)
+        batch_stop = batch_start + batch_size
+
+        if batch_stop >= len(y):
+            break
+        batch_labels = y[batch_start: batch_stop]
+        vector_one, vector_two = model((batch_one, batch_two))
+        batch_start = batch_stop
+        
+        for row in range(batch_size):
+            similarity = numpy.dot(vector_one[row], vector_two[row].T)
+            same_question = int(similarity > threshold)
+            correct = same_question == batch_labels[row]
+            if same_question:
+                if correct:
+                    true_positive += 1
+                else:
+                    false_positive += 1
+            else:
+                if correct:
+                    true_negative += 1
+                else:
+                    false_negative += 1
+            accuracy += int(correct)
+    return Outcome(accuracy=accuracy/len(y),
+                   true_positive = true_positive,
+                   true_negative = true_negative,
+                   false_positive = false_positive,
+                   false_negative = false_negative)
+#+end_src
+
+
+#+begin_src python :results output :exports both
+batch_size = 512
+data_generator = DataGenerator(testing.question_one, testing.question_two,
+                               batch_size=batch_size,
+                               shuffle=False)
+
+with TIMER:
+    outcome = classify(
+        data_generator=data_generator,
+        y=y_test,
+        threshold=0.7,
+        model=siamese.model
+    ) 
+print(f"Outcome: {outcome}")
+#+end_src
+
+#+RESULTS:
+: Started: 2021-02-10 21:42:27.320674
+: Ended: 2021-02-10 21:47:57.411380
+: Elapsed: 0:05:30.090706
+: Outcome: Outcome(accuracy=0.6546453536874203, true_positive=16439, true_negative=51832, false_positive=14425, false_negative=21240)
+
+So, is that good or not? It might be more useful to look at the rates.
+
+#+begin_src python :results output :exports both
+print(f"Accuracy: {outcome.accuracy:0.2f}")
+true_positive = outcome.true_positive
+false_negative = outcome.false_negative
+true_negative = outcome.true_negative
+false_positive = outcome.false_positive
+
+print(f"True Positive Rate: {true_positive/(true_positive + false_negative): 0.2f}")
+print(f"True Negative Rate: {true_negative/(true_negative + false_positive):0.2f}")
+print(f"Precision: {outcome.true_positive/(true_positive + false_positive):0.2f}")
+print(f"False Negative Rate: {false_negative/(false_negative + true_positive):0.2f}")
+print(f"False Positive Rate: {false_positive/(false_positive + true_negative): 0.2f}")
+#+end_src
+
+#+RESULTS:
+: Accuracy: 0.65
+: True Positive Rate:  0.44
+: True Negative Rate: 0.78
+: Precision: 0.53
+: False Negative Rate: 0.56
+: False Positive Rate:  0.22
+
+So, it was better at recognizing questions that were different. We could probably fiddle with the threshold to make it more one way or the other, if we needed to.

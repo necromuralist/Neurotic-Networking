@@ -1,0 +1,212 @@
+#+BEGIN_COMMENT
+.. title: Evaluating a Siamese Model
+.. slug: evaluating-a-siamese-model
+.. date: 2021-01-21 18:34:27 UTC-08:00
+.. tags: nlp,siamese networks,nn
+.. category: NLP
+.. link: 
+.. description: Evaluating the accuracy of a Siamese Model.
+.. type: text
+.. has_math: True
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-21b49a05-6154-4e4a-af16-717f1190668b-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+We are going to learn how to evaluate a Siamese model using the accuracy metric.
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+import os
+
+# from pypi
+from dotenv import load_dotenv
+
+import trax.fastmath.numpy as trax_numpy
+#+end_src
+** Set Up
+#+begin_src python :results none
+load_dotenv("posts/nlp/.env")
+PREFIX = "SIAMESE_"
+q1 = trax_numpy.load(Path(os.environ[PREFIX + "Q1"]).expanduser())
+q2 = trax_numpy.load(Path(os.environ[PREFIX + "Q2"]).expanduser())
+v1 = trax_numpy.load(Path(os.environ[PREFIX + "V1"]).expanduser())
+v2 = trax_numpy.load(Path(os.environ[PREFIX + "V2"]).expanduser())
+y_test = trax_numpy.load(Path(os.environ[PREFIX + "Y_TEST"]).expanduser())
+#+end_src   
+* Middle
+** Data
+We're going to use some pre-made data rather than start from scratch to (hopefully) make the actual evaluation clearer.
+
+These are the data structures:
+
+   - =q1=: vector with dimension =(batch_size X max_length)= containing first questions to compare in the test set.
+   - =q2=: vector with dimension =(batch_size X max_length)= containing second questions to compare in the test set.
+   
+   **Notice that for each pair of vectors within a batch \(([q1_1, q1_2, q1_3, \ldots]\), \([q2_1, q2_2,q2_3, ...])\)  \(q1_i\) is associated with \(q2_k\).**
+        
+        
+   - =y_test=: 1 if  \(q1_i\) and \(q2_k\) are duplicates, 0 otherwise.
+   
+   - =v1=: output vector from the model's prediction associated with the first questions.
+   - =v2=: output vector from the model's prediction associated with the second questions.
+
+#+begin_src python :results output :exports both
+print(f'q1 has shape: {q1.shape} \n\nAnd it looks like this: \n\n {q1}\n\n')
+#+end_src     
+
+#+RESULTS:
+#+begin_example
+q1 has shape: (512, 64) 
+
+And it looks like this: 
+
+ [[ 32  38   4 ...   1   1   1]
+ [ 30 156  78 ...   1   1   1]
+ [ 32  38   4 ...   1   1   1]
+ ...
+ [ 32  33   4 ...   1   1   1]
+ [ 30 156 317 ...   1   1   1]
+ [ 30 156   6 ...   1   1   1]]
+#+end_example
+
+The ones on the right side are padding values.
+
+#+begin_src python :results output :exports both
+print(f'q2 has shape: {q2.shape} \n\nAnd looks like this: \n\n {q2}\n\n')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+q2 has shape: (512, 64) 
+
+And looks like this: 
+
+ [[   30   156    78 ...     1     1     1]
+ [  283   156    78 ...     1     1     1]
+ [   32    38     4 ...     1     1     1]
+ ...
+ [   32    33     4 ...     1     1     1]
+ [   30   156    78 ...     1     1     1]
+ [   30   156 10596 ...     1     1     1]]
+#+end_example
+
+#+begin_src python :results output :exports both
+print(f'y_test has shape: {y_test.shape} \n\nAnd looks like this: \n\n {y_test}\n\n')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+y_test has shape: (512,) 
+
+And looks like this: 
+
+ [0 1 1 0 0 0 0 1 0 1 1 0 0 0 1 1 1 0 1 1 0 0 0 0 1 1 0 0 0 0 1 0 1 1 0 0 0
+ 0 0 0 1 0 0 0 1 0 0 0 0 1 0 1 1 1 1 0 1 0 1 0 0 0 1 0 1 1 1 0 0 0 1 0 1 0
+ 0 0 0 1 0 0 1 1 0 0 0 1 0 1 1 0 1 0 0 0 1 0 1 0 0 0 0 1 1 1 0 1 0 1 1 0 0
+ 0 1 0 0 1 1 0 0 1 0 1 0 0 1 1 0 1 0 0 1 1 0 1 1 1 0 1 0 0 0 0 0 0 0 0 0 0
+ 1 0 1 1 1 0 0 0 0 0 0 1 0 0 0 1 0 0 0 0 1 0 0 0 0 0 1 1 0 1 0 1 1 0 1 1 1
+ 1 0 1 1 0 0 0 0 1 1 0 0 0 0 0 1 1 0 1 0 0 1 1 0 0 0 1 0 1 0 0 0 0 1 0 0 1
+ 0 0 0 0 0 0 0 1 1 0 0 0 0 1 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0
+ 1 0 0 0 0 1 0 0 0 0 1 0 1 0 1 1 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 1 0 0 0 1
+ 1 0 1 1 0 0 0 1 0 1 0 1 1 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1 1 0 1 0 1 1 1 0 0
+ 0 1 0 1 0 1 1 0 0 0 0 0 0 0 0 1 0 1 0 1 0 1 0 0 1 0 0 1 0 1 0 0 1 0 0 0 0
+ 0 0 1 0 1 1 0 0 0 0 1 1 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 1 1 0 1 0 1 1 1 0
+ 1 1 0 1 0 1 0 0 0 0 0 0 0 0 1 1 0 0 0 1 0 0 0 1 1 0 1 1 1 0 0 0 1 0 1 1 1
+ 0 1 0 0 0 0 0 0 0 1 1 1 0 0 1 1 0 0 0 1 0 0 0 1 0 0 0 0 0 1 1 0 0 0 0 0 1
+ 1 0 1 0 0 1 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+#+end_example
+
+#+begin_src python :results output :exports both
+print(f'v1 has shape: {v1.shape} \n\nAnd looks like this: \n\n {v1}\n\n')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+v1 has shape: (512, 128) 
+
+And looks like this: 
+
+ [[ 0.01273625 -0.1496373  -0.01982759 ...  0.02205012 -0.00169148
+  -0.01598107]
+ [-0.05592084  0.05792497 -0.02226785 ...  0.08156938 -0.02570007
+  -0.00503111]
+ [ 0.05686752  0.0294889   0.04522024 ...  0.03141788 -0.08459651
+  -0.00968536]
+ ...
+ [ 0.15115018  0.17791134  0.02200656 ... -0.00851707  0.00571415
+  -0.00431194]
+ [ 0.06995274  0.13110274  0.0202337  ... -0.00902792 -0.01221745
+   0.00505962]
+ [-0.16043712 -0.11899089 -0.15950686 ...  0.06544471 -0.01208312
+  -0.01183368]]
+#+end_example
+
+#+begin_src python :results output :exports both
+print(f'v2 has shape: {v2.shape} \n\nAnd looks like this: \n\n {v2}\n\n')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+v2 has shape: (512, 128) 
+
+And looks like this: 
+
+ [[ 0.07437647  0.02804951 -0.02974014 ...  0.02378932 -0.01696189
+  -0.01897198]
+ [ 0.03270066  0.15122835 -0.02175895 ...  0.00517202 -0.14617395
+   0.00204823]
+ [ 0.05635608  0.05454165  0.042222   ...  0.03831453 -0.05387777
+  -0.01447786]
+ ...
+ [ 0.04727105 -0.06748016  0.04194937 ...  0.07600753 -0.03072828
+   0.00400715]
+ [ 0.00269269  0.15222628  0.01714724 ...  0.01482705 -0.0197884
+   0.01389528]
+ [-0.15475044 -0.15718803 -0.14732707 ...  0.04299919 -0.01070975
+  -0.01318042]]
+#+end_example
+** Calculating the accuracy
+
+You will calculate the accuracy by iterating over the test set and checking if the model predicts right or wrong.
+
+ You will also need the =batch size= and the =threshold= that will determine if two questions are the same or not. 
+
+**Note:** A higher threshold means that only very similar questions will be considered as the same question.
+
+#+begin_src python :results none
+batch_size = 512
+threshold = 0.7
+batch = range(batch_size)
+#+end_src
+
+The process is pretty straightforward:
+    - Iterate over each one of the elements in the batch
+    - Compute the cosine similarity between the predictions
+        - For computing the cosine similarity, the two output vectors should have been normalized using L2 normalization meaning their magnitude will be 1. This has been taken care off by the Siamese network. Hence the cosine similarity here is just dot product between two vectors. You can check by implementing the usual cosine similarity formula and check if this holds or not.
+    - Determine if this value is greater than the threshold (If it is, consider the two questions as the same and return 1 else 0)
+    - Compare against the actual target and if the prediction matches, add 1 to the accuracy (increment the correct prediction counter)
+    - Divide the accuracy by the number of processed elements
+
+#+begin_src python :results none
+correct = 0
+
+for row in batch:
+    similarity = trax_numpy.dot(v1[row], v2[row])
+    similar_enough = similarity > threshold
+    correct += (y_test[element] == similar_enough)
+
+accuracy = correct / batch_size
+#+end_src
+
+#+begin_src python :results output :exports both
+print(f"The accuracy of the model is: {accuracy:0.4f}.")
+#+end_src
+
+#+RESULTS:
+: The accuracy of the model is: 0.6621.

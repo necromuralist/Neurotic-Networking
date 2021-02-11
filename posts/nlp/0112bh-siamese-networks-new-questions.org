@@ -1,0 +1,225 @@
+#+BEGIN_COMMENT
+.. title: Siamese Networks: New Questions
+.. slug: siamese-networks-new-questions
+.. date: 2021-01-25 19:40:55 UTC-08:00
+.. tags: nlp,neural networks,siamese networks
+.. category: NLP
+.. link: 
+.. description: Testing the Siamese Networks with new questions (outside the data set).
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2f57c002-0b24-4c20-a77c-73a5ae6e9d2c-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Trying New Questions
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+# pypi
+import nltk
+import numpy
+import pandas
+import trax
+
+# this project
+from neurotic.nlp.siamese_networks import (
+    DataGenerator,
+    DataLoader,
+    SiameseModel,
+    TOKENS,
+ )
+#+end_src
+
+** Set Up
+*** The Data
+#+begin_src python :results none
+data_generator = DataGenerator
+loader = DataLoader()
+vocabulary = loader.vocabulary
+#+end_src
+*** The Model
+#+begin_src python :results none
+siamese = SiameseModel(len(vocabulary))
+path = Path("~/models/siamese_networks/model.pkl.gz").expanduser()
+weights = siamese.model.init_from_file(path, weights_only=True)
+model = siamese.model
+#+end_src    
+* Implementing It
+Write a function =predict=that takes in two questions, the model, and the vocabulary and returns whether the questions are duplicates (/1/) or not duplicates (/0/) given a similarity threshold. 
+
+ **Instructions:** 
+ - Tokenize your question using `nltk.word_tokenize` 
+ - Create Q1,Q2 by encoding your questions as a list of numbers using vocab
+ - pad Q1,Q2 with next(data_generator([Q1], [Q2],1,vocab['<PAD>']))
+ - use model() to create v1, v2
+ - compute the cosine similarity (dot product) of v1, v2
+ - compute res by comparing d to the threshold
+
+#+begin_src python :results none
+def predict(question1: str, question2: str,
+            threshold: float=0.7, model: trax.layers.Parallel=model,
+            vocab: dict=vocabulary, data_generator: type=data_generator,
+            verbose: bool=True) -> bool:
+    """Function for predicting if two questions are duplicates.
+
+    Args:
+        question1 (str): First question.
+        question2 (str): Second question.
+        threshold (float): Desired threshold.
+        model (trax.layers.combinators.Parallel): The Siamese model.
+        vocab (collections.defaultdict): The vocabulary used.
+        data_generator (function): Data generator function. Defaults to data_generator.
+        verbose (bool, optional): If the results should be printed out. Defaults to False.
+
+    Returns:
+        bool: True if the questions are duplicates, False otherwise.
+    """
+    question_one = [[vocab[word] for word in nltk.word_tokenize(question1)]]
+    question_two = [[vocab[word] for word in nltk.word_tokenize(question2)]]
+        
+    questions = next(data_generator(question_one,
+                                    question_two,
+                                    batch_size=1))
+    vector_1, vector_2 = model(questions)
+    similarity = float(numpy.dot(vector_1, vector_2.T))
+    same_question = similarity > threshold
+
+    if(verbose):
+        print(f"Q1  = {questions[0]}")
+        print(f"Q2 = {questions[1]}")
+        print(f"Similarity : {float(similarity):0.2f}")
+        print(f"They are the same question: {same_question}")
+    return same_question
+#+end_src
+
+** Some Trials
+#+begin_src python :results output :exports both
+print(TOKENS)
+#+end_src
+
+#+RESULTS:
+: Tokens(unknown=0, padding=1, padding_token='<PAD>')
+
+So if we see a 0 in the tokens then we know the word wasn't in the vocabulary.
+   
+#+begin_src python :results output :exports both
+question1 = "When will I see you?"
+question2 = "When can I see you again?"
+# 1 means it is duplicated, 0 otherwise
+predict(question1 , question2, 0.7, model, vocabulary, verbose = True)
+#+end_src
+
+#+RESULTS:
+: Q1  = [[581  64  20  44  49  16   1   1]]
+: Q2 = [[ 581   39   20   44   49 7280   16    1]]
+: Similarity : 0.95
+: They are the same question: True
+
+#+begin_src python :results output :exports both
+question1 = "Do they enjoy eating the dessert?"
+question2 = "Do they like hiking in the desert?"
+
+predict(question1 , question2, 0.7, model, vocabulary, verbose=True)
+#+end_src
+
+#+RESULTS:
+: Q1  = [[  446  1138  3159  1169    70 29016    16     1]]
+: Q2 = [[  446  1138    57 15302    24    70  7430    16]]
+: Similarity : 0.60
+: They are the same question: False
+
+
+#+begin_src python :results output :exports both
+predict("Do cows have butts?", "Do dogs have bones?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[  446  5757   216 25442    16     1     1     1]]
+: Q2 = [[  446   788   216 11192    16     1     1     1]]
+: Similarity : 0.25
+: They are the same question: False
+
+#+begin_src python :results output :exports both
+predict("Do cows from Lancashire have butts?", "Do dogs have bones as big as whales?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[  446  5757   125     0   216 25442    16     1     1     1     1     1
+:       1     1     1     1]]
+: Q2 = [[  446   788   216 11192   249  1124   249 30836    16     1     1     1
+:       1     1     1     1]]
+: Similarity : 0.13
+: They are the same question: False
+
+#+begin_src python :results output :exports both
+predict("Can pigs fly?", "Are you my mother?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[  221 14137  5750    16     1     1     1     1]]
+: Q2 = [[ 517   49   41 1585   16    1    1    1]]
+: Similarity : 0.01
+: They are the same question: False
+
+#+begin_src python :results output :exports both
+predict("Shall we dance?", "Shall I fart?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[19382   138  4201    16]]
+: Q2 = [[19382    20 18288    16]]
+: Similarity : 0.71
+: They are the same question: True
+
+Hm... surprising that "fart" was in the data set, and it's the same as dancing.
+
+#+begin_src python :results output :exports both
+farts = loader.training_data[loader.training_data.question2.str.contains("fart[^a-z]")]
+print(len(farts))
+print(farts.question2.head())
+#+end_src
+
+#+RESULTS:
+: 16
+: 19820                                    Can penguins fart?
+: 60745       How do I control a fart when I'm about to fart?
+: 83124           What word square starts with the word fart?
+: 96707         Which part of human body is called fart pump?
+: 120727    Why do people fart more when they wake up in t...
+: Name: question2, dtype: object
+
+Maybe I shouldn't have been surprised.
+
+#+begin_src python :results output :exports both
+predict("Am I man or gorilla?", "Am I able to eat the pasta?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[4311   20 1215   75 7438   16    1    1]]
+: Q2 = [[ 4311    20   461    37   922    70 14552    16]]
+: Similarity : 0.20
+: They are the same question: False
+
+It looks like the model only looks at the first words... at least when the sentences are short.
+
+#+begin_src python :results output :exports both
+predict("Will we return to Mars or go instead to Venus?", "Will we eat rice with plums and cherry topping?")
+#+end_src
+
+#+RESULTS:
+: Q1  = [[  168   141  8303    34  6861    72  1315  4536    34 15555    16     1
+:       1     1     1     1]]
+: Q2 = [[  168   141   927  7612   121     0     9 19275     0    16     1     1
+:       1     1     1     1]]
+: Similarity : 0.67
+: They are the same question: False
+
+
+ Siamese networks are important and useful. Many times there are several questions that are already asked in quora, or other platforms and you can use Siamese networks to avoid question duplicates. 

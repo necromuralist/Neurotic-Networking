@@ -292,11 +292,11 @@ TIMEZONE = "America/Los_Angeles"
 # 'html' assumes the file is HTML and just copies it
 COMPILERS = {
     "rest": ('.rst', '.txt'),
-    "markdown": ('.md', '.mdown', '.markdown'),
-    "textile": ('.textile',),
-    "txt2tags": ('.t2t',),
-    "bbcode": ('.bb',),
-    "wiki": ('.wiki',),
+#    "markdown": ('.md', '.mdown', '.markdown'),
+#    "textile": ('.textile',),
+#    "txt2tags": ('.t2t',),
+#    "bbcode": ('.bb',),
+#    "wiki": ('.wiki',),
     "ipynb": ('.ipynb',),
     "html": ('.html', '.htm'),
     # PHP files are rendered the usual way (i.e. with the full templates).
