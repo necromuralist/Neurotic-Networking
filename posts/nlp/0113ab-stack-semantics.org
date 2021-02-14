@@ -7,353 +7,470 @@
 .. link: 
 .. description: 
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-47d0a694-bb35-4ad9-bdc0-4beabf25c000-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3744ea8f-e29a-40bc-8f56-8b3b1548c574-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
+* Stack Semantics in Trax
+This will help in understanding how to use layers like =Select= and =Residual= which operate on elements in the stack. If you've taken a computer science class before, you will recall that a stack is a data structure that follows the Last In, First Out (LIFO) principle. That is, whatever is the latest element that is pushed into the stack will also be the first one to be popped out. If you're not yet familiar with stacks, then you may find this [[https://www.tutorialspoint.com/python_data_structure/python_stack.htm][short tutorial]] useful. In a nutshell, all you really need to remember is it puts elements one on top of the other. You should be aware of what is on top of the stack to know which element you will be popping.
+** Imports
+#+begin_src python :results none
+# pypi
+import numpy
+from trax import fastmath, layers, shapes
+#+end_src
+* Middle
+** The Serial Combinator is Stack Oriented.
 
-* Raw
-#+begin_example python
-# # Stack Semantics in Trax: Ungraded Lab
+ To understand how stack-orientation works in [[https://trax-ml.readthedocs.io/en/latest/][Trax]], most times one will be using the =Serial= layer. We will define two simple [[https://trax-ml.readthedocs.io/en/latest/notebooks/layers_intro.html?highlight=fn#With-the-Fn-layer-creating-function.][Function layers]]:
+ 
+  1. Addition
+  2. Multiplication
 
-# In this ungraded lab, we will explain the stack semantics in Trax. This will help in understanding how to use layers like `Select` and `Residual` which operates on elements in the stack. If you've taken a computer science class before, you will recall that a stack is a data structure that follows the Last In, First Out (LIFO) principle. That is, whatever is the latest element that is pushed into the stack will also be the first one to be popped out. If you're not yet familiar with stacks, then you may find this [short tutorial](https://www.tutorialspoint.com/python_data_structure/python_stack.htm) useful. In a nutshell, all you really need to remember is it puts elements one on top of the other. You should be aware of what is on top of the stack to know which element you will be popping. You will see this in the discussions below. Let's get started!
+ Suppose we want to make the simple calculation \((3 + 4) \times 15 + 3\). We'll use =Serial= to perform the calculations in the following order =3= =4= =add= =15= =mul= =3= =add=. The steps of the calculation are shown in the table below.
+ 
+  | Stack Operations        | Stack |
+  |-------------------------+-------|
+  | Push(4)                 |     4 |
+  | Push(3)                 |   4 3 |
+  | Push(Add Pop() Pop())   |     7 |
+  | Push(15)                |  7 15 |
+  | Push(Mul Pop() Pop())   |   105 |
+  | Push(3)                 | 105 3 |
+  | Push(Add() Pop() Pop()) |   108 |
 
-# ## Imports
+The first column shows the operations made on the stack and the second column is what's on the stack. Moreover, the rightmost element in the second column represents the top of the stack (e.g. in the second row, =Push(3)= pushes =3 = on top of the stack and =4= is now under it).
 
-# In[ ]:
+ After finishing the steps the stack contains 108 which is the answer to our simple computation.
 
+ From this, the following can be concluded: a stack-based layer has only one way to handle data, by taking one piece of data from atop the stack, called /popping/, and putting data back atop the stack, called /pushing/. Any expression that can be written conventionally, can be written this way and thus will be amenable to being interpreted by a stack-oriented layer like =Serial=.
 
-import numpy as np              # regular ol' numpy
-from trax import layers as tl   # core building block
-from trax import shapes         # data signatures: dimensionality and type
-from trax import fastmath       # uses jax, offers numpy on steroids
+*** Defining addition
 
+    We're going to define a trax [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=Fn#trax.layers.base.Fn][function (FN)]] for addition.
 
-# ## 1. The tl.Serial Combinator is Stack Oriented.
-# 
-# To understand how stack-orientation works in [Trax](https://trax-ml.readthedocs.io/en/latest/), most times one will be using the `Serial` layer. We will define two simple [Function layers](https://trax-ml.readthedocs.io/en/latest/notebooks/layers_intro.html?highlight=fn#With-the-Fn-layer-creating-function.): 1) Addition and 2) Multiplication.
-# 
-# Suppose we want to make the simple calculation (3 + 4) * 15 + 3. `Serial` will perform the calculations in the following manner `3` `4` `add` `15` `mul` `3` `add`. The steps of the calculation are shown in the table below. The first column shows the operations made on the stack and the second column the output of those operations. Moreover, the rightmost element in the second column represents the top of the stack (e.g. in the second row, `Push(3)` pushes `3 ` on top of the stack and `4` is now under it).
-# 
-# <div style="text-align:center" width="50px"><img src="Stack1.png" /></div>
-# 
-# After processing all the stack contains 108 which is the answer to our simple computation.
-# 
-# From this, the following can be concluded: a stack-based layer has only one way to handle data, by taking one piece of data from atop the stack, termed popping, and putting data back atop the stack, termed pushing. Any expression that can be written conventionally, can be written in this form and thus be amenable to being interpreted by a stack-oriented layer like `Serial`.
-
-# ### Coding the example in the table:
-
-# **Defining addition**
-
-# In[ ]:
-
-
+#+begin_src python :results none
 def Addition():
-    layer_name = "Addition"  # don't forget to give your custom layer a name to identify
+    layer_name = "Addition" 
 
-    # Custom function for the custom layer
     def func(x, y):
         return x + y
 
-    return tl.Fn(layer_name, func)
+    return layers.Fn(layer_name, func)
+#+end_src
 
 
-# Test it
+ Test it out.
+
+#+begin_src python :results output :exports both
 add = Addition()
+print(type(add))
+#+end_src 
 
-# Inspect properties
-print("-- Properties --")
+#+RESULTS:
+: <class 'trax.layers.base.PureLayer'>
+
+#+begin_src python :results output :exports both
 print("name :", add.name)
 print("expected inputs :", add.n_in)
-print("promised outputs :", add.n_out, "\n")
+print("promised outputs :", add.n_out)
+#+end_src
 
-# Inputs
-x = np.array([3])
-y = np.array([4])
-print("-- Inputs --")
-print("x :", x, "\n")
-print("y :", y, "\n")
-
-# Outputs
-z = add((x, y))
-print("-- Outputs --")
-print("z :", z)
+#+RESULTS:
+: name : Addition
+: expected inputs : 2
+: promised outputs : 1
 
 
-# **Defining multiplication**
+#+begin_src python :results output :exports both     
+x = numpy.array([3])
+y = numpy.array([4])
 
-# In[ ]:
+print(f"{x} + {y} = {add((x, y))}")
+#+end_src
 
+#+RESULTS:
+: [3] + [4] = [7]
 
+*** Defining multiplication
+
+#+begin_src python :results none
 def Multiplication():
-    layer_name = (
-        "Multiplication"  # don't forget to give your custom layer a name to identify
-    )
+    layer_name = "Multiplication"
 
-    # Custom function for the custom layer
     def func(x, y):
         return x * y
 
-    return tl.Fn(layer_name, func)
+    return layers.Fn(layer_name, func)
+#+end_src
 
+Test it out.
 
-# Test it
+#+begin_src python :results none
 mul = Multiplication()
+#+end_src
 
-# Inspect properties
-print("-- Properties --")
+The  properties.
+
+#+begin_src python :results output :exports both
 print("name :", mul.name)
 print("expected inputs :", mul.n_in)
 print("promised outputs :", mul.n_out, "\n")
+#+end_src
 
-# Inputs
-x = np.array([7])
-y = np.array([15])
-print("-- Inputs --")
-print("x :", x, "\n")
-print("y :", y, "\n")
+#+RESULTS:
+: name : Multiplication
+: expected inputs : 2
+: promised outputs : 1 
+: 
 
-# Outputs
+Some Inputs.
+
+#+begin_src python :results output :exports both
+x = numpy.array([7])
+y = numpy.array([15])
+print("x :", x)
+print("y :", y)
+#+end_src
+
+#+RESULTS:
+: x : [7]
+: y : [15]
+
+The Output
+
+#+begin_src python :results output :exports both
 z = mul((x, y))
-print("-- Outputs --")
-print("z :", z)
+print(f"{x} * {y} = {mul((x, y))}")
+#+end_src
 
+#+RESULTS:
+: [7] * [15] = [105]
 
-# **Implementing the computations using Serial combinator.**
+*** Implementing the computations using the Serial combinator
 
-# In[ ]:
-
-
-# Serial combinator
-serial = tl.Serial(
-    Addition(), Multiplication(), Addition()  # add 3 + 4  # multiply result by 15
+#+begin_src python :results none
+serial = layers.Serial(
+    Addition(), Multiplication(), Addition()
 )
+#+end_src
 
-# Initialization
-x = (np.array([3]), np.array([4]), np.array([15]), np.array([3]))  # input
+#+begin_src python :results none
+inputs = (numpy.array([3]), numpy.array([4]), numpy.array([15]), numpy.array([3]))
 
-serial.init(shapes.signature(x))  # initializing serial instance
+serial.init(shapes.signature(inputs))
+#+end_src    
 
-
-print("-- Serial Model --")
+#+begin_src python :results output :exports both
 print(serial, "\n")
-print("-- Properties --")
 print("name :", serial.name)
 print("sublayers :", serial.sublayers)
 print("expected inputs :", serial.n_in)
 print("promised outputs :", serial.n_out, "\n")
+#+end_src
 
-# Inputs
-print("-- Inputs --")
-print("x :", x, "\n")
+#+RESULTS:
+#+begin_example
+Serial_in4[
+  Addition_in2
+  Multiplication_in2
+  Addition_in2
+] 
 
-# Outputs
-y = serial(x)
-print("-- Outputs --")
-print("y :", y)
+name : Serial
+sublayers : [Addition_in2, Multiplication_in2, Addition_in2]
+expected inputs : 4
+promised outputs : 1 
+#+end_example
+
+#+begin_src python :results output :exports both
+print(f"{inputs} -> {serial(inputs)}")
+#+end_src
+
+#+RESULTS:
+: (array([3]), array([4]), array([15]), array([3])) -> [108]
+
+The example with the two simple adition and multiplication functions that where coded together with the serial combinator show how stack semantics work in =Trax=.
+
+** The tl.Select combinator in the context of the Serial combinator
+
+ Having understood how stack semantics work in =Trax=, we will demonstrate how the [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=select#trax.layers.combinators.Select][tl.Select]] combinator works.
+
+*** First example of tl.Select
+
+ Suppose we want to make the simple calculation \((3 + 4) \times 3 + 4\). We can use =Select= to perform the calculations in the following manner:
+
+ 1. input =3= =4=
+ 2. =tl.Select([0, 1, 0, 1])= 
+ 3. =add= 
+ 4. =mul= 
+ 5. =add=. 
+
+ The =tl.Select= requires a list or tuple of 0-based indices to select elements relative to the top of the stack. For our example, the top of the stack is =3= (which is at index 0) then =4= (index 1) and we us Select to copy the top two elements of the stack and then push all four elements back onto the  stack which after the command executes will now contain =3= =4= =3= =4=. The steps of the calculation for our example are shown in the table below. As in the previous table each column shows the contents of the stack and the outputs after the operations are carried out.
+
+| Stack Operations           | Stack   |
+|----------------------------+---------|
+| Push(4)                    | 4       |
+| Push(3)                    | 4 3     |
+| Push(Select([0, 1, 0, 1])) | 4 3 4 3 |
+| Push(Add Pop() Pop())      | 4 3 7   |
+| Push(Mul Pop() Pop())      | 4 21    |
+| Push(Add Pop() Pop())      | 25      |
+
+After processing all the inputs the stack contains 25 which is the result of the calculations.
+
+#+begin_src python :results none
+serial = layers.Serial(
+    layers.Select([0, 1, 0, 1]),
+    Addition(),
+    Multiplication(),
+    Addition()
+)
+#+end_src
 
 
-# The example with the two simple adition and multiplication functions that where coded together with the serial combinator show how stack semantics work in `Trax`.
+Now we'll create the input.
 
-# ## 2. The tl.Select combinator in the context of the Serial combinator
+#+begin_src python :results none
+x = (numpy.array([3]), numpy.array([4]))
+serial.init(shapes.signature(x))
+#+end_src
 
-# Having understood how stack semantics work in `Trax`, we will demonstrate how the [tl.Select](https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=select#trax.layers.combinators.Select) combinator works.
-
-# ### First example of tl.Select
-
-# Suppose we want to make the simple calculation (3 + 4) * 3 + 4. We can use `Select` to perform the calculations in the following manner:
-# 
-# 1. `4`
-# 2. `3`
-# 3. `tl.Select([0,1,0,1])` 
-# 4. `add` 
-# 5. `mul` 
-# 6. `add`. 
-# 
-# The `tl.Select` requires a list or tuple of 0-based indices to select elements relative to the top of the stack. For our example, the top of the stack is `3` (which is at index 0) then `4` (index 1) and we Select to add in an ordered manner to the top of the stack which after the command is `3` `4` `3` `4`. The steps of the calculation for our example are shown in the table below. As in the previous table each column shows the contents of the stack and the outputs after the operations are carried out.
-# 
-# <div style="text-align:center" width="20px"><img src="Stack2.png" /></div>
-# 
-# After processing all the inputs the stack contains 25 which is the answer we get above.
-
-# In[ ]:
-
-
-serial = tl.Serial(tl.Select([0, 1, 0, 1]), Addition(), Multiplication(), Addition())
-
-# Initialization
-x = (np.array([3]), np.array([4]))  # input
-
-serial.init(shapes.signature(x))  # initializing serial instance
-
-
-print("-- Serial Model --")
+#+begin_src python :results output :exports both
 print(serial, "\n")
-print("-- Properties --")
 print("name :", serial.name)
 print("sublayers :", serial.sublayers)
 print("expected inputs :", serial.n_in)
 print("promised outputs :", serial.n_out, "\n")
+#+end_src
 
-# Inputs
-print("-- Inputs --")
-print("x :", x, "\n")
+#+RESULTS:
+#+begin_example
+Serial_in2[
+  Select[0,1,0,1]_in2_out4
+  Addition_in2
+  Multiplication_in2
+  Addition_in2
+] 
 
-# Outputs
-y = serial(x)
-print("-- Outputs --")
-print("y :", y)
+name : Serial
+sublayers : [Select[0,1,0,1]_in2_out4, Addition_in2, Multiplication_in2, Addition_in2]
+expected inputs : 2
+promised outputs : 1 
+#+end_example
 
+#+begin_src python :results output :exports both
+print(f"{x} -> {serial(x)}")
+#+end_src
 
-# ### Second example of tl.Select
+#+RESULTS:
+: (array([3]), array([4])) -> [25]
 
-# Suppose we want to make the simple calculation (3 + 4) * 4. We can use `Select` to perform the calculations in the following manner:
-# 
-# 1. `4`
-# 2. `3`
-# 3. `tl.Select([0,1,0,1])` 
-# 4. `add` 
-# 5. `tl.Select([0], n_in=2)`
-# 6. `mul`
-# 
-# The example is a bit contrived but it demonstrates the flexibility of the command. The second `tl.Select` pops two elements (specified in n_in) from the stack starting from index 0 (i.e. top of the stack). This means that `7` and `3 ` will be popped out because `n_in = 2`) but only `7` is placed back on top because it only selects `[0]`.  As in the previous table each column shows the contents of the stack and the outputs after the operations are carried out.
-# 
-# <div style="text-align:center" width="20px"><img src="Stack3.png" /></div>
-# 
-# After processing all the inputs the stack contains 28 which is the answer we get above.
-
-# In[ ]:
-
-
-serial = tl.Serial(
-    tl.Select([0, 1, 0, 1]), Addition(), tl.Select([0], n_in=2), Multiplication()
+*** Select Makes It More Like a Collection
+    Note that since you are passing in indices to Select, you aren't really using it like a stack, even if behind the scenes it's using push and pop.
+    
+#+begin_src python :results output :exports both
+serial = layers.Serial(
+    layers.Select([2, 1, 1, 2]),
+    Addition(),
+    Multiplication(),
+    Addition()
 )
 
-# Initialization
-x = (np.array([3]), np.array([4]))  # input
+x = (numpy.array([3]), numpy.array([4]), numpy.array([5]))
+serial.init(shapes.signature(x))
 
-serial.init(shapes.signature(x))  # initializing serial instance
+print(f"{x} -> {serial(x)}")
+#+end_src
+
+#+RESULTS:
+: (array([3]), array([4]), array([5])) -> [41]
+
+#+begin_src python :results output :exports both
+print((5 + 4) * 4 + 5)
+#+end_src
+
+#+RESULTS:
+: 41
 
 
-print("-- Serial Model --")
+** Another example of tl.Select
+
+ Suppose we want to make the simple calculation \((3 + 4) \times 4\). We can use =Select= to perform the calculations in the following manner:
+
+ 1. =4=
+ 2. =3=
+ 3. =tl.Select([0,1,0,1])= 
+ 4. =add= 
+ 5. =tl.Select([0], n_in=2)=
+ 6. =mul=
+ 
+ The example is a bit contrived but it demonstrates the flexibility of the command. The second =tl.Select= pops two elements (specified in n_in) from the stack starting from index 0 (i.e. top of the stack). This means that =7= and =3 = will be popped out because ~n_in = 2~) but only =7= is placed back on top because it only selects =[0]=.  As in the previous table each column shows the contents of the stack and the outputs after the operations are carried out.
+
+| Stack Operations           | Outputs |
+|----------------------------+---------|
+| Push(4)                    | 4       |
+| Push(3)                    | 4 3     |
+| Push(select([0, 1, 0, 1])) | 4 3 4 3 |
+| Push(Add Pop() Pop())      | 4 3 7   |
+| Push(select([0], n_in=2))  | 7       |
+| Push(Mul Pop() Pop())      | 28      |
+
+After processing all the inputs the stack contains 28 which is the answer we get above.
+
+#+begin_src python :results none
+serial = layers.Serial(
+    layers.Select([0, 1, 0, 1]),
+    Addition(),
+    layers.Select([0], n_in=2),
+    Multiplication()
+)
+#+end_src
+
+#+begin_src python :results none
+inputs = (numpy.array([3]), numpy.array([4]))
+serial.init(shapes.signature(inputs))
+#+end_src
+
+#+begin_src python :results output :exports both
 print(serial, "\n")
-print("-- Properties --")
 print("name :", serial.name)
 print("sublayers :", serial.sublayers)
 print("expected inputs :", serial.n_in)
-print("promised outputs :", serial.n_out, "\n")
+print("promised outputs :", serial.n_out)
+#+end_src
 
-# Inputs
-print("-- Inputs --")
-print("x :", x, "\n")
+#+RESULTS:
+#+begin_example
+Serial_in2[
+  Select[0,1,0,1]_in2_out4
+  Addition_in2
+  Select[0]_in2
+  Multiplication_in2
+] 
 
-# Outputs
-y = serial(x)
-print("-- Outputs --")
-print("y :", y)
+name : Serial
+sublayers : [Select[0,1,0,1]_in2_out4, Addition_in2, Select[0]_in2, Multiplication_in2]
+expected inputs : 2
+promised outputs : 1
+#+end_example
 
+#+begin_src python :results output :exports both
+print(f"{inputs} -> {serial(inputs)}")
+#+end_src
 
-# **In summary, what Select does in this example is a copy of the inputs in order to be used further along in the stack of operations.**
+#+RESULTS:
+: (array([3]), array([4])) -> [28]
 
-# ## 3. The tl.Residual combinator in the context of the Serial combinator
+In summary, what Select does in this example is make a copy of the inputs in order to be used further along in the stack of operations.
 
-# ### tl.Residual
+** The tl.Residual combinator in the context of the Serial combinator
 
-# [Residual networks](https://arxiv.org/pdf/1512.03385.pdf) are frequently used to make deep models easier to train and you will be using it in the assignment as well. Trax already has a built in layer for this. The [Residual layer](https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=residual#trax.layers.combinators.Residual) computes the element-wise *sum* of the *stack-top* input with the output of the layer series. Let's first see how it is used in the code below:
+*** tl.Residual
 
-# In[ ]:
+[[https://arxiv.org/pdf/1512.03385.pdf][Residual networks]] (that link is to a research paper, this is [[https://en.wikipedia.org/wiki/Residual_neural_network][wikipedia]])are frequently used to make deep models easier to train. Trax already has a built in layer for this. The [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html?highlight=residual#trax.layers.combinators.Residual][Residual layer]] computes the element-wise *sum* of the *stack-top* input with the output of the layer series. Let's first see how it is used in the code below:
 
-
-# Let's define a Serial network
-serial = tl.Serial(
-    # Practice using Select again by duplicating the first two inputs
-    tl.Select([0, 1, 0, 1]),
-    # Place a Residual layer that skips over the Fn: Addition() layer
-    tl.Residual(Addition())
+#+begin_src python :results output :exports both
+serial = layers.Serial(
+    layers.Select([0, 1, 0, 1]),
+    layers.Residual(Addition())
 )
 
-print("-- Serial Model --")
 print(serial, "\n")
-print("-- Properties --")
 print("name :", serial.name)
 print("expected inputs :", serial.n_in)
-print("promised outputs :", serial.n_out, "\n")
+print("promised outputs :", serial.n_out)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Serial_in2_out3[
+  Select[0,1,0,1]_in2_out4
+  Serial_in2[
+    Branch_in2_out2[
+      None
+      Addition_in2
+    ]
+    Add_in2
+  ]
+] 
+
+name : Serial
+expected inputs : 2
+promised outputs : 3
+#+end_example
+
+ Here, we use the Serial combinator to define our model. The inputs first goes through a =Select= layer, followed by a =Residual= layer which passes the =Fn: Addition()= layer as an argument. What this means is the =Residual= layer will take the stack top input at that point and add it to the output of the =Fn: Addition()= layer. You can picture it like the diagram the below, where =x1= and =x2= are the inputs to the model:
 
 
-# Here, we use the Serial combinator to define our model. The inputs first goes through a `Select` layer, followed by a `Residual` layer which passes the `Fn: Addition()` layer as an argument. What this means is the `Residual` layer will take the stack top input at that point and add it to the output of the `Fn: Addition()` layer. You can picture it like the diagram the below, where `x1` and `x2` are the inputs to the model:
+Now, let's try running our model with some sample inputs and see the result:
 
-# <img src="residual_example_add.png" width="400"/></div>
+#+begin_src python :results output :exports both
+x1 = numpy.array([3])
+x2 = numpy.array([4])
 
-# Now, let's try running our model with some sample inputs and see the result:
+print(f"{x1} + {x2} -> {serial((x1, x2))}")
+#+end_src
 
-# In[ ]:
+#+RESULTS:
+: [3] + [4] -> (array([10]), array([3]), array([4]))
 
+ As you can see, the =Residual= layer remembers the stack top input (i.e. =3=) and adds it to the result of the =Fn: Addition()= layer (i.e. ~3 + 4 = 7~). The output of =Residual(Addition()= is then ~3 + 7 = 10~ and is pushed onto the stack. 
 
-# Inputs
-x1 = np.array([3])
-x2 = np.array([4])
-print("-- Inputs --")
-print("(x1, x2) :", (x1, x2), "\n")
+ On a different note, you'll notice that the =Select= layer has 4 outputs but the =Fn: Addition()= layer only pops 2 inputs from the stack. This means the duplicate inputs (i.e. the 2 rightmost arrows of the =Select= outputs in the figure above) remain in the stack. This is why you still see it in the output of our simple serial network (i.e. =array([3]), array([4])=). This is useful if you want to use these duplicate inputs in another layer further down the network.
+ 
+*** Modifying the network
 
-# Outputs
-y = serial((x1, x2))
-print("-- Outputs --")
-print("y :", y)
+ To strengthen your understanding, you can modify the network above and examine the outputs you get. For example, you can pass the =Fn: Multiplication()= layer instead in the =Residual= block:
 
-
-# As you can see, the `Residual` layer remembers the stack top input (i.e. `3`) and adds it to the result of the `Fn: Addition()` layer (i.e. `3 + 4 = 7`). The output of `Residual(Addition()` is then `3 + 7 = 10` and is pushed onto the stack. 
-# 
-# On a different note, you'll notice that the `Select` layer has 4 outputs but the `Fn: Addition()` layer only pops 2 inputs from the stack. This means the duplicate inputs (i.e. the 2 rightmost arrows of the `Select` outputs in the figure above) remain in the stack. This is why you still see it in the output of our simple serial network (i.e. `array([3]), array([4])`). This is useful if you want to use these duplicate inputs in another layer further down the network.
-
-# ### Modifying the network
-
-# To strengthen your understanding, you can modify the network above and examine the outputs you get. For example, you can pass the `Fn: Multiplication()` layer instead in the `Residual` block:
-
-# In[ ]:
-
-
-# model definition
-serial = tl.Serial(
-    tl.Select([0, 1, 0, 1]), 
-    tl.Residual(Multiplication())
+#+begin_src python :results output :exports both
+serial = layers.Serial(
+    layers.Select([0, 1, 0, 1]), 
+    layers.Residual(Multiplication())
 )
 
-print("-- Serial Model --")
 print(serial, "\n")
-print("-- Properties --")
 print("name :", serial.name)
 print("expected inputs :", serial.n_in)
-print("promised outputs :", serial.n_out, "\n")
+print("promised outputs :", serial.n_out)
+#+end_src
 
+#+RESULTS:
+#+begin_example
+Serial_in2_out3[
+  Select[0,1,0,1]_in2_out4
+  Serial_in2[
+    Branch_in2_out2[
+      None
+      Multiplication_in2
+    ]
+    Add_in2
+  ]
+] 
 
-# This means you'll have a different output that will be added to the stack top input saved by the Residual block. The diagram becomes like this:
+name : Serial
+expected inputs : 2
+promised outputs : 3
+#+end_example
+
+ This means you'll have a different output that will be added to the stack top input saved by the Residual block. The diagram becomes like this:
 
 # <img src="residual_example_multiply.png" width="400"/></div>
-# 
 
-# And you'll get `3 + (3 * 4) = 15` as output of the `Residual` block:
+And you'll get =3 + (3 * 4) = 15= as output of the =Residual= block:
 
-# In[ ]:
+#+begin_src python :results output :exports both
+x1 = numpy.array([3])
+x2 = numpy.array([4])
 
-
-# Inputs
-x1 = np.array([3])
-x2 = np.array([4])
-print("-- Inputs --")
-print("(x1, x2) :", (x1, x2), "\n")
-
-# Outputs
 y = serial((x1, x2))
-print("-- Outputs --")
-print("y :", y)
+print(f"{x1} * {x2} -> {serial((x1, x2))}")
+#+end_src
 
-
-# #### Congratulations! In this lab, we described how stack semantics work with Trax layers such as Select and Residual. You will be using these in the assignment and you can go back to this lab in case you want to review its usage.
-
-# In[ ]:
-#+end_example
+#+RESULTS:
+: [3] * [4] -> (array([15]), array([3]), array([4]))
