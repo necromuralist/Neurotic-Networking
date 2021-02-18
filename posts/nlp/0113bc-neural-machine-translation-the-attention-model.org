@@ -7,173 +7,258 @@
 .. link: 
 .. description: Defining the Attention Model for Machine Translation.
 .. type: text
-
+.. has_math: True
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-95fb7f72-2980-4eed-b335-9f9a6c7ffbd5-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-686c9f11-621d-43bf-8f2f-320f76c3ea47-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Defining the Model
   In the {{% lancelot title="previous post" %}}neural-machine-translation-the-data{{% /lancelot %}} we looked at the data and preprocessed it now we're going to define the model.
-* End
-  Now that we have the model defined, in the {{% lancelot title="next post" %}}neural-machine-translation-training-the-model{{% /lancelot %}} we'll train the model. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
-* Raw
-#+begin_example python
-# # Part 2:  Neural Machine Translation with Attention
-# 
-# Now that you have the data generators and have handled the preprocessing, it is time for you to build the model. You will be implementing a neural machine translation model from scratch with attention.
-# 
+** Attention Overview
+ The model we will be building uses an encoder-decoder architecture. This Recurrent Neural Network (RNN) will take in a tokenized version of a sentence in its encoder, then passes it on to the decoder for translation. As mentioned in the lectures, just using a a regular sequence-to-sequence model with LSTMs will work effectively for short to medium sentences but will start to degrade for longer ones. You can picture it like the figure below where all of the context of the input sentence is compressed into one vector that is passed into the decoder block. You can see how this will be an issue for very long sentences (e.g. 100 tokens or more) because the context of the first parts of the input will have very little effect on the final vector passed to the decoder.
 
-# <a name="2.1"></a>
-# ## 2.1  Attention Overview
-# 
-# The model we will be building uses an encoder-decoder architecture. This Recurrent Neural Network (RNN) will take in a tokenized version of a sentence in its encoder, then passes it on to the decoder for translation. As mentioned in the lectures, just using a a regular sequence-to-sequence model with LSTMs will work effectively for short to medium sentences but will start to degrade for longer ones. You can picture it like the figure below where all of the context of the input sentence is compressed into one vector that is passed into the decoder block. You can see how this will be an issue for very long sentences (e.g. 100 tokens or more) because the context of the first parts of the input will have very little effect on the final vector passed to the decoder.
-# 
-# <img src='plain_rnn.png'>
-# 
-# Adding an attention layer to this model avoids this problem by giving the decoder access to all parts of the input sentence. To illustrate, let's just use a 4-word input sentence as shown below. Remember that a hidden state is produced at each timestep of the encoder (represented by the orange rectangles). These are all passed to the attention layer and each are given a score given the current activation (i.e. hidden state) of the decoder. For instance, let's consider the figure below where the first prediction "Wie" is already made. To produce the next prediction, the attention layer will first receive all the encoder hidden states (i.e. orange rectangles) as well as the decoder hidden state when producing the word "Wie" (i.e. first green rectangle). Given these information, it will score each of the encoder hidden states to know which one the decoder should focus on to produce the next word. The result of the model training might have learned that it should align to the second encoder hidden state and subsequently assigns a high probability to the word "geht". If we are using greedy decoding, we will output the said word as the next symbol, then restart the process to produce the next word until we reach an end-of-sentence prediction.
-# 
-# <img src='attention_overview.png'>
-# 
-# 
-# There are different ways to implement attention and the one we'll use for this assignment is the Scaled Dot Product Attention which has the form:
-# 
-# $$Attention(Q, K, V) = softmax(\frac{QK^T}{\sqrt{d_k}})V$$
-# 
-# You will dive deeper into this equation in the next week but for now, you can think of it as computing scores using queries (Q) and keys (K), followed by a multiplication of values (V) to get a context vector at a particular timestep of the decoder. This context vector is fed to the decoder RNN to get a set of probabilities for the next predicted word. The division by square root of the keys dimensionality ($\sqrt{d_k}$) is for improving model performance and you'll also learn more about it next week. For our machine translation application, the encoder activations (i.e. encoder hidden states) will be the keys and values, while the decoder activations (i.e. decoder hidden states) will be the queries.
-# 
-# You will see in the upcoming sections that this complex architecture and mechanism can be implemented with just a few lines of code. Let's get started!
+  Adding an attention layer to this model avoids this problem by giving the decoder access to all parts of the input sentence. To illustrate, let's just use a 4-word input sentence as shown below. Remember that a hidden state is produced at each timestep of the encoder (represented by the orange rectangles). These are all passed to the attention layer and each are given a score given the current activation (i.e. hidden state) of the decoder. For instance, let's consider the figure below where the first prediction "Wie" is already made. To produce the next prediction, the attention layer will first receive all the encoder hidden states (i.e. orange rectangles) as well as the decoder hidden state when producing the word "Wie" (i.e. first green rectangle). Given these information, it will score each of the encoder hidden states to know which one the decoder should focus on to produce the next word. The result of the model training might have learned that it should align to the second encoder hidden state and subsequently assigns a high probability to the word "geht". If we are using greedy decoding, we will output the said word as the next symbol, then restart the process to produce the next word until we reach an end-of-sentence prediction.
 
-# <a name="2.2"></a>
-# ## 2.2  Helper functions
-# 
-# We will first implement a few functions that we will use later on. These will be for the input encoder, pre-attention decoder, and preparation of the queries, keys, values, and mask.
-# 
-# ### 2.2.1 Input encoder
-# 
-# The input encoder runs on the input tokens, creates its embeddings, and feeds it to an LSTM network. This outputs the activations that will be the keys and values for attention. It is a [Serial](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial) network which uses:
-# 
-#    - [tl.Embedding](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding): Converts each token to its vector representation. In this case, it is the the size of the vocabulary by the dimension of the model: `tl.Embedding(vocab_size, d_model)`. `vocab_size` is the number of entries in the given vocabulary. `d_model` is the number of elements in the word embedding.
-#   
-#    - [tl.LSTM](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM): LSTM layer of size `d_model`. We want to be able to configure how many encoder layers we have so remember to create LSTM layers equal to the number of the `n_encoder_layers` parameter.
-#    
-# <img src = "input_encoder.png">
-# 
-# <a name="ex01"></a>
-# ### Exercise 01
-# 
-# **Instructions:** Implement the `input_encoder_fn` function.
+  There are different ways to implement attention and the one we'll use for this assignment is the Scaled Dot Product Attention which has the form:
 
-# In[ ]:
+\[
+Attention(Q, K, V) = softmax \left(\frac{QK^T}{\sqrt{d_k}} \right)V
+\]
 
+ You will dive deeper into this equation in the next week but for now, you can think of it as computing scores using queries (Q) and keys (K), followed by a multiplication of values (V) to get a context vector at a particular timestep of the decoder. This context vector is fed to the decoder RNN to get a set of probabilities for the next predicted word. The division by square root of the keys dimensionality (\(\sqrt{d_k}\)) is for improving model performance and you'll also learn more about it next week. For our machine translation application, the encoder activations (i.e. encoder hidden states) will be the keys and values, while the decoder activations (i.e. decoder hidden states) will be the queries.
 
-# UNQ_C1
-# GRADED FUNCTION
-def input_encoder_fn(input_vocab_size, d_model, n_encoder_layers):
+You will see in the upcoming sections that this complex architecture and mechanism can be implemented with just a few lines of code.
+** Imports
+#+begin_src python :results none
+# pypi
+from trax import layers
+
+import trax
+#+end_src
+* Middle
+**  Helper functions
+
+ We will first implement a few functions that we will use later on. These will be for the input encoder, pre-attention decoder, and preparation of the queries, keys, values, and mask.
+
+*** Input encoder
+
+ The input encoder runs on the input tokens, creates its embeddings, and feeds it to an LSTM network. This outputs the activations that will be the keys and values for attention. It is a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial][Serial]] network which uses:
+
+    - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][tl.Embedding]]: Converts each token to its vector representation. In this case, it is the the size of the vocabulary by the dimension of the model: ~tl.Embedding(vocab_size, d_model)~. ~vocab_size~ is the number of entries in the given vocabulary. ~d_model~ is the number of elements in the word embedding.
+
+    - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][tl.LSTM]]: LSTM layer of size ~d_model~. We want to be able to configure how many encoder layers we have so remember to create LSTM layers equal to the number of the ~n_encoder_layers~ parameter.
+
+#+begin_src python :results none
+def input_encoder_fn(input_vocab_size: int, d_model: int,
+                     n_encoder_layers: int) -> layers.Serial:
     """ Input encoder runs on the input sentence and creates
     activations that will be the keys and values for attention.
     
     Args:
-        input_vocab_size: int: vocab size of the input
-        d_model: int:  depth of embedding (n_units in the LSTM cell)
-        n_encoder_layers: int: number of LSTM layers in the encoder
+        input_vocab_size: vocab size of the input
+        d_model:  depth of embedding (n_units in the LSTM cell)
+        n_encoder_layers: number of LSTM layers in the encoder
     Returns:
         tl.Serial: The input encoder
     """
     
     # create a serial network
-    input_encoder = tl.Serial( 
+    input_encoder = layers.Serial( 
         
         ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
         # create an embedding layer to convert tokens to vectors
-        None,
+        layers.Embedding(input_vocab_size, d_model),
         
         # feed the embeddings to the LSTM layers. It is a stack of n_encoder_layers LSTM layers
-        [None for _ in None]
+        [layers.LSTM(d_model) for _ in range(n_encoder_layers)]
         ### END CODE HERE ###
     )
 
     return input_encoder
+#+end_src
+
+#+begin_src python :results output :exports both
+def test_input_encoder_fn(input_encoder_fn):
+    target = input_encoder_fn
+    success = 0
+    fails = 0
+    
+    input_vocab_size = 10
+    d_model = 2
+    n_encoder_layers = 6
+    
+    encoder = target(input_vocab_size, d_model, n_encoder_layers)
+    
+    lstms = "\n".join([f'  LSTM_{d_model}'] * n_encoder_layers)
+
+    expected = f"Serial[\n  Embedding_{input_vocab_size}_{d_model}\n{lstms}\n]"
+
+    proposed = str(encoder)
+    
+    # Test all layers are in the expected sequence
+    try:
+        assert(proposed.replace(" ", "") == expected.replace(" ", ""))
+        success += 1
+    except:
+        fails += 1
+        print("Wrong model. \nProposed:\n%s" %proposed, "\nExpected:\n%s" %expected)
+    
+    # Test the output type
+    try:
+        assert(isinstance(encoder, trax.layers.combinators.Serial))
+        success += 1
+        # Test the number of layers
+        try:
+            # Test 
+            assert len(encoder.sublayers) == (n_encoder_layers + 1)
+            success += 1
+        except:
+            fails += 1
+            print('The number of sublayers does not match %s <>' %len(encoder.sublayers), " %s" %(n_encoder_layers + 1))
+    except:
+        fails += 1
+        print("The enconder is not an object of ", trax.layers.combinators.Serial)
+    
+        
+    if fails == 0:
+        print("\033[92m All tests passed")
+    else:
+        print('\033[92m', success," Tests passed")
+        print('\033[91m', fails, " Tests failed")
+
+#+end_src
+
+#+RESULTS:
+
+#+begin_src python :results output :exports both
+test_input_encoder_fn(input_encoder_fn)
+#+end_src
+
+#+RESULTS:
+: [92m All tests passed
 
 
-# *Note: To make this notebook more neat, we moved the unit tests to a separate file called `w1_unittest.py`. Feel free to open it from your workspace if needed. Just click `File` on the upper left corner of this page then `Open` to see your Jupyter workspace directory. From there, you can see `w1_unittest.py` and you can open it in another tab or download to see the unit tests. We have placed comments in that file to indicate which functions are testing which part of the assignment (e.g. `test_input_encoder_fn()` has the unit tests for UNQ_C1).*
+** Pre-attention decoder
 
-# In[ ]:
+ The pre-attention decoder runs on the targets and creates activations that are used as queries in attention. This is a Serial network which is composed of the following:
+ 
+    - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.ShiftRight][tl.ShiftRight]]: This pads a token to the beginning of your target tokens (e.g. ~[8, 34, 12]~ shifted right is ~[0, 8, 34, 12]~). This will act like a start-of-sentence token that will be the first input to the decoder. During training, this shift also allows the target tokens to be passed as input to do teacher forcing.
 
+    - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][tl.Embedding]]: Like in the previous function, this converts each token to its vector representation. In this case, it is the the size of the vocabulary by the dimension of the model: ~tl.Embedding(vocab_size, d_model)~. ~vocab_size~ is the number of entries in the given vocabulary. ~d_model~ is the number of elements in the word embedding.
+    - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][tl.LSTM]]: LSTM layer of size ~d_model~.
 
-# BEGIN UNIT TEST
-import w1_unittest
-
-w1_unittest.test_input_encoder_fn(input_encoder_fn)
-# END UNIT TEST
-
-
-# ### 2.2.2 Pre-attention decoder
-# 
-# The pre-attention decoder runs on the targets and creates activations that are used as queries in attention. This is a Serial network which is composed of the following:
-# 
-#    - [tl.ShiftRight](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.ShiftRight): This pads a token to the beginning of your target tokens (e.g. `[8, 34, 12]` shifted right is `[0, 8, 34, 12]`). This will act like a start-of-sentence token that will be the first input to the decoder. During training, this shift also allows the target tokens to be passed as input to do teacher forcing.
-# 
-#    - [tl.Embedding](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding): Like in the previous function, this converts each token to its vector representation. In this case, it is the the size of the vocabulary by the dimension of the model: `tl.Embedding(vocab_size, d_model)`. `vocab_size` is the number of entries in the given vocabulary. `d_model` is the number of elements in the word embedding.
-#    
-#    - [tl.LSTM](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM): LSTM layer of size `d_model`.
-# 
-# <img src = "pre_attention_decoder.png">
-# 
-# <a name="ex02"></a>
-# ### Exercise 02
-# 
-# **Instructions:** Implement the `pre_attention_decoder_fn` function.
-# 
-
-# In[ ]:
-
-
-# UNQ_C2
-# GRADED FUNCTION
-def pre_attention_decoder_fn(mode, target_vocab_size, d_model):
+#+begin_src python :results none      
+def pre_attention_decoder_fn(mode: str, target_vocab_size: int, d_model: int) -> layers.Serial:
     """ Pre-attention decoder runs on the targets and creates
     activations that are used as queries in attention.
     
     Args:
-        mode: str: 'train' or 'eval'
-        target_vocab_size: int: vocab size of the target
-        d_model: int:  depth of embedding (n_units in the LSTM cell)
+        mode: 'train' or 'eval'
+        target_vocab_size: vocab size of the target
+        d_model:  depth of embedding (n_units in the LSTM cell)
     Returns:
         tl.Serial: The pre-attention decoder
     """
     
     # create a serial network
-    pre_attention_decoder = tl.Serial(
+    pre_attention_decoder = layers.Serial(
         
         ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
         # shift right to insert start-of-sentence token and implement
         # teacher forcing during training
-        None,
+        layers.ShiftRight(mode=mode),
 
         # run an embedding layer to convert tokens to vectors
-        None,
+        layers.Embedding(target_vocab_size, d_model),
 
         # feed to an LSTM layer
-        None
+        layers.LSTM(d_model)
         ### END CODE HERE ###
     )
     
     return pre_attention_decoder
+#+end_src
 
+#+begin_src python :results none
+def test_pre_attention_decoder_fn(pre_attention_decoder_fn):
+    target = pre_attention_decoder_fn
+    success = 0
+    fails = 0
+    
+    mode = 'train'
+    target_vocab_size = 10
+    d_model = 2
+    
+    decoder = target(mode, target_vocab_size, d_model)
+    
+    expected = f"Serial[\n  ShiftRight(1)\n  Embedding_{target_vocab_size}_{d_model}\n  LSTM_{d_model}\n]"
 
-# In[ ]:
+    proposed = str(decoder)
+    
+    # Test all layers are in the expected sequence
+    try:
+        assert(proposed.replace(" ", "") == expected.replace(" ", ""))
+        success += 1
+    except:
+        fails += 1
+        print("Wrong model. \nProposed:\n%s" %proposed, "\nExpected:\n%s" %expected)
+    
+    # Test the output type
+    try:
+        assert(isinstance(decoder, trax.layers.combinators.Serial))
+        success += 1
+        # Test the number of layers
+        try:
+            # Test 
+            assert len(decoder.sublayers) == 3
+            success += 1
+        except:
+            fails += 1
+            print('The number of sublayers does not match %s <>' %len(decoder.sublayers), " %s" %3)
+    except:
+        fails += 1
+        print("The enconder is not an object of ", trax.layers.combinators.Serial)
+    
+        
+    if fails == 0:
+        print("\033[92m All tests passed")
+    else:
+        print('\033[92m', success," Tests passed")
+        print('\033[91m', fails, " Tests failed")
+#+end_src
 
+They changed the behavior of the =Fn= (or something in there) so that it always wraps the ShiftRight in a Serial layer, so it doesn't match the test anymore. Testing strings is kind of gimpy anyway...
 
-# BEGIN UNIT TEST
+It looks like they're using a decorator to check the shape which then wraps it in a Serial layer. See trax.layers.assert_shape.AssertFunction
 
-w1_unittest.test_pre_attention_decoder_fn(pre_attention_decoder_fn)
+#+begin_src python :results output :exports both
+test_pre_attention_decoder_fn(pre_attention_decoder_fn)
+#+end_src
 
-# END UNIT TEST
-
+#+RESULTS:
+#+begin_example
+Wrong model. 
+Proposed:
+Serial[
+  Serial[
+    ShiftRight(1)
+  ]
+  Embedding_10_2
+  LSTM_2
+] 
+Expected:
+Serial[
+  ShiftRight(1)
+  Embedding_10_2
+  LSTM_2
+]
+[92m 2  Tests passed
+[91m 1  Tests failed
+#+end_example
 
 # ### 2.2.3 Preparing the attention input
 # 
@@ -237,6 +322,11 @@ def prepare_attention_input(encoder_activations, decoder_activations, inputs):
 # BEGIN UNIT TEST
 w1_unittest.test_prepare_attention_input(prepare_attention_input)
 # END UNIT TEST
+  
+* End
+  Now that we have the model defined, in the {{% lancelot title="next post" %}}neural-machine-translation-training-the-model{{% /lancelot %}} we'll train the model. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
+* Raw
+#+begin_example python
 
 
 # <a name="2.3"></a>
