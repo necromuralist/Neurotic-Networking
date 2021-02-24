@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-686c9f11-621d-43bf-8f2f-320f76c3ea47-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6c12c8a5-f66e-4d99-b03d-c8f686ad8a6e-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -19,23 +19,24 @@
 * Defining the Model
   In the {{% lancelot title="previous post" %}}neural-machine-translation-the-data{{% /lancelot %}} we looked at the data and preprocessed it now we're going to define the model.
 ** Attention Overview
- The model we will be building uses an encoder-decoder architecture. This Recurrent Neural Network (RNN) will take in a tokenized version of a sentence in its encoder, then passes it on to the decoder for translation. As mentioned in the lectures, just using a a regular sequence-to-sequence model with LSTMs will work effectively for short to medium sentences but will start to degrade for longer ones. You can picture it like the figure below where all of the context of the input sentence is compressed into one vector that is passed into the decoder block. You can see how this will be an issue for very long sentences (e.g. 100 tokens or more) because the context of the first parts of the input will have very little effect on the final vector passed to the decoder.
+ The model we will be building uses an encoder-decoder architecture. This Recurrent Neural Network (RNN) will take in a tokenized version of a sentence in its encoder, then passes it on to the decoder for translation. Just using a a regular sequence-to-sequence model with LSTMs will work effectively for short to medium sentences but will start to degrade for longer ones. You can picture it like the figure below where all of the context of the input sentence is compressed into one vector that is passed into the decoder block. You can see how this will be an issue for very long sentences (e.g. 100 tokens or more) because the context of the first parts of the input will have very little effect on the final vector passed to the decoder.
 
-  Adding an attention layer to this model avoids this problem by giving the decoder access to all parts of the input sentence. To illustrate, let's just use a 4-word input sentence as shown below. Remember that a hidden state is produced at each timestep of the encoder (represented by the orange rectangles). These are all passed to the attention layer and each are given a score given the current activation (i.e. hidden state) of the decoder. For instance, let's consider the figure below where the first prediction "Wie" is already made. To produce the next prediction, the attention layer will first receive all the encoder hidden states (i.e. orange rectangles) as well as the decoder hidden state when producing the word "Wie" (i.e. first green rectangle). Given these information, it will score each of the encoder hidden states to know which one the decoder should focus on to produce the next word. The result of the model training might have learned that it should align to the second encoder hidden state and subsequently assigns a high probability to the word "geht". If we are using greedy decoding, we will output the said word as the next symbol, then restart the process to produce the next word until we reach an end-of-sentence prediction.
+  Adding an attention layer to this model avoids this problem by giving the decoder access to all parts of the input sentence. To illustrate, let's just use a 4-word input sentence as shown below. Remember that a hidden state is produced at each timestep of the encoder (represented by the orange rectangles). These are all passed to the attention layer and each are given a score given the current activation (i.e. hidden state) of the decoder. For instance, let's consider the figure below where the first prediction "Wie" is already made. To produce the next prediction, the attention layer will first receive all the encoder hidden states (i.e. orange rectangles) as well as the decoder hidden state when producing the word "Wie" (i.e. first green rectangle). Given this information, it will score each of the encoder hidden states to know which one the decoder should focus on to produce the next word. The result of the model training might have learned that it should align to the second encoder hidden state and subsequently assigns a high probability to the word "geht". If we are using greedy decoding, we will output the said word as the next symbol, then restart the process to produce the next word until we reach an end-of-sentence prediction.
 
-  There are different ways to implement attention and the one we'll use for this assignment is the Scaled Dot Product Attention which has the form:
+  There are different ways to implement attention and the one we'll use is the Scaled Dot Product Attention which has the form:
 
 \[
 Attention(Q, K, V) = softmax \left(\frac{QK^T}{\sqrt{d_k}} \right)V
 \]
 
- You will dive deeper into this equation in the next week but for now, you can think of it as computing scores using queries (Q) and keys (K), followed by a multiplication of values (V) to get a context vector at a particular timestep of the decoder. This context vector is fed to the decoder RNN to get a set of probabilities for the next predicted word. The division by square root of the keys dimensionality (\(\sqrt{d_k}\)) is for improving model performance and you'll also learn more about it next week. For our machine translation application, the encoder activations (i.e. encoder hidden states) will be the keys and values, while the decoder activations (i.e. decoder hidden states) will be the queries.
+You can think of it as computing scores using queries (Q) and keys (K), followed by a multiplication of values (V) to get a context vector at a particular timestep of the decoder. This context vector is fed to the decoder RNN to get a set of probabilities for the next predicted word. The division by square root of the keys dimensionality (\(\sqrt{d_k}\)) is for improving model performance and you'll also learn more about it next week. For our machine translation application, the encoder activations (i.e. encoder hidden states) will be the keys and values, while the decoder activations (i.e. decoder hidden states) will be the queries.
 
 You will see in the upcoming sections that this complex architecture and mechanism can be implemented with just a few lines of code.
 ** Imports
 #+begin_src python :results none
 # pypi
 from trax import layers
+from trax.fastmath import numpy as fastmath_numpy
 
 import trax
 #+end_src
@@ -65,17 +66,9 @@ def input_encoder_fn(input_vocab_size: int, d_model: int,
     Returns:
         tl.Serial: The input encoder
     """
-    
-    # create a serial network
     input_encoder = layers.Serial( 
-        
-        ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
-        # create an embedding layer to convert tokens to vectors
         layers.Embedding(input_vocab_size, d_model),
-        
-        # feed the embeddings to the LSTM layers. It is a stack of n_encoder_layers LSTM layers
         [layers.LSTM(d_model) for _ in range(n_encoder_layers)]
-        ### END CODE HERE ###
     )
 
     return input_encoder
@@ -147,7 +140,6 @@ test_input_encoder_fn(input_encoder_fn)
  The pre-attention decoder runs on the targets and creates activations that are used as queries in attention. This is a Serial network which is composed of the following:
  
     - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.ShiftRight][tl.ShiftRight]]: This pads a token to the beginning of your target tokens (e.g. ~[8, 34, 12]~ shifted right is ~[0, 8, 34, 12]~). This will act like a start-of-sentence token that will be the first input to the decoder. During training, this shift also allows the target tokens to be passed as input to do teacher forcing.
-
     - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Embedding][tl.Embedding]]: Like in the previous function, this converts each token to its vector representation. In this case, it is the the size of the vocabulary by the dimension of the model: ~tl.Embedding(vocab_size, d_model)~. ~vocab_size~ is the number of entries in the given vocabulary. ~d_model~ is the number of elements in the word embedding.
     - [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][tl.LSTM]]: LSTM layer of size ~d_model~.
 
@@ -163,21 +155,10 @@ def pre_attention_decoder_fn(mode: str, target_vocab_size: int, d_model: int) ->
     Returns:
         tl.Serial: The pre-attention decoder
     """
-    
-    # create a serial network
-    pre_attention_decoder = layers.Serial(
-        
-        ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
-        # shift right to insert start-of-sentence token and implement
-        # teacher forcing during training
+    pre_attention_decoder = layers.Serial(        
         layers.ShiftRight(mode=mode),
-
-        # run an embedding layer to convert tokens to vectors
         layers.Embedding(target_vocab_size, d_model),
-
-        # feed to an LSTM layer
         layers.LSTM(d_model)
-        ### END CODE HERE ###
     )
     
     return pre_attention_decoder
@@ -260,24 +241,14 @@ Serial[
 [91m 1  Tests failed
 #+end_example
 
-# ### 2.2.3 Preparing the attention input
-# 
-# This function will prepare the inputs to the attention layer. We want to take in the encoder and pre-attention decoder activations and assign it to the queries, keys, and values. In addition, another output here will be the mask to distinguish real tokens from padding tokens. This mask will be used internally by Trax when computing the softmax so padding tokens will not have an effect on the computated probabilities. From the data preparation steps in Section 1 of this assignment, you should know which tokens in the input correspond to padding.
-# 
-# We have filled the last two lines in composing the mask for you because it includes a concept that will be discussed further next week. This is related to *multiheaded attention* which you can think of right now as computing the attention multiple times to improve the model's predictions. It is required to consider this additional axis in the output so we've included it already but you don't need to analyze it just yet. What's important now is for you to know which should be the queries, keys, and values, as well as to initialize the mask.
-# 
-# <a name="ex03"></a>
-# ### Exercise 03
-# 
-# **Instructions:** Implement the  `prepare_attention_input` function
-# 
+** Preparing the attention input
 
-# In[ ]:
+ This function will prepare the inputs to the attention layer. We want to take in the encoder and pre-attention decoder activations and assign it to the queries, keys, and values. In addition, another output here will be the mask to distinguish real tokens from padding tokens. This mask will be used internally by Trax when computing the softmax so padding tokens will not have an effect on the computated probabilities. From the data preparation steps in Section 1 of this assignment, you should know which tokens in the input correspond to padding.
 
-
-# UNQ_C3
-# GRADED FUNCTION
-def prepare_attention_input(encoder_activations, decoder_activations, inputs):
+#+begin_src python :results none
+def prepare_attention_input(encoder_activations: fastmath_numpy.array,
+                            decoder_activations: fastmath_numpy.array,
+                            inputs: fastmath_numpy.array) -> tuple:
     """Prepare queries, keys, values and mask for attention.
     
     Args:
@@ -292,36 +263,100 @@ def prepare_attention_input(encoder_activations, decoder_activations, inputs):
     ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
     
     # set the keys and values to the encoder activations
-    keys = None
-    values = None
+    keys = encoder_activations
+    values = encoder_activations
 
     
     # set the queries to the decoder activations
-    queries = None
+    queries = decoder_activations
     
     # generate the mask to distinguish real tokens from padding
     # hint: inputs is 1 for real tokens and 0 where they are padding
-    mask = None
+    mask = inputs != 0
     
     ### END CODE HERE ###
     
     # add axes to the mask for attention heads and decoder length.
-    mask = fastnp.reshape(mask, (mask.shape[0], 1, 1, mask.shape[1]))
+    mask = fastmath_numpy.reshape(mask, (mask.shape[0], 1, 1, mask.shape[1]))
     
     # broadcast so mask shape is [batch size, attention heads, decoder-len, encoder-len].
     # note: for this assignment, attention heads is set to 1.
-    mask = mask + fastnp.zeros((1, 1, decoder_activations.shape[1], 1))
+    mask = mask + fastmath_numpy.zeros((1, 1, decoder_activations.shape[1], 1))
         
     
     return queries, keys, values, mask
+#+end_src
 
+#+begin_src python :results none
+def test_prepare_attention_input(prepare_attention_input):
+    target = prepare_attention_input
+    success = 0
+    fails = 0
+    
+    #This unit test consider a batch size = 2, number_of_tokens = 3 and embedding_size = 4
+    
+    enc_act = fastmath_numpy.array([[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+               [[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 0, 0]]])
+    dec_act = fastmath_numpy.array([[[2, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0]], 
+               [[2, 0, 2, 0], [0, 2, 0, 2], [0, 0, 0, 0]]])
+    inputs =  fastmath_numpy.array([[1, 2, 3], [1, 4, 0]])
+    
+    exp_mask = fastmath_numpy.array([[[[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]]], 
+                             [[[1., 1., 0.], [1., 1., 0.], [1., 1., 0.]]]])
+    
+    exp_type = type(enc_act)
+    
+    queries, keys, values, mask = target(enc_act, dec_act, inputs)
+    
+    try:
+        assert(fastmath_numpy.allclose(queries, dec_act))
+        success += 1
+    except:
+        fails += 1
+        print("Queries does not match the decoder activations")
+    try:
+        assert(fastmath_numpy.allclose(keys, enc_act))
+        success += 1
+    except:
+        fails += 1
+        print("Keys does not match the encoder activations")
+    try:
+        assert(fastmath_numpy.allclose(values, enc_act))
+        success += 1
+    except:
+        fails += 1
+        print("Values does not match the encoder activations")
+    try:
+        assert(fastmath_numpy.allclose(mask, exp_mask))
+        success += 1
+    except:
+        fails += 1
+        print("Mask does not match expected tensor. \nExpected:\n%s" %exp_mask, "\nOutput:\n%s" %mask)
+    
+    # Test the output type
+    try:
+        assert(isinstance(queries, exp_type))
+        assert(isinstance(keys, exp_type))
+        assert(isinstance(values, exp_type))
+        assert(isinstance(mask, exp_type))
+        success += 1
+    except:
+        fails += 1
+        print("One of the output object are not of type ", jax.interpreters.xla.DeviceArray)
+        
+    if fails == 0:
+        print("\033[92m All tests passed")
+    else:
+        print('\033[92m', success," Tests passed")
+        print('\033[91m', fails, " Tests failed")
+#+end_src
 
-# In[ ]:
+#+begin_src python :results output :exports both
+test_prepare_attention_input(prepare_attention_input)
+#+end_src
 
-
-# BEGIN UNIT TEST
-w1_unittest.test_prepare_attention_input(prepare_attention_input)
-# END UNIT TEST
+#+RESULTS:
+: [92m All tests passed
   
 * End
   Now that we have the model defined, in the {{% lancelot title="next post" %}}neural-machine-translation-training-the-model{{% /lancelot %}} we'll train the model. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
