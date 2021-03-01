@@ -11,13 +11,13 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-6c12c8a5-f66e-4d99-b03d-c8f686ad8a6e-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-304cec73-e91b-49d7-8556-b97399c62f84-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Defining the Model
-  In the {{% lancelot title="previous post" %}}neural-machine-translation-the-data{{% /lancelot %}} we looked at the data and preprocessed it now we're going to define the model.
+  In the {{% lancelot title="previous post" %}}neural-machine-translation-helper-functions{{% /lancelot %}} we made some helper functions to prepare inputs for some of the layers in the model. In this post we'll define the model itself.
 ** Attention Overview
  The model we will be building uses an encoder-decoder architecture. This Recurrent Neural Network (RNN) will take in a tokenized version of a sentence in its encoder, then passes it on to the decoder for translation. Just using a a regular sequence-to-sequence model with LSTMs will work effectively for short to medium sentences but will start to degrade for longer ones. You can picture it like the figure below where all of the context of the input sentence is compressed into one vector that is passed into the decoder block. You can see how this will be an issue for very long sentences (e.g. 100 tokens or more) because the context of the first parts of the input will have very little effect on the final vector passed to the decoder.
 
@@ -36,88 +36,89 @@ You will see in the upcoming sections that this complex architecture and mechani
 #+begin_src python :results none
 # pypi
 from trax import layers
-from trax.fastmath import numpy as fastmath_numpy
 
 import trax
+
+# this project
+from neurotic.nlp.machine_translation import (
+    input_encoder,
+    pre_attention_decoder,
+    prepare_attention_input)
 #+end_src
-* Middle
-* End
-  Now that we have the model defined, in the {{% lancelot title="next post" %}}neural-machine-translation-training-the-model{{% /lancelot %}} we'll train the model. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
-* Raw
+
+** Aliases
+Once again, the naming conventions are horrible. To get past the grader we'll do some aliasing and hopefully remember to clean it up later.
+
+#+begin_src python :results none
+input_encoder_fn = input_encoder
+pre_attention_decoder_fn = pre_attention_decoder
+prepare_attention_input_fn = prepare_attention_input
+tl = layers
+#+end_src
+
+* Implementation
+** Overview
+
+ We are now ready to implement our sequence-to-sequence model with attention. This will be a Serial network and is illustrated in the diagram below. It shows the layers you'll be using in Trax and you'll see that each step can be implemented quite easily with one line commands. We've placed several links to the documentation for each relevant layer in the discussion after the figure below.
+
+ - **Step 0:** Prepare the input encoder and pre-attention decoder branches. We've already defined this earlier as helper functions so it's just a matter of calling those functions and assigning it to variables.
+
+ - **Step 1:** Create a Serial network. This will stack the layers in the next steps one after the other. As before, we'll use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial][tl.Serial]].
+
+ - **Step 2:** Make a copy of the input and target tokens. As you see in the diagram above, the input and target tokens will be fed into different layers of the model. We'll use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Select][tl.Select]] layer to create copies of these tokens, arranging them as =[input tokens, target tokens, input tokens, target tokens]=.
+
+ - **Step 3:** Create a parallel branch to feed the input tokens to the =input_encoder= and the target tokens to the =pre_attention_decoder=. We'll use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Parallel][tl.Parallel]] to create these sublayers in parallel, remembering to pass the variables defined in Step 0 as parameters to this layer.
+
+ - **Step 4:** Next, call the `prepare_attention_input` function to convert the encoder and pre-attention decoder activations to a format that the attention layer will accept. You can use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.base.Fn][tl.Fn]] to call this function. Note: Pass the =prepare_attention_input= function as the =f= parameter in =tl.Fn= without any arguments or parenthesis.
+
+ - **Step 5:** We will now feed the (queries, keys, values, and mask) to the [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.AttentionQKV][tl.AttentionQKV]] layer. This computes the scaled dot product attention and outputs the attention weights and mask. Take note that although it is a one liner, this layer is actually composed of a deep network made up of several branches. We'll show the implementation show [[https://github.com/google/trax/blob/master/trax/layers/attention.py#L61][here]] (on github) to see the different layers used. 
+
 #+begin_example python
+def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
+  """Returns a layer that maps (q, k, v, mask) to (activations, mask).
 
+  See `Attention` above for further context/details.
 
-# <a name="2.3"></a>
-# ## 2.3  Implementation Overview
-# 
-# We are now ready to implement our sequence-to-sequence model with attention. This will be a Serial network and is illustrated in the diagram below. It shows the layers you'll be using in Trax and you'll see that each step can be implemented quite easily with one line commands. We've placed several links to the documentation for each relevant layer in the discussion after the figure below.
-# 
-# <img src = "NMTModel.png">
+  Args:
+    d_feature: Depth/dimensionality of feature embedding.
+    n_heads: Number of attention heads.
+    dropout: Probababilistic rate for internal dropout applied to attention
+        activations (based on query-key pairs) before dotting them with values.
+    mode: Either 'train' or 'eval'.
+  """
+  return cb.Serial(
+      cb.Parallel(
+          core.Dense(d_feature),
+          core.Dense(d_feature),
+          core.Dense(d_feature),
+      ),
+      PureAttention(  # pylint: disable=no-value-for-parameter
+          n_heads=n_heads, dropout=dropout, mode=mode),
+      core.Dense(d_feature),
+  )
+#+end_example
 
-# <a name="ex04"></a>
-# ### Exercise 04
-# **Instructions:** Implement the `NMTAttn` function below to define your machine translation model which uses attention. We have left hyperlinks below pointing to the Trax documentation of the relevant layers. Remember to consult it to get tips on what parameters to pass.
-# 
-# **Step 0:** Prepare the input encoder and pre-attention decoder branches. You have already defined this earlier as helper functions so it's just a matter of calling those functions and assigning it to variables.
-# 
-# **Step 1:** Create a Serial network. This will stack the layers in the next steps one after the other. Like the earlier exercises, you can use [tl.Serial](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial).
-# 
-# **Step 2:** Make a copy of the input and target tokens. As you see in the diagram above, the input and target tokens will be fed into different layers of the model. You can use [tl.Select](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Select) layer to create copies of these tokens. Arrange them as `[input tokens, target tokens, input tokens, target tokens]`.
-# 
-# **Step 3:** Create a parallel branch to feed the input tokens to the `input_encoder` and the target tokens to the `pre_attention_decoder`. You can use [tl.Parallel](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Parallel) to create these sublayers in parallel. Remember to pass the variables you defined in Step 0 as parameters to this layer.
-# 
-# **Step 4:** Next, call the `prepare_attention_input` function to convert the encoder and pre-attention decoder activations to a format that the attention layer will accept. You can use [tl.Fn](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.base.Fn) to call this function. Note: Pass the `prepare_attention_input` function as the `f` parameter in `tl.Fn` without any arguments or parenthesis.
-# 
-# **Step 5:** We will now feed the (queries, keys, values, and mask) to the [tl.AttentionQKV](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.attention.AttentionQKV) layer. This computes the scaled dot product attention and outputs the attention weights and mask. Take note that although it is a one liner, this layer is actually composed of a deep network made up of several branches. We'll show the implementation taken [here](https://github.com/google/trax/blob/master/trax/layers/attention.py#L61) to see the different layers used. 
-# 
-# ```python
-# def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
-#   """Returns a layer that maps (q, k, v, mask) to (activations, mask).
-# 
-#   See `Attention` above for further context/details.
-# 
-#   Args:
-#     d_feature: Depth/dimensionality of feature embedding.
-#     n_heads: Number of attention heads.
-#     dropout: Probababilistic rate for internal dropout applied to attention
-#         activations (based on query-key pairs) before dotting them with values.
-#     mode: Either 'train' or 'eval'.
-#   """
-#   return cb.Serial(
-#       cb.Parallel(
-#           core.Dense(d_feature),
-#           core.Dense(d_feature),
-#           core.Dense(d_feature),
-#       ),
-#       PureAttention(  # pylint: disable=no-value-for-parameter
-#           n_heads=n_heads, dropout=dropout, mode=mode),
-#       core.Dense(d_feature),
-#   )
-# ```
-# 
-# Having deep layers pose the risk of vanishing gradients during training and we would want to mitigate that. To improve the ability of the network to learn, we can insert a [tl.Residual](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Residual) layer to add the output of AttentionQKV with the `queries` input. You can do this in trax by simply nesting the `AttentionQKV` layer inside the `Residual` layer. The library will take care of branching and adding for you.
-# 
-# **Step 6:** We will not need the mask for the model we're building so we can safely drop it. At this point in the network, the signal stack currently has `[attention activations, mask, target tokens]` and you can use [tl.Select](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Select) to output just `[attention activations, target tokens]`.
-# 
-# **Step 7:** We can now feed the attention weighted output to the LSTM decoder. We can stack multiple [tl.LSTM](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM) layers to improve the output so remember to append LSTMs equal to the number defined by `n_decoder_layers` parameter to the model.
-# 
-# **Step 8:** We want to determine the probabilities of each subword in the vocabulary and you can set this up easily with a [tl.Dense](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Dense) layer by making its size equal to the size of our vocabulary.
-# 
-# **Step 9:** Normalize the output to log probabilities by passing the activations in Step 8 to a [tl.LogSoftmax](https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.LogSoftmax) layer.
+ Having deep layers pose the risk of vanishing gradients during training and we would want to mitigate that. To improve the ability of the network to learn, we can insert a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Residual][tl.Residual]] layer to add the output of AttentionQKV with the =queries= input. You can do this in trax by simply nesting the =AttentionQKV= layer inside the =Residual= layer. The library will take care of branching and adding for you.
 
-# In[ ]:
+ - **Step 6:** We will not need the mask for the model we're building so we can safely drop it. At this point in the network, the signal stack currently has =[attention activations, mask, target tokens]= and you can use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Select][tl.Select]] to output just =[attention activations, target tokens]=.
 
+ - **Step 7:** We can now feed the attention weighted output to the LSTM decoder. We can stack multiple [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.rnn.LSTM][tl.LSTM]] layers to improve the output so remember to append LSTMs equal to the number defined by =n_decoder_layers= parameter to the model.
 
-# UNQ_C4
-# GRADED FUNCTION
-def NMTAttn(input_vocab_size=33300,
-            target_vocab_size=33300,
-            d_model=1024,
-            n_encoder_layers=2,
-            n_decoder_layers=2,
-            n_attention_heads=4,
-            attention_dropout=0.0,
-            mode='train'):
+ - **Step 8:** We want to determine the probabilities of each subword in the vocabulary and you can set this up easily with a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.Dense][tl.Dense]] layer by making its size equal to the size of our vocabulary.
+
+ - **Step 9:** Normalize the output to log probabilities by passing the activations in Step 8 to a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.core.LogSoftmax][tl.LogSoftmax]] layer.
+
+** The Implementation
+
+#+begin_src python :results none
+def NMTAttn(input_vocab_size: int=33300,
+            target_vocab_size: int=33300,
+            d_model: int=1024,
+            n_encoder_layers: int=2,
+            n_decoder_layers: int=2,
+            n_attention_heads: int=4,
+            attention_dropout: float=0.0,
+            mode: str='train') -> layers.Serial:
     """Returns an LSTM sequence-to-sequence model with attention.
 
     The input to the model is a pair (input tokens, target tokens), e.g.,
@@ -136,105 +137,164 @@ def NMTAttn(input_vocab_size=33300,
     Returns:
     A LSTM sequence-to-sequence model with attention.
     """
-
-    ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
-    
     # Step 0: call the helper function to create layers for the input encoder
-    input_encoder = None
+    input_encoder = input_encoder_fn(input_vocab_size, d_model, n_encoder_layers)
 
     # Step 0: call the helper function to create layers for the pre-attention decoder
-    pre_attention_decoder = None
+    pre_attention_decoder = pre_attention_decoder_fn(mode, target_vocab_size, d_model)
 
     # Step 1: create a serial network
     model = tl.Serial( 
         
       # Step 2: copy input tokens and target tokens as they will be needed later.
-      None,
+      tl.Select([0, 1, 0, 1]),
         
-      # Step 3: run input encoder on the input and pre-attention decoder the target.
-      None(None, None),
+      # Step 3: run input encoder on the input and pre-attention decoder on the target.
+      tl.Parallel(input_encoder, pre_attention_decoder),
         
       # Step 4: prepare queries, keys, values and mask for attention.
-      None('PrepareAttentionInput', None, n_out=4),
+      tl.Fn('PrepareAttentionInput', prepare_attention_input_fn, n_out=4),
         
       # Step 5: run the AttentionQKV layer
       # nest it inside a Residual layer to add to the pre-attention decoder activations(i.e. queries)
-      tl.Residual(tl.AttentionQKV(None, n_heads=n_attention_heads, dropout=attention_dropout, mode=None)),
+      tl.Residual(tl.AttentionQKV(d_model,
+                                  n_heads=n_attention_heads,
+                                  dropout=attention_dropout, mode=mode)),
       
       # Step 6: drop attention mask (i.e. index = None
-      None,
+      tl.Select([0, 2]),
         
       # Step 7: run the rest of the RNN decoder
-      [None for _ in range(None)],
+      [tl.LSTM(d_model) for _ in range(n_decoder_layers)],
         
       # Step 8: prepare output by making it the right size
-      None(None),
+      tl.Dense(target_vocab_size),
         
       # Step 9: Log-softmax for output
-      None
+      tl.LogSoftmax()
     )
-    
-    ### END CODE HERE
-    
     return model
+#+end_src
+
+#+begin_src python :results none
+def test_NMTAttn(NMTAttn):
+    test_cases = [
+                {
+                    "name":"simple_test_check",
+                    "expected":"Serial_in2_out2[\n  Select[0,1,0,1]_in2_out4\n  Parallel_in2_out2[\n    Serial[\n      Embedding_33300_1024\n      LSTM_1024\n      LSTM_1024\n    ]\n    Serial[\n      ShiftRight(1)\n      Embedding_33300_1024\n      LSTM_1024\n    ]\n  ]\n  PrepareAttentionInput_in3_out4\n  Serial_in4_out2[\n    Branch_in4_out3[\n      None\n      Serial_in4_out2[\n        Parallel_in3_out3[\n          Dense_1024\n          Dense_1024\n          Dense_1024\n        ]\n        PureAttention_in4_out2\n        Dense_1024\n      ]\n    ]\n    Add_in2\n  ]\n  Select[0,2]_in3_out2\n  LSTM_1024\n  LSTM_1024\n  Dense_33300\n  LogSoftmax\n]",
+                    "error":"The NMTAttn is not defined properly."
+                },
+                {
+                    "name":"layer_len_check",
+                    "expected":9,
+                    "error":"We found {} layers in your model. It should be 9.\nCheck the LSTM stack before the dense layer"
+                },
+                {
+                    "name":"selection_layer_check",
+                    "expected":["Select[0,1,0,1]_in2_out4", "Select[0,2]_in3_out2"],
+                    "error":"Look at your selection layers."
+                }
+            ]
+    
+    success = 0
+    fails = 0
+    
+    for test_case in test_cases:
+        try:
+            if test_case['name'] == "simple_test_check":
+                assert test_case["expected"] == str(NMTAttn())
+                success += 1
+            if test_case['name'] == "layer_len_check":
+                if test_case["expected"] == len(NMTAttn().sublayers):
+                    success += 1
+                else:
+                    print(test_case["error"].format(len(NMTAttn().sublayers))) 
+                    fails += 1
+            if test_case['name'] == "selection_layer_check":
+                model = NMTAttn()
+                output = [str(model.sublayers[0]),str(model.sublayers[4])]
+                check_count = 0
+                for i in range(2):
+                    if test_case["expected"][i] != output[i]:
+                        print(test_case["error"])
+                        fails += 1
+                        break
+                    else:
+                        check_count += 1
+                if check_count == 2:
+                    success += 1
+        except:
+            print(test_case['error'])
+            fails += 1
+            
+    if fails == 0:
+        print("\033[92m All tests passed")
+    else:
+        print('\033[92m', success," Tests passed")
+        print('\033[91m', fails, " Tests failed")
+    return test_cases
+#+end_src
+
+#+begin_src python :results output :exports both
+test_cases = test_NMTAttn(NMTAttn)
+#+end_src
+
+#+RESULTS:
+: The NMTAttn is not defined properly.
+: [92m 2  Tests passed
+: [91m 1  Tests failed
 
 
-# In[ ]:
-
-
-# BEGIN UNIT TEST
-w1_unittest.test_NMTAttn(NMTAttn)
-# END UNIT TEST
-
-
-# In[ ]:
-
-
-# print your model
+#+begin_src python :results output :exports both
 model = NMTAttn()
 print(model)
+#+end_src
 
-
-# **Expected Output:**
-# 
-# ```
-# Serial_in2_out2[
-#   Select[0,1,0,1]_in2_out4
-#   Parallel_in2_out2[
-#     Serial[
-#       Embedding_33300_1024
-#       LSTM_1024
-#       LSTM_1024
-#     ]
-#     Serial[
-#       ShiftRight(1)
-#       Embedding_33300_1024
-#       LSTM_1024
-#     ]
-#   ]
-#   PrepareAttentionInput_in3_out4
-#   Serial_in4_out2[
-#     Branch_in4_out3[
-#       None
-#       Serial_in4_out2[
-#         Parallel_in3_out3[
-#           Dense_1024
-#           Dense_1024
-#           Dense_1024
-#         ]
-#         PureAttention_in4_out2
-#         Dense_1024
-#       ]
-#     ]
-#     Add_in2
-#   ]
-#   Select[0,2]_in3_out2
-#   LSTM_1024
-#   LSTM_1024
-#   Dense_33300
-#   LogSoftmax
-# ]
-# ```
-
-# <a name="3"></a>
+#+RESULTS:
+#+begin_example
+Serial_in2_out2[
+  Select[0,1,0,1]_in2_out4
+  Parallel_in2_out2[
+    Serial[
+      Embedding_33300_1024
+      LSTM_1024
+      LSTM_1024
+    ]
+    Serial[
+      Serial[
+        ShiftRight(1)
+      ]
+      Embedding_33300_1024
+      LSTM_1024
+    ]
+  ]
+  PrepareAttentionInput_in3_out4
+  Serial_in4_out2[
+    Branch_in4_out3[
+      None
+      Serial_in4_out2[
+        _in4_out4
+        Serial_in4_out2[
+          Parallel_in3_out3[
+            Dense_1024
+            Dense_1024
+            Dense_1024
+          ]
+          PureAttention_in4_out2
+          Dense_1024
+        ]
+        _in2_out2
+      ]
+    ]
+    Add_in2
+  ]
+  Select[0,2]_in3_out2
+  LSTM_1024
+  LSTM_1024
+  Dense_33300
+  LogSoftmax
+]
 #+end_example
+  
+* End
+  Now that we have the model defined, in the {{% lancelot title="next post" %}}neural-machine-translation-training-the-model{{% /lancelot %}} we'll train the model. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.

@@ -2,7 +2,7 @@
 .. title: Neural Machine Translation: Training the Model
 .. slug: neural-machine-translation-training-the-model
 .. date: 2021-02-14 14:54:34 UTC-08:00
-.. tags: nlp,machine translation
+.. tags: nlp,machine translation,encoder-decoder,attention
 .. category: NLP
 .. link: 
 .. description: Training the Attention Model for Machine Translation.
@@ -11,37 +11,35 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-95fb7f72-2980-4eed-b335-9f9a6c7ffbd5-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-565aadae-d86e-4d2d-a679-4bafeb6333fe-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
 * Training Our Model
   In the {{% lancelot title="previous post" %}}neural-machine-translation-the-attention-model{{% /lancelot %}} we defined our model for machine translation. In this post we'll train the model on our data.
-* End
-  Now that we've trained the model in the {{% lancelot title="next post" %}}neural-machine-translation-testing-the-model{{% /lancelot %}} we'll test our model to see how well it does. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
-* Raw
-#+begin_example python
-# # Part 3:  Training
-# 
-# We will now be training our model in this section. Doing supervised training in Trax is pretty straightforward (short example [here](https://trax-ml.readthedocs.io/en/latest/notebooks/trax_intro.html#Supervised-training)). We will be instantiating three classes for this: `TrainTask`, `EvalTask`, and `Loop`. Let's take a closer look at each of these in the sections below.
-# 
 
-# <a name="3.1"></a>
-# ## 3.1  TrainTask
-# 
-# The [TrainTask](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask) class allows us to define the labeled data to use for training and the feedback mechanisms to compute the loss and update the weights. 
-# 
-# <a name="ex05"></a>
-# ### Exercise 05
-# 
-# **Instructions:** Instantiate a train task.
+  Doing supervised training in Trax is pretty straightforward (short example [[https://trax-ml.readthedocs.io/en/latest/notebooks/trax_intro.html#Supervised-training][here]]). We will be instantiating three classes for this: =TrainTask=, =EvalTask=, and =Loop=. Let's take a closer look at each of these in the sections below.
+** Imports
+#+begin_src python :results none
+# pypi
+from trax.supervised import training
 
-# In[ ]:
+# this project
+from neurotic.nlp.machine_translation import DataGenerator
+#+end_src
 
+** Set Up
+#+begin_src python :results none
+train_batch_stream = DataGenerator().batch_generator
+eval_batch_stream = DataGenerator(training=False).batch_generator
+#+end_src
+* Training
+** TrainTask
 
-# UNQ_C5
-# GRADED 
+ The [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.TrainTask][TrainTask]] class allows us to define the labeled data to use for training and the feedback mechanisms to compute the loss and update the weights. 
+
+#+begin_src python :results none 
 train_task = training.TrainTask(
     
     ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
@@ -64,15 +62,83 @@ train_task = training.TrainTask(
     
     ### END CODE HERE ###
 )
+#+end_src
 
+#+begin_src python :results none
+def test_train_task(train_task):
+    target = train_task
+    success = 0
+    fails = 0
+     
+    # Test the labeled data parameter
+    try:
+        strlabel = str(target._labeled_data)
+        assert(strlabel.find("generator") and strlabel.find('add_loss_weights'))
+        success += 1
+    except:
+        fails += 1
+        print("Wrong labeled data parameter")
+    
+    # Test the cross entropy loss data parameter
+    try:
+        strlabel = str(target._loss_layer)
+        assert(strlabel == "CrossEntropyLoss_in3")
+        success += 1
+    except:
+        fails += 1
+        print("Wrong loss functions. CrossEntropyLoss_in3 was expected")
+        
+     # Test the optimizer parameter
+    try:
+        assert(isinstance(target.optimizer, trax.optimizers.adam.Adam))
+        success += 1
+    except:
+        fails += 1
+        print("Wrong optimizer")
+        
+    # Test the schedule parameter
+    try:
+        assert(isinstance(target._lr_schedule,trax.supervised.lr_schedules._BodyAndTail))
+        success += 1
+    except:
+        fails += 1
+        print("Wrong learning rate schedule type")
+    
+    # Test the _n_steps_per_checkpoint parameter
+    try:
+        assert(target._n_steps_per_checkpoint==10)
+        success += 1
+    except:
+        fails += 1
+        print("Wrong checkpoint step frequency")
+        
+    if fails == 0:
+        print("\033[92m All tests passed")
+    else:
+        print('\033[92m', success," Tests passed")
+        print('\033[91m', fails, " Tests failed")
+    return
+#+end_src
 
-# In[ ]:
+#+begin_src python :results output :exports both
+test_train_task(train_task)
+#+end_src
 
-
-# BEGIN UNIT TEST
-w1_unittest.test_train_task(train_task)
-# END UNIT TEST
-
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: ---------------------------------------------------------------------------
+: NameError                                 Traceback (most recent call last)
+: <ipython-input-3-6735b260c743> in <module>
+: ----> 1 test_train_task(train_task)
+: 
+: NameError: name 'train_task' is not defined
+:END:
+  
+* End
+  Now that we've trained the model in the {{% lancelot title="next post" %}}neural-machine-translation-testing-the-model{{% /lancelot %}} we'll test our model to see how well it does. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
+* Raw
+#+begin_example python
 
 # <a name="3.2"></a>
 # ## 3.2  EvalTask

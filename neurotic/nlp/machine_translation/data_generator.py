@@ -82,7 +82,7 @@ def detokenize(integers: numpy.ndarray,
     integers = list(numpy.squeeze(integers))
     
     # Remove the EOS to decode only the original tokens
-    if EOS in integers:
+    if end_of_sentence in integers:
         integers = integers[:integers.index(end_of_sentence)] 
     
     return trax.data.detokenize(integers, vocab_file=vocab_file, vocab_dir=vocab_dir)
