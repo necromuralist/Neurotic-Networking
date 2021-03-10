@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-565aadae-d86e-4d2d-a679-4bafeb6333fe-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-446b107b-86d0-426f-8adb-e61a7c33ef63-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -22,17 +22,53 @@
   Doing supervised training in Trax is pretty straightforward (short example [[https://trax-ml.readthedocs.io/en/latest/notebooks/trax_intro.html#Supervised-training][here]]). We will be instantiating three classes for this: =TrainTask=, =EvalTask=, and =Loop=. Let's take a closer look at each of these in the sections below.
 ** Imports
 #+begin_src python :results none
+# python
+from collections import namedtuple
+from contextlib import redirect_stdout
+from functools import partial
+from pathlib import Path
+
+import sys
+
 # pypi
-from trax.supervised import training
+from holoviews import opts
+from trax import layers, optimizers
+from trax.supervised import lr_schedules, training
+
+import holoviews
+import hvplot.pandas
+import pandas
 
 # this project
-from neurotic.nlp.machine_translation import DataGenerator
+from neurotic.nlp.machine_translation import DataGenerator, NMTAttn
+
+# related
+from graeae import EmbedHoloviews, Timer
 #+end_src
 
 ** Set Up
 #+begin_src python :results none
 train_batch_stream = DataGenerator().batch_generator
 eval_batch_stream = DataGenerator(training=False).batch_generator
+#+end_src
+
+#+begin_src python :results none
+SLUG = "neural-machine-translation-training-the-model"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/nlp/{SLUG}")
+
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src
+
+#+begin_src python :results none
+TIMER = Timer()
 #+end_src
 * Training
 ** TrainTask
@@ -41,26 +77,22 @@ eval_batch_stream = DataGenerator(training=False).batch_generator
 
 #+begin_src python :results none 
 train_task = training.TrainTask(
-    
-    ### START CODE HERE (REPLACE INSTANCES OF `None` WITH YOUR CODE) ###
-    
+
     # use the train batch stream as labeled data
-    labeled_data= None,
+    labeled_data = train_batch_stream,
     
     # use the cross entropy loss
-    loss_layer= None,
+    loss_layer = layers.WeightedCategoryCrossEntropy(),
     
     # use the Adam optimizer with learning rate of 0.01
-    optimizer= None,
+    optimizer = optimizers.Adam(0.01),
     
     # use the `trax.lr.warmup_and_rsqrt_decay` as the learning rate schedule
     # have 1000 warmup steps with a max value of 0.01
-    lr_schedule= None,
+    lr_schedule = lr_schedules.warmup_and_rsqrt_decay(1000, 0.01),
     
     # have a checkpoint every 10 steps
-    n_steps_per_checkpoint= None,
-    
-    ### END CODE HERE ###
+    n_steps_per_checkpoint= 10,
 )
 #+end_src
 
@@ -125,66 +157,118 @@ test_train_task(train_task)
 #+end_src
 
 #+RESULTS:
-:RESULTS:
-# [goto error]
-: ---------------------------------------------------------------------------
-: NameError                                 Traceback (most recent call last)
-: <ipython-input-3-6735b260c743> in <module>
-: ----> 1 test_train_task(train_task)
-: 
-: NameError: name 'train_task' is not defined
-:END:
-  
-* End
-  Now that we've trained the model in the {{% lancelot title="next post" %}}neural-machine-translation-testing-the-model{{% /lancelot %}} we'll test our model to see how well it does. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
-* Raw
-#+begin_example python
+: Wrong loss functions. CrossEntropyLoss_in3 was expected
+: Wrong optimizer
+: Wrong learning rate schedule type
+: [92m 2  Tests passed
+: [91m 3  Tests failed
 
-# <a name="3.2"></a>
-# ## 3.2  EvalTask
-# 
-# The [EvalTask](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask) on the other hand allows us to see how the model is doing while training. For our application, we want it to report the cross entropy loss and accuracy.
+The code has changed a bit since the test was written so it won't pass without updates.
 
-# In[ ]:
+** EvalTask
 
+ The [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.EvalTask][EvalTask]] on the other hand allows us to see how the model is doing while training. For our application, we want it to report the cross entropy loss and accuracy.
 
+#+begin_src python :results none
 eval_task = training.EvalTask(
     
     ## use the eval batch stream as labeled data
     labeled_data=eval_batch_stream,
     
     ## use the cross entropy loss and accuracy as metrics
-    metrics=[tl.CrossEntropyLoss(), tl.Accuracy()],
+    metrics=[layers.WeightedCategoryCrossEntropy(), layers.Accuracy()],
 )
+#+end_src
+** Loop
+
+The [[https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop][Loop]] class defines the model we will train as well as the train and eval tasks to execute. Its =run()= method allows us to execute the training for a specified number of steps.
+
+#+begin_src python :results none
+output_dir = Path("~/models/machine_translation/").expanduser()
+#+end_src
 
 
-# <a name="3.3"></a>
-# ## 3.3  Loop
-# 
-# The [Loop](https://trax-ml.readthedocs.io/en/latest/trax.supervised.html#trax.supervised.training.Loop) class defines the model we will train as well as the train and eval tasks to execute. Its `run()` method allows us to execute the training for a specified number of steps.
-
-# In[ ]:
-
-
-# define the output directory
-output_dir = 'output_dir/'
-
-# remove old model if it exists. restarts training.
-get_ipython().system('rm -f ~/output_dir/model.pkl.gz  ')
-
-# define the training loop
+Define the training loop.
+#+begin_src python :results none
 training_loop = training.Loop(NMTAttn(mode='train'),
                               train_task,
                               eval_tasks=[eval_task],
                               output_dir=output_dir)
+#+end_src
 
 
-# In[ ]:
+#+begin_src python :results output :exports both
+train_steps = 1000
 
+with TIMER, \
+     open("/tmp/machine_translation_training.log", "w") as temp_file, \
+     redirect_stdout(temp_file):
+            training_loop.run(train_steps)
+#+end_src
 
-# NOTE: Execute the training loop. This will take around 8 minutes to complete.
-training_loop.run(10)
+#+RESULTS:
+: Started: 2021-03-09 18:31:58.844878
+: Ended: 2021-03-09 20:14:43.090358
+: Elapsed: 1:42:44.245480
 
+#+begin_src python :results none
+frame = pandas.DataFrame(
+    training_loop.history.get("eval", "metrics/WeightedCategoryCrossEntropy"),
+    columns="Batch CrossEntropy".split())
 
-# <a name="4"></a>
-#+end_example
+minimum = frame.loc[frame.CrossEntropy.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.CrossEntropy).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="CrossEntropy").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+    width=PLOT.width, height=PLOT.height,
+    title="Evaluation Batch Cross Entropy Loss",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_cross_entropy")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_cross_entropy.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+#+begin_src python :results none
+frame = pandas.DataFrame(
+    training_loop.history.get("eval", "metrics/Accuracy"),
+    columns="Batch Accuracy".split())
+
+minimum = frame.loc[frame.Accuracy.idxmin()]
+vline = holoviews.VLine(minimum.Batch).opts(opts.VLine(color=PLOT.red))
+hline = holoviews.HLine(minimum.Accuracy).opts(opts.HLine(color=PLOT.red))
+line = frame.hvplot(x="Batch", y="Accuracy").opts(opts.Curve(color=PLOT.blue))
+
+plot = (line * hline * vline).opts(
+    width=PLOT.width, height=PLOT.height,
+    title="Evaluation Batch Accuracy",
+                                   )
+output = Embed(plot=plot, file_name="evaluation_accuracy")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="evaluation_accuracy.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+It seems to be stuck...
+* End
+  Now that we've trained the model in the {{% lancelot title="next post" %}}neural-machine-translation-testing-the-model{{% /lancelot %}} we'll test our model to see how well it does. The overview post with links to all the posts in this series is {{% lancelot title="here" %}}neural-machine-translation{{% /lancelot %}}.
+* Raw
+

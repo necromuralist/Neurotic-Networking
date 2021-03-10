@@ -11,11 +11,17 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-304cec73-e91b-49d7-8556-b97399c62f84-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-67f91495-ac26-469d-b174-2663ab659bb8-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
+
+#+begin_src python :tangle ../../neurotic/nlp/machine_translation/model.py
+<<imports>>
+
+<<attention-model>>
+#+end_src
 * Defining the Model
   In the {{% lancelot title="previous post" %}}neural-machine-translation-helper-functions{{% /lancelot %}} we made some helper functions to prepare inputs for some of the layers in the model. In this post we'll define the model itself.
 ** Attention Overview
@@ -41,20 +47,9 @@ import trax
 
 # this project
 from neurotic.nlp.machine_translation import (
-    input_encoder,
-    pre_attention_decoder,
-    prepare_attention_input)
+    NMTAttn)
 #+end_src
 
-** Aliases
-Once again, the naming conventions are horrible. To get past the grader we'll do some aliasing and hopefully remember to clean it up later.
-
-#+begin_src python :results none
-input_encoder_fn = input_encoder
-pre_attention_decoder_fn = pre_attention_decoder
-prepare_attention_input_fn = prepare_attention_input
-tl = layers
-#+end_src
 
 * Implementation
 ** Overview
@@ -98,7 +93,7 @@ def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
   )
 #+end_example
 
- Having deep layers pose the risk of vanishing gradients during training and we would want to mitigate that. To improve the ability of the network to learn, we can insert a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Residual][tl.Residual]] layer to add the output of AttentionQKV with the =queries= input. You can do this in trax by simply nesting the =AttentionQKV= layer inside the =Residual= layer. The library will take care of branching and adding for you.
+ Having deep layers poses the risk of vanishing gradients during training and we would want to mitigate that. To improve the ability of the network to learn, we can insert a [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Residual][tl.Residual]] layer to add the output of AttentionQKV with the =queries= input. You can do this in trax by simply nesting the =AttentionQKV= layer inside the =Residual= layer. The library will take care of branching and adding for you.
 
  - **Step 6:** We will not need the mask for the model we're building so we can safely drop it. At this point in the network, the signal stack currently has =[attention activations, mask, target tokens]= and you can use [[https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Select][tl.Select]] to output just =[attention activations, target tokens]=.
 
@@ -110,7 +105,17 @@ def AttentionQKV(d_feature, n_heads=1, dropout=0.0, mode='train'):
 
 ** The Implementation
 
-#+begin_src python :results none
+#+begin_src python :noweb-ref imports
+# pypi
+from trax import layers
+
+# this project
+from .help_me import input_encoder as input_encoder_fn
+from .help_me import pre_attention_decoder as pre_attention_decoder_fn
+from .help_me import prepare_attention_input as prepare_attention_input_fn
+#+end_src
+
+#+begin_src python :noweb-ref attention-model
 def NMTAttn(input_vocab_size: int=33300,
             target_vocab_size: int=33300,
             d_model: int=1024,
@@ -144,34 +149,34 @@ def NMTAttn(input_vocab_size: int=33300,
     pre_attention_decoder = pre_attention_decoder_fn(mode, target_vocab_size, d_model)
 
     # Step 1: create a serial network
-    model = tl.Serial( 
+    model = layers.Serial( 
         
       # Step 2: copy input tokens and target tokens as they will be needed later.
-      tl.Select([0, 1, 0, 1]),
+      layers.Select([0, 1, 0, 1]),
         
       # Step 3: run input encoder on the input and pre-attention decoder on the target.
-      tl.Parallel(input_encoder, pre_attention_decoder),
+      layers.Parallel(input_encoder, pre_attention_decoder),
         
       # Step 4: prepare queries, keys, values and mask for attention.
-      tl.Fn('PrepareAttentionInput', prepare_attention_input_fn, n_out=4),
+      layers.Fn('PrepareAttentionInput', prepare_attention_input_fn, n_out=4),
         
       # Step 5: run the AttentionQKV layer
       # nest it inside a Residual layer to add to the pre-attention decoder activations(i.e. queries)
-      tl.Residual(tl.AttentionQKV(d_model,
-                                  n_heads=n_attention_heads,
-                                  dropout=attention_dropout, mode=mode)),
+      layers.Residual(layers.AttentionQKV(d_model,
+                                          n_heads=n_attention_heads,
+                                          dropout=attention_dropout, mode=mode)),
       
       # Step 6: drop attention mask (i.e. index = None
-      tl.Select([0, 2]),
+      layers.Select([0, 2]),
         
       # Step 7: run the rest of the RNN decoder
-      [tl.LSTM(d_model) for _ in range(n_decoder_layers)],
+      [layers.LSTM(d_model) for _ in range(n_decoder_layers)],
         
       # Step 8: prepare output by making it the right size
-      tl.Dense(target_vocab_size),
+      layers.Dense(target_vocab_size),
         
       # Step 9: Log-softmax for output
-      tl.LogSoftmax()
+      layers.LogSoftmax()
     )
     return model
 #+end_src
