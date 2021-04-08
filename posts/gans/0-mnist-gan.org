@@ -1,0 +1,861 @@
+#+BEGIN_COMMENT
+.. title: MNIST GAN
+.. slug: mnist-gan
+.. date: 2021-04-06 17:48:17 UTC-07:00
+.. tags: gans
+.. category: GANs
+.. link: 
+.. description: An MNIST GAN with pytorch.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-2dec4179-8785-471a-b72c-9c355c61df19-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+%config InlineBackend.figure_format 'retina'
+#+END_SRC
+
+**Note:** The current version of pytorch (1.8.1) causes a Segmentation Fault in my nvidia-docker container (running CUDA 11 and Ubuntu 20.04). The fault comes at different points in the code depending on what I do - sometimes it's the backward's propagation, sometimes it's the pytorch binary that causes it, sometimes it's the libcuda binary... trying to debug it is probably beyond me so to get this working I had to go to the previous version of pytorch (1.7.1).
+* Beginning
+** Imports
+#+begin_src python :results none
+# from pypi
+
+from torch import nn
+from torchvision import transforms
+from torchvision.datasets import MNIST # Training dataset
+from torchvision.utils import make_grid
+from torch.utils.data import DataLoader
+
+import matplotlib.pyplot as pyplot
+import torch
+
+# local code
+from graeae import Timer
+#+end_src
+** Some Setup
+#+begin_src python :results none
+torch.manual_seed(0)
+TIMER = Timer()
+#+end_src
+* Middle
+** The MNIST Dataset
+The training images your discriminator will be using is from a dataset called [[http://yann.lecun.com/exdb/mnist/][MNIST]]. It contains 60,000 images of handwritten digits, from 0 to 9.
+
+The images are 28 pixels x 28 pixels in size. The small size of its images makes MNIST ideal for simple training. Additionally, these images are also in black-and-white so only one dimension, or "color channel", is needed to represent them (more on this later in the course).
+** About Tensors
+We will represent the data using pytorch [[https://pytorch.org/docs/stable/tensors.html][tensors]]. Tensors are a generalization of matrices: for example, a stack of three matrices with the amounts of red, green, and blue at different locations in a 64 x 64 pixel image is a tensor with the shape 3 x 64 x 64.
+** About Batches
+While we could train the model after generating one image, it is extremely inefficient and leads to less stable training. In GANs, and in machine learning in general, you will process multiple images per training step. These are called /batches/.
+
+his means that the generator will generate an entire batch of images and receive the discriminator's feedback on each batch before updating the model. The same goes for the discriminator, it will calculate its loss on the entire batch of generated images as well as on the real migase before the model is updated.
+** The Generator
+The first step is to build the generator component.
+
+We'll start by creating a function to make a single layer/block for the generator's neural network. Each block should include a [[https://pytorch.org/docs/stable/generated/torch.nn.Linear.html][linear transformation]] to map to another shape, a [[https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm1d.html][batch normalization]] for stabilization, and finally a non-linear activation function ([[https://pytorch.org/docs/master/generated/torch.nn.ReLU.html][ReLU]] in this case) so the output can be transformed in complex ways.
+
+#+begin_src python :results none
+def get_generator_block(input_dim: int, output_dim: int) -> nn.Sequential:
+    """
+    Function for returning a block of the generator's neural network
+    given input and output dimensions.
+
+    Args:
+      ``input_dim``: the dimension of the input vector, a scalar
+      ``output_dim``: the dimension of the output vector, a scalar
+
+    Returns:
+        a generator neural network layer, with a linear transformation 
+          followed by a batch normalization and then a relu activation
+    """
+    return nn.Sequential(
+        nn.Linear(input_dim, output_dim),
+        nn.BatchNorm1d(output_dim),
+        nn.ReLU(inplace=True),
+    )
+#+end_src
+
+*** Verify the generator block function
+#+begin_src python :results none
+def test_gen_block(in_features, out_features, num_test=1000):
+    block = get_generator_block(in_features, out_features)
+
+    # Check the three parts
+    assert len(block) == 3
+    assert type(block[0]) == nn.Linear
+    assert type(block[1]) == nn.BatchNorm1d
+    assert type(block[2]) == nn.ReLU
+    
+    # Check the output shape
+    test_input = torch.randn(num_test, in_features)
+    test_output = block(test_input)
+    assert tuple(test_output.shape) == (num_test, out_features)
+    assert test_output.std() > 0.55
+    assert test_output.std() < 0.65
+
+test_gen_block(25, 12)
+test_gen_block(15, 28)
+#+end_src
+*** Building the Generator Class
+The generator class will take 3 values:
+
+ - The noise vector dimension
+ - The image dimension
+ - The initial hidden dimension
+
+ Using these values, the generator will build a neural network with 5 layers/blocks. Beginning with the noise vector, the generator will apply non-linear transformations via the block function until the tensor is mapped to the size of the image to be outputted (the same size as the real images from MNIST). We'll need to fill in the code for final layer since it is different than the others. The final layer does not need a normalization or activation function, but does need to be scaled with a [[https://pytorch.org/docs/master/generated/torch.nn.Sigmoid.html][sigmoid function]].
+
+Finally, we'll define a forward pass method that takes in a noise vector and generates an image of the output dimension using the neural network.
+
+#+begin_src python :results none
+class Generator(nn.Module):
+    """Generator Class
+
+    Args:
+      z_dim: the dimension of the noise vector, a scalar
+      im_dim: the dimension of the images, fitted for the dataset used, a scalar
+         (MNIST images are 28 x 28 = 784 so that is the default)
+      hidden_dim: the inner dimension, a scalar
+    """
+    def __init__(self, z_dim: int=10, im_dim: int=784, hidden_dim: int=128):
+        super().__init__()
+
+        self.gen = nn.Sequential(
+            get_generator_block(z_dim, hidden_dim),
+            get_generator_block(hidden_dim, hidden_dim * 2),
+            get_generator_block(hidden_dim * 2, hidden_dim * 4),
+            get_generator_block(hidden_dim * 4, hidden_dim * 8),
+            nn.Linear(hidden_dim * 8, im_dim),
+            nn.Sigmoid()
+        )
+
+    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+        """
+        Method for a forward pass of the generator
+
+        Args:
+         noise: a noise tensor with dimensions (n_samples, z_dim)
+
+        Returns: 
+         generated images.
+        """
+        return self.gen(noise)
+#+end_src
+
+*** Verify the Generator Class
+
+#+begin_src python :results none
+def test_generator(z_dim, im_dim, hidden_dim, num_test=10000):
+    gen = Generator(z_dim, im_dim, hidden_dim).gen
+    
+    # Check there are six modules in the sequential part
+    assert len(gen) == 6
+    test_input = torch.randn(num_test, z_dim)
+    test_output = gen(test_input)
+
+    # Check that the output shape is correct
+    assert tuple(test_output.shape) == (num_test, im_dim)
+    assert test_output.max() < 1, "Make sure to use a sigmoid"
+    assert test_output.min() > 0, "Make sure to use a sigmoid"
+    assert test_output.min() < 0.5, "Don't use a block in your solution"
+    assert test_output.std() > 0.05, "Don't use batchnorm here"
+    assert test_output.std() < 0.15, "Don't use batchnorm here"
+
+test_generator(5, 10, 20)
+test_generator(20, 8, 24)
+#+end_src
+
+** Noise
+To be able to use the generator, we will need to be able to create noise vectors. The noise vector =z= has the important role of making sure the images generated from the same class don't all look the same -- think of it as a random seed. You will generate it randomly using PyTorch by sampling random numbers from the normal distribution. Since multiple images will be processed per pass, you will generate all the noise vectors at once.
+
+ Note that whenever you create a new tensor using torch.ones, torch.zeros, or [[https://pytorch.org/docs/master/generated/torch.randn.html][torch.randn]], you either need to create it on the target device, e.g. =torch.ones(3, 3, device=device)=, or move it onto the target device using =torch.ones(3, 3).to(device)=. You do not need to do this if you're creating a tensor by manipulating another tensor or by using a variation that defaults the device to the input, such as =torch.ones_like=. In general, use =torch.ones_like= and =torch.zeros_like= instead of =torch.ones= or =torch.zeros= where possible.
+
+#+begin_src python :results none
+def get_noise(n_samples: int, z_dim: int, device='cuda') -> torch.Tensor:
+    """create noise vectors
+
+    Args:
+        n_samples: the number of samples to generate, a scalar
+        z_dim: the dimension of the noise vector, a scalar
+        device: the device type
+    """
+    return torch.randn(n_samples, z_dim, device=device)
+#+end_src
+
+*** Verify the noise vector function
+#+begin_src python :results none
+def test_get_noise(n_samples, z_dim, device='cpu'):
+    noise = get_noise(n_samples, z_dim, device)
+    
+    # Make sure a normal distribution was used
+    assert tuple(noise.shape) == (n_samples, z_dim)
+    assert torch.abs(noise.std() - torch.tensor(1.0)) < 0.01
+    assert str(noise.device).startswith(device)
+
+test_get_noise(1000, 32)
+#+end_src
+
+** The Discriminator
+The second component that you need to construct is the discriminator. As with the generator component, you will start by creating a function that builds a neural network block for the discriminator.
+
+*Note: You use [[https://pytorch.org/docs/master/generated/torch.nn.LeakyReLU.html][leaky ReLUs]] to prevent the "dying ReLU" problem, which refers to the phenomenon where the parameters stop changing due to consistently negative values passed to a ReLU, which result in a zero gradient.* 
+
+#+begin_src python :results none
+def get_discriminator_block(input_dim: int, output_dim: int,
+                            negative_slope: float=0.2) -> nn.Sequential:
+    """Create the Discriminator block
+
+    Args:
+      input_dim: the dimension of the input vector, a scalar
+      output_dim: the dimension of the output vector, a scalar
+      negative_slope: angle for the negative slope
+
+    Returns:
+        a discriminator neural network layer, with a linear transformation 
+          followed by an nn.LeakyReLU activation with negative slope of 0.2 
+    """
+    return nn.Sequential(
+        nn.Linear(input_dim, output_dim),
+        nn.LeakyReLU(negative_slope=0.2)
+    )
+#+end_src
+
+*** Verify the discriminator block function
+
+#+begin_src python :results none
+def test_disc_block(in_features, out_features, num_test=10000):
+    block = get_discriminator_block(in_features, out_features)
+
+    # Check there are two parts
+    assert len(block) == 2
+    test_input = torch.randn(num_test, in_features)
+    test_output = block(test_input)
+
+    # Check that the shape is right
+    assert tuple(test_output.shape) == (num_test, out_features)
+    
+    # Check that the LeakyReLU slope is about 0.2
+    assert -test_output.min() / test_output.max() > 0.1
+    assert -test_output.min() / test_output.max() < 0.3
+    assert test_output.std() > 0.3
+    assert test_output.std() < 0.5
+
+test_disc_block(25, 12)
+test_disc_block(15, 28)
+#+end_src
+
+
+*** The Discriminator Class
+The discriminator class holds 2 values:
+
+ - The image dimension
+ - The hidden dimension
+
+ The discriminator will build a neural network with 4 layers. It will start with the image tensor and transform it until it returns a single number (1-dimension tensor) output. This output classifies whether an image is fake or real. Note that you do not need a sigmoid after the output layer since it is included in the loss function. Finally, to use your discrimator's neural network you are given a forward pass function that takes in an image tensor to be classified.
+
+#+begin_src python :results none
+class Discriminator(nn.Module):
+    """The Discriminator Class
+
+    Args:
+        im_dim: the dimension of the images, fitted for the dataset used, a scalar
+            (MNIST images are 28x28 = 784 so that is your default)
+        hidden_dim: the inner dimension, a scalar
+    """
+    def __init__(self, im_dim: int=784, hidden_dim: int=128):
+        super().__init__()
+        self.disc = nn.Sequential(
+            get_discriminator_block(im_dim, hidden_dim * 4),
+            get_discriminator_block(hidden_dim * 4, hidden_dim * 2),
+            get_discriminator_block(hidden_dim * 2, hidden_dim),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        """forward pass of the discriminator
+
+        Args:
+            image: a flattened image tensor with dimension (im_dim)
+        
+        Returns a 1-dimension tensor representing fake/real.
+        """
+        return self.disc(image)
+#+end_src
+
+**** Verify the discriminator class
+#+begin_src python :results none
+def test_discriminator(z_dim, hidden_dim, num_test=100):
+    
+    disc = Discriminator(z_dim, hidden_dim).disc
+
+    # Check there are three parts
+    assert len(disc) == 4
+
+    # Check the linear layer is correct
+    test_input = torch.randn(num_test, z_dim)
+    test_output = disc(test_input)
+    assert tuple(test_output.shape) == (num_test, 1)
+    
+    # Don't use a block
+    assert not isinstance(disc[-1], nn.Sequential)
+
+test_discriminator(5, 10)
+test_discriminator(20, 8)
+#+end_src
+
+** Training
+First, you will set your parameters:
+   -   criterion: the loss function ([[https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html?highlight=bcewithlogitsloss][BCEWithLogitsLoss]]
+   -   n_epochs: the number of times you iterate through the entire dataset when training
+   -   z_dim: the dimension of the noise vector
+   -   display_step: how often to display/visualize the images
+   -   batch_size: the number of images per forward/backward pass
+   -   lr: the learning rate
+   -   device: the device type, here using a GPU (which runs CUDA), not CPU
+
+ Next, you will load the MNIST dataset as tensors using a dataloader.
+
+
+*** Set your parameters
+#+begin_src python :results none
+criterion = nn.BCEWithLogitsLoss()
+z_dim = 64
+display_step = 500
+batch_size = 128
+lr = 0.00001
+#+end_src
+
+*** Load MNIST dataset as tensors
+
+#+begin_src python :results none
+dataloader = DataLoader(
+    MNIST('.', download=True, transform=transforms.ToTensor()),
+    batch_size=batch_size,
+    shuffle=True)
+#+end_src
+
+ Now, you can initialize your generator, discriminator, and optimizers. Note that each optimizer only takes the parameters of one particular model, since we want each optimizer to optimize only one of the models.
+
+#+begin_src python :results none
+device = "cuda"
+gen = Generator(z_dim).to(device)
+gen_opt = torch.optim.Adam(gen.parameters(), lr=lr)
+disc = Discriminator().to(device) 
+disc_opt = torch.optim.Adam(disc.parameters(), lr=lr)
+#+end_src
+
+Before you train your GAN, you will need to create functions to calculate the discriminator's loss and the generator's loss. This is how the discriminator and generator will know how they are doing and improve themselves. Since the generator is needed when calculating the discriminator's loss, you will need to call .detach() on the generator result to ensure that only the discriminator is updated!
+
+ Remember that you have already defined a loss function earlier (=criterion=) and you are encouraged to use [[https://pytorch.org/docs/master/generated/torch.ones_like.html?highlight=ones_like#torch.ones_like][=torch.ones_like=]] and [[https://pytorch.org/docs/master/generated/torch.zeros_like.html?highlight=zeros_like#torch.zeros_like][=torch.zeros_like=]] instead of =torch.ones= or =torch.zeros=. If you use =torch.ones= or =torch.zeros=, you'll need to pass =device=device= to them.
+
+#+begin_src python :results none
+def get_disc_loss(gen: Generator, disc: Discriminator,
+                  criterion: nn.BCEWithLogitsLoss,
+                  real: torch.Tensor,
+                  num_images: int, z_dim: int, 
+                  device: str="cuda"):
+    """
+    Get the loss of the discriminator given inputs.
+
+    Args:
+        gen: the generator model, which returns an image given z-dimensional noise
+        disc: the discriminator model, which returns a single-dimensional prediction of real/fake
+        criterion: the loss function, which should be used to compare 
+               the discriminator's predictions to the ground truth reality of the images 
+               (e.g. fake = 0, real = 1)
+        real: a batch of real images
+        num_images: the number of images the generator should produce, 
+                which is also the length of the real images
+        z_dim: the dimension of the noise vector, a scalar
+        device: the device type
+
+    Returns:
+        disc_loss: a torch scalar loss value for the current batch
+    """
+    noise = torch.randn(num_images, z_dim, device=device)
+    fakes = gen(noise).detach()
+
+    fake_prediction = disc(fakes)
+    fake_loss = criterion(fake_prediction, torch.zeros_like(fake_prediction))
+
+    real_prediction = disc(real)
+    real_loss = criterion(real_prediction, torch.ones_like(real_prediction))
+    disc_loss = (fake_loss + real_loss)/2
+    return disc_loss
+#+end_src
+
+#+begin_src python :results none
+def test_disc_reasonable(num_images=10):
+    # Don't use explicit casts to cuda - use the device argument
+    import inspect, re
+    lines = inspect.getsource(get_disc_loss)
+    assert (re.search(r"to\(.cuda.\)", lines)) is None
+    assert (re.search(r"\.cuda\(\)", lines)) is None
+    
+    z_dim = 64
+    gen = torch.zeros_like
+    disc = lambda x: x.mean(1)[:, None]
+    criterion = torch.mul # Multiply
+    real = torch.ones(num_images, z_dim)
+    disc_loss = get_disc_loss(gen, disc, criterion, real, num_images, z_dim, 'cpu')
+    assert torch.all(torch.abs(disc_loss.mean() - 0.5) < 1e-5)
+    
+    gen = torch.ones_like
+    criterion = torch.mul # Multiply
+    real = torch.zeros(num_images, z_dim)
+    assert torch.all(torch.abs(get_disc_loss(gen, disc, criterion, real, num_images, z_dim, 'cpu')) < 1e-5)
+    
+    gen = lambda x: torch.ones(num_images, 10)
+    disc = lambda x: x.mean(1)[:, None] + 10
+    criterion = torch.mul # Multiply
+    real = torch.zeros(num_images, 10)
+    assert torch.all(torch.abs(get_disc_loss(gen, disc, criterion, real, num_images, z_dim, 'cpu').mean() - 5) < 1e-5)
+
+    gen = torch.ones_like
+    disc = nn.Linear(64, 1, bias=False)
+    real = torch.ones(num_images, 64) * 0.5
+    disc.weight.data = torch.ones_like(disc.weight.data) * 0.5
+    disc_opt = torch.optim.Adam(disc.parameters(), lr=lr)
+    criterion = lambda x, y: torch.sum(x) + torch.sum(y)
+    disc_loss = get_disc_loss(gen, disc, criterion, real, num_images, z_dim, 'cpu').mean()
+    disc_loss.backward()
+    assert torch.isclose(torch.abs(disc.weight.grad.mean() - 11.25), torch.tensor(3.75))
+    return
+
+test_disc_reasonable()
+#+end_src
+    
+#+begin_src python :results none
+def test_disc_loss(max_tests = 10):
+    z_dim = 64
+    gen = Generator(z_dim).to(device)
+    gen_opt = torch.optim.Adam(gen.parameters(), lr=lr)
+    disc = Discriminator().to(device) 
+    disc_opt = torch.optim.Adam(disc.parameters(), lr=lr)
+    num_steps = 0
+    for real, _ in dataloader:
+        cur_batch_size = len(real)
+        real = real.view(cur_batch_size, -1).to(device)
+
+        ### Update discriminator ###
+        # Zero out the gradient before backpropagation
+        disc_opt.zero_grad()
+
+        # Calculate discriminator loss
+        disc_loss = get_disc_loss(gen, disc, criterion, real, cur_batch_size, z_dim, device)
+        assert (disc_loss - 0.68).abs() < 0.05, disc_loss
+
+        # Update gradients
+        disc_loss.backward(retain_graph=True)
+
+        # Check that they detached correctly
+        assert gen.gen[0][0].weight.grad is None
+
+        # Update optimizer
+        old_weight = disc.disc[0][0].weight.data.clone()
+        disc_opt.step()
+        new_weight = disc.disc[0][0].weight.data
+        
+        # Check that some discriminator weights changed
+        assert not torch.all(torch.eq(old_weight, new_weight))
+        num_steps += 1
+        if num_steps >= max_tests:
+            break
+
+test_disc_loss()
+#+end_src
+*** Generator Loss
+#+begin_src python :results none
+def get_gen_loss(gen: Generator,
+                 disc: Discriminator,
+                 criterion: nn.BCEWithLogitsLoss,
+                 num_images: int,
+                 z_dim: int, device: str="cuda") -> torch.Tensor:
+    """Calculates the loss for the generator
+
+    Args:
+        gen: the generator model, which returns an image given z-dimensional noise
+        disc: the discriminator model, which returns a single-dimensional prediction of real/fake
+        criterion: the loss function, which should be used to compare 
+               the discriminator's predictions to the ground truth reality of the images 
+               (e.g. fake = 0, real = 1)
+        num_images: the number of images the generator should produce, 
+                which is also the length of the real images
+        z_dim: the dimension of the noise vector, a scalar
+        device: the device type
+    Returns:
+        gen_loss: a torch scalar loss value for the current batch
+    """
+    noise = torch.randn(num_images, z_dim, device=device)
+    fakes = gen(noise)
+    fake_prediction = disc(fakes)
+    gen_loss = criterion(fake_prediction, torch.ones_like(fake_prediction))
+    return gen_loss
+#+end_src
+
+#+begin_src python :results none
+def test_gen_reasonable(num_images=10):
+    # Don't use explicit casts to cuda - use the device argument
+    import inspect, re
+    lines = inspect.getsource(get_gen_loss)
+    assert (re.search(r"to\(.cuda.\)", lines)) is None
+    assert (re.search(r"\.cuda\(\)", lines)) is None
+    
+    z_dim = 64
+    gen = torch.zeros_like
+    disc = nn.Identity()
+    criterion = torch.mul # Multiply
+    gen_loss_tensor = get_gen_loss(gen, disc, criterion, num_images, z_dim, 'cpu')
+    assert torch.all(torch.abs(gen_loss_tensor) < 1e-5)
+    #Verify shape. Related to gen_noise parametrization
+    assert tuple(gen_loss_tensor.shape) == (num_images, z_dim)
+
+    gen = torch.ones_like
+    disc = nn.Identity()
+    criterion = torch.mul # Multiply
+    real = torch.zeros(num_images, 1)
+    gen_loss_tensor = get_gen_loss(gen, disc, criterion, num_images, z_dim, 'cpu')
+    assert torch.all(torch.abs(gen_loss_tensor - 1) < 1e-5)
+    #Verify shape. Related to gen_noise parametrization
+    assert tuple(gen_loss_tensor.shape) == (num_images, z_dim)
+    return
+test_gen_reasonable(10)
+#+end_src
+
+#+begin_src python :results none
+def test_gen_loss(num_images):
+    z_dim = 64
+    gen = Generator(z_dim).to(device)
+    gen_opt = torch.optim.Adam(gen.parameters(), lr=lr)
+    disc = Discriminator().to(device) 
+    disc_opt = torch.optim.Adam(disc.parameters(), lr=lr)
+    
+    gen_loss = get_gen_loss(gen, disc, criterion, num_images, z_dim, device)
+    
+    # Check that the loss is reasonable
+    assert (gen_loss - 0.7).abs() < 0.1
+    gen_loss.backward()
+    old_weight = gen.gen[0][0].weight.clone()
+    gen_opt.step()
+    new_weight = gen.gen[0][0].weight
+    assert not torch.all(torch.eq(old_weight, new_weight))
+test_gen_loss(18)
+#+end_src
+*** All Together
+For each epoch, you will process the entire dataset in batches. For every batch, you will need to update the discriminator and generator using their loss. Batches are sets of images that will be predicted on before the loss functions are calculated (instead of calculating the loss function after each image). Note that you may see a loss to be greater than 1, this is okay since binary cross entropy loss can be any positive number for a sufficiently confident wrong guess. 
+ 
+ It’s also often the case that the discriminator will outperform the generator, especially at the start, because its job is easier. It's important that neither one gets too good (that is, near-perfect accuracy), which would cause the entire model to stop learning. Balancing the two models is actually remarkably hard to do in a standard GAN and something you will see more of in later lectures and assignments.
+
+ After you've submitted a working version with the original architecture, feel free to play around with the architecture if you want to see how different architectural choices can lead to better or worse GANs. For example, consider changing the size of the hidden dimension, or making the networks shallower or deeper by changing the number of layers.
+
+#+begin_src python :results output :exports both
+cur_step = 0
+mean_generator_loss = 0
+mean_discriminator_loss = 0
+test_generator = True # Whether the generator should be tested
+gen_loss = False
+error = False
+n_epochs = 200
+generator_losses = []
+discriminator_losses = []
+steps = []
+
+with TIMER:
+    for epoch in range(n_epochs):
+      
+        # Dataloader returns the batches
+        for real, _ in dataloader:
+            cur_batch_size = len(real)
+    
+            # Flatten the batch of real images from the dataset
+            real = real.view(cur_batch_size, -1).to(device)
+    
+            ### Update discriminator ###
+            # Zero out the gradients before backpropagation
+            disc_opt.zero_grad()
+    
+            # Calculate discriminator loss
+            disc_loss = get_disc_loss(gen, disc, criterion, real, cur_batch_size, z_dim, device)
+    
+            # Update gradients
+            disc_loss.backward(retain_graph=True)
+    
+            # Update optimizer
+            disc_opt.step()
+    
+            # For testing purposes, to keep track of the generator weights
+            if test_generator:
+                old_generator_weights = gen.gen[0][0].weight.detach().clone()
+    
+            ### Update generator ###
+            gen_opt.zero_grad()
+            gen_loss = get_gen_loss(gen, disc, criterion, cur_batch_size, z_dim, device)
+            gen_loss.backward(retain_graph=True)
+            gen_opt.step()
+
+            # For testing purposes, to check that your code changes the generator weights
+            if test_generator:
+                try:
+                    assert lr > 0.0000002 or (gen.gen[0][0].weight.grad.abs().max() < 0.0005 and epoch == 0)
+                    assert torch.any(gen.gen[0][0].weight.detach().clone() != old_generator_weights)
+                except:
+                    error = True
+                    print("Runtime tests have failed")
+    
+            # Keep track of the average discriminator loss
+            mean_discriminator_loss += disc_loss.item() / display_step
+    
+            # Keep track of the average generator loss
+            mean_generator_loss += gen_loss.item() / display_step
+    
+            if cur_step % display_step == 0 and cur_step > 0:
+                print(f"Epoch {epoch}, step {cur_step}: Generator loss: {mean_generator_loss}, discriminator loss: {mean_discriminator_loss}")
+                steps.append(cur_step)
+                generator_losses.append(mean_generator_loss)
+                discriminator_losses.append(mean_discriminator_loss)
+            cur_step += 1
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Started: 2021-04-08 13:53:24.876859
+Epoch 1, step 500: Generator loss: 1.8380137944221497, discriminator loss: 0.26591467326879487
+Epoch 2, step 1000: Generator loss: 3.9653549375534074, discriminator loss: 0.4160907287597661
+Epoch 3, step 1500: Generator loss: 5.729666169643398, discriminator loss: 0.6162531278133404
+Epoch 4, step 2000: Generator loss: 7.442952779769886, discriminator loss: 0.8118256260752691
+Epoch 5, step 2500: Generator loss: 9.432076437473283, discriminator loss: 0.9679733974188557
+Epoch 6, step 3000: Generator loss: 11.996642021656038, discriminator loss: 1.0757962612807719
+Epoch 7, step 3500: Generator loss: 14.90924550914764, discriminator loss: 1.1700611107051344
+Epoch 8, step 4000: Generator loss: 18.121117704391427, discriminator loss: 1.2520895646661525
+Epoch 9, step 4500: Generator loss: 21.65091553688046, discriminator loss: 1.3283833195790673
+Epoch 10, step 5000: Generator loss: 25.342365067481968, discriminator loss: 1.39890925075114
+Epoch 11, step 5500: Generator loss: 29.33155358171461, discriminator loss: 1.4530040125362589
+Epoch 12, step 6000: Generator loss: 33.357935075283024, discriminator loss: 1.5064936694838111
+Epoch 13, step 6500: Generator loss: 37.496359655380196, discriminator loss: 1.5550772629007694
+Epoch 14, step 7000: Generator loss: 41.56155977392191, discriminator loss: 1.6107836855612687
+Epoch 15, step 7500: Generator loss: 45.87212342262256, discriminator loss: 1.6661497327089285
+Epoch 17, step 8000: Generator loss: 50.321727560043335, discriminator loss: 1.7181708416491728
+Epoch 18, step 8500: Generator loss: 54.63295760202393, discriminator loss: 1.7724486356973623
+Epoch 19, step 9000: Generator loss: 59.01562421131118, discriminator loss: 1.826771637491882
+Epoch 20, step 9500: Generator loss: 63.39116160774216, discriminator loss: 1.8765557715408518
+Epoch 21, step 10000: Generator loss: 67.88015654277783, discriminator loss: 1.9297432009987536
+Epoch 22, step 10500: Generator loss: 72.13155179262147, discriminator loss: 1.9869117307215929
+Epoch 23, step 11000: Generator loss: 76.35514208555207, discriminator loss: 2.0485091311596313
+Epoch 24, step 11500: Generator loss: 80.44722765398, discriminator loss: 2.120803469646724
+Epoch 25, step 12000: Generator loss: 84.48657767581896, discriminator loss: 2.193013950679454
+Epoch 26, step 12500: Generator loss: 88.45372742700546, discriminator loss: 2.262696620158853
+Epoch 27, step 13000: Generator loss: 92.65431487035701, discriminator loss: 2.3293601095005902
+Epoch 28, step 13500: Generator loss: 96.59712149858417, discriminator loss: 2.4247781213521944
+Epoch 29, step 14000: Generator loss: 100.54655712652145, discriminator loss: 2.517892661049961
+Epoch 30, step 14500: Generator loss: 104.35256982517193, discriminator loss: 2.614252164952457
+Epoch 31, step 15000: Generator loss: 108.20830134200996, discriminator loss: 2.716961969047785
+Epoch 33, step 15500: Generator loss: 111.93182042169506, discriminator loss: 2.8293252849876835
+Epoch 34, step 16000: Generator loss: 115.56450606203023, discriminator loss: 2.9529130347669117
+Epoch 35, step 16500: Generator loss: 119.22816614675467, discriminator loss: 3.078832128822802
+Epoch 36, step 17000: Generator loss: 122.89708081817567, discriminator loss: 3.1993592000305657
+Epoch 37, step 17500: Generator loss: 126.68454235029172, discriminator loss: 3.311078203924002
+Epoch 38, step 18000: Generator loss: 130.40395942449493, discriminator loss: 3.426130479477346
+Epoch 39, step 18500: Generator loss: 134.25701391506115, discriminator loss: 3.545017792113129
+Epoch 40, step 19000: Generator loss: 137.80948705911558, discriminator loss: 3.6792895930185963
+Epoch 41, step 19500: Generator loss: 141.23493367957977, discriminator loss: 3.833296358674766
+Epoch 42, step 20000: Generator loss: 144.43613851642496, discriminator loss: 3.991702341452249
+Epoch 43, step 20500: Generator loss: 147.7710485906592, discriminator loss: 4.134865150332453
+Epoch 44, step 21000: Generator loss: 151.0275560970299, discriminator loss: 4.282408735960724
+Epoch 45, step 21500: Generator loss: 154.29369391584345, discriminator loss: 4.434182605594401
+Epoch 46, step 22000: Generator loss: 157.56827622175186, discriminator loss: 4.579715374991305
+Epoch 47, step 22500: Generator loss: 160.93634767579957, discriminator loss: 4.723530877307057
+Epoch 49, step 23000: Generator loss: 164.195103832721, discriminator loss: 4.880756279259924
+Epoch 50, step 23500: Generator loss: 167.22235908365224, discriminator loss: 5.053748777717355
+Epoch 51, step 24000: Generator loss: 170.28022829627952, discriminator loss: 5.224615927249201
+Epoch 52, step 24500: Generator loss: 173.35391460371005, discriminator loss: 5.403399187624456
+Epoch 53, step 25000: Generator loss: 176.47155134582505, discriminator loss: 5.566484464034447
+Epoch 54, step 25500: Generator loss: 179.56471695756903, discriminator loss: 5.738796216040864
+Epoch 55, step 26000: Generator loss: 182.4805959229468, discriminator loss: 5.934988947138206
+Epoch 56, step 26500: Generator loss: 185.2110697610375, discriminator loss: 6.149933519169704
+Epoch 57, step 27000: Generator loss: 188.1005206086631, discriminator loss: 6.334774546369921
+Epoch 58, step 27500: Generator loss: 190.9136098692413, discriminator loss: 6.542817057952303
+Epoch 59, step 28000: Generator loss: 193.66188990044552, discriminator loss: 6.752905844599033
+Epoch 60, step 28500: Generator loss: 196.40454644370053, discriminator loss: 6.985357074052126
+Epoch 61, step 29000: Generator loss: 198.94800655817957, discriminator loss: 7.220356868714114
+Epoch 62, step 29500: Generator loss: 201.52443549036968, discriminator loss: 7.44663237914445
+Epoch 63, step 30000: Generator loss: 204.13647959637632, discriminator loss: 7.672963573396223
+Epoch 65, step 30500: Generator loss: 206.7343488032819, discriminator loss: 7.898377553612009
+Epoch 66, step 31000: Generator loss: 209.2880760023595, discriminator loss: 8.136350938856625
+Epoch 67, step 31500: Generator loss: 211.7679254076479, discriminator loss: 8.369026862055089
+Epoch 68, step 32000: Generator loss: 214.25857671952235, discriminator loss: 8.620009321510818
+Epoch 69, step 32500: Generator loss: 216.76937853240943, discriminator loss: 8.855430807203078
+Epoch 70, step 33000: Generator loss: 219.24895047926893, discriminator loss: 9.107567865252504
+Epoch 71, step 33500: Generator loss: 221.76761811327938, discriminator loss: 9.350810842394841
+Epoch 72, step 34000: Generator loss: 224.17113453531246, discriminator loss: 9.60338327082991
+Epoch 73, step 34500: Generator loss: 226.67918780255283, discriminator loss: 9.832435004323708
+Epoch 74, step 35000: Generator loss: 229.22069742560356, discriminator loss: 10.06182174515723
+Epoch 75, step 35500: Generator loss: 231.70658982634538, discriminator loss: 10.291555132746684
+Epoch 76, step 36000: Generator loss: 234.19378671383834, discriminator loss: 10.523187690556036
+Epoch 77, step 36500: Generator loss: 236.71214848542192, discriminator loss: 10.749954300001237
+Epoch 78, step 37000: Generator loss: 239.26188057875615, discriminator loss: 10.980428423598381
+Epoch 79, step 37500: Generator loss: 241.67496434426312, discriminator loss: 11.238052760675517
+Epoch 81, step 38000: Generator loss: 244.01394497394557, discriminator loss: 11.50578829355535
+Epoch 82, step 38500: Generator loss: 246.33158819770796, discriminator loss: 11.781757645472839
+Epoch 83, step 39000: Generator loss: 248.57452519559848, discriminator loss: 12.070285719826767
+Epoch 84, step 39500: Generator loss: 250.85055812025053, discriminator loss: 12.337829059436872
+Epoch 85, step 40000: Generator loss: 253.1123753437994, discriminator loss: 12.616114620372594
+Epoch 86, step 40500: Generator loss: 255.32312607574443, discriminator loss: 12.89885131131107
+Epoch 87, step 41000: Generator loss: 257.55605857658435, discriminator loss: 13.174666020497627
+Epoch 88, step 41500: Generator loss: 259.8769163813594, discriminator loss: 13.435253853335924
+Epoch 89, step 42000: Generator loss: 262.16731983614, discriminator loss: 13.71272168172889
+Epoch 90, step 42500: Generator loss: 264.36034895157803, discriminator loss: 14.00367086409023
+Epoch 91, step 43000: Generator loss: 266.54307262229884, discriminator loss: 14.301431857302678
+Epoch 92, step 43500: Generator loss: 268.685895673274, discriminator loss: 14.601449103161587
+Epoch 93, step 44000: Generator loss: 270.87026715159317, discriminator loss: 14.905239974096286
+Epoch 94, step 44500: Generator loss: 273.0173102192869, discriminator loss: 15.205773467853538
+Epoch 95, step 45000: Generator loss: 275.24915975141386, discriminator loss: 15.487396217569573
+Epoch 97, step 45500: Generator loss: 277.3599964804639, discriminator loss: 15.805155120059702
+Epoch 98, step 46000: Generator loss: 279.38467476606223, discriminator loss: 16.16003859244272
+Epoch 99, step 46500: Generator loss: 281.2884159073816, discriminator loss: 16.51657691301391
+Epoch 100, step 47000: Generator loss: 283.33148319816456, discriminator loss: 16.83181989158677
+Epoch 101, step 47500: Generator loss: 285.3966671714771, discriminator loss: 17.14684174795437
+Epoch 102, step 48000: Generator loss: 287.42301662135026, discriminator loss: 17.46578107444931
+Epoch 103, step 48500: Generator loss: 289.4111870827655, discriminator loss: 17.784573044285068
+Epoch 104, step 49000: Generator loss: 291.35610576653255, discriminator loss: 18.119292375966776
+Epoch 105, step 49500: Generator loss: 293.27736531662674, discriminator loss: 18.457271254703276
+Epoch 106, step 50000: Generator loss: 295.24565851068246, discriminator loss: 18.781372952058792
+Epoch 107, step 50500: Generator loss: 297.2849174015496, discriminator loss: 19.091347642824008
+Epoch 108, step 51000: Generator loss: 299.2305969731784, discriminator loss: 19.42173201920089
+Epoch 109, step 51500: Generator loss: 301.23247931694766, discriminator loss: 19.74569710452851
+Epoch 110, step 52000: Generator loss: 303.2237337186313, discriminator loss: 20.064237398430684
+Epoch 111, step 52500: Generator loss: 305.2103623728728, discriminator loss: 20.380180171057564
+Epoch 113, step 53000: Generator loss: 307.151296272752, discriminator loss: 20.706087408706544
+Epoch 114, step 53500: Generator loss: 309.1317031087851, discriminator loss: 21.038909940734484
+Epoch 115, step 54000: Generator loss: 310.96974593353036, discriminator loss: 21.404317264065153
+Epoch 116, step 54500: Generator loss: 312.8775805056072, discriminator loss: 21.74578366427125
+Epoch 117, step 55000: Generator loss: 314.7620215737802, discriminator loss: 22.08795109508936
+Epoch 118, step 55500: Generator loss: 316.65228646111353, discriminator loss: 22.432955895707067
+Epoch 119, step 56000: Generator loss: 318.5108047730906, discriminator loss: 22.79155120112008
+Epoch 120, step 56500: Generator loss: 320.3309153318383, discriminator loss: 23.153733348622964
+Epoch 121, step 57000: Generator loss: 322.06711806153936, discriminator loss: 23.525364499643498
+Epoch 122, step 57500: Generator loss: 323.83137068390545, discriminator loss: 23.899251665607174
+Epoch 123, step 58000: Generator loss: 325.6421821229425, discriminator loss: 24.25716221846647
+Epoch 124, step 58500: Generator loss: 327.41140537333155, discriminator loss: 24.616998111441802
+Epoch 125, step 59000: Generator loss: 329.24296852731317, discriminator loss: 24.957151793018067
+Epoch 126, step 59500: Generator loss: 331.1185930066061, discriminator loss: 25.30015218420332
+Epoch 127, step 60000: Generator loss: 332.93946862864067, discriminator loss: 25.653690795078937
+Epoch 128, step 60500: Generator loss: 334.74415823149184, discriminator loss: 26.01638629965493
+Epoch 130, step 61000: Generator loss: 336.46172380661517, discriminator loss: 26.4110508885235
+Epoch 131, step 61500: Generator loss: 338.21751082825136, discriminator loss: 26.775492098495416
+Epoch 132, step 62000: Generator loss: 340.0339220321123, discriminator loss: 27.138587523803174
+Epoch 133, step 62500: Generator loss: 341.76715295767275, discriminator loss: 27.51136688022319
+Epoch 134, step 63000: Generator loss: 343.5237078280394, discriminator loss: 27.878344374909997
+Epoch 135, step 63500: Generator loss: 345.41088183950825, discriminator loss: 28.20654292975366
+Epoch 136, step 64000: Generator loss: 347.2335968654104, discriminator loss: 28.571288807168635
+Epoch 137, step 64500: Generator loss: 349.07784555196247, discriminator loss: 28.910358966305886
+Epoch 138, step 65000: Generator loss: 350.88156042909117, discriminator loss: 29.27638993848866
+Epoch 139, step 65500: Generator loss: 352.65117043542364, discriminator loss: 29.646846347764203
+Epoch 140, step 66000: Generator loss: 354.3262486169292, discriminator loss: 30.029673308089446
+Epoch 141, step 66500: Generator loss: 356.01512239813235, discriminator loss: 30.40087885178633
+Epoch 142, step 67000: Generator loss: 357.7175361463968, discriminator loss: 30.76785507608954
+Epoch 143, step 67500: Generator loss: 359.46259198378937, discriminator loss: 31.1386942867786
+Epoch 144, step 68000: Generator loss: 361.14626249074365, discriminator loss: 31.52535519559689
+Epoch 146, step 68500: Generator loss: 362.76831596898467, discriminator loss: 31.917081538990207
+Epoch 147, step 69000: Generator loss: 364.41962820434054, discriminator loss: 32.301173698499866
+Epoch 148, step 69500: Generator loss: 366.0703232722224, discriminator loss: 32.69935225738586
+Epoch 149, step 70000: Generator loss: 367.7247722401558, discriminator loss: 33.08803566338125
+Epoch 150, step 70500: Generator loss: 369.30992169594145, discriminator loss: 33.50858910317728
+Epoch 151, step 71000: Generator loss: 370.8790672252116, discriminator loss: 33.92028994508098
+Epoch 152, step 71500: Generator loss: 372.42852281355255, discriminator loss: 34.3381516904981
+Epoch 153, step 72000: Generator loss: 373.97859181856535, discriminator loss: 34.74134007842851
+Epoch 154, step 72500: Generator loss: 375.6111490037387, discriminator loss: 35.13740181799253
+Epoch 155, step 73000: Generator loss: 377.2571979920812, discriminator loss: 35.532484370008255
+Epoch 156, step 73500: Generator loss: 378.87681735705826, discriminator loss: 35.936162544861574
+Epoch 157, step 74000: Generator loss: 380.45451874684795, discriminator loss: 36.34218898268063
+Epoch 158, step 74500: Generator loss: 382.0149917254402, discriminator loss: 36.73952754874551
+Epoch 159, step 75000: Generator loss: 383.6108464038332, discriminator loss: 37.151208646849035
+Epoch 160, step 75500: Generator loss: 385.11404676270064, discriminator loss: 37.56910553886025
+Epoch 162, step 76000: Generator loss: 386.5971041080906, discriminator loss: 37.99725796850054
+Epoch 163, step 76500: Generator loss: 388.0310001995526, discriminator loss: 38.434967896953594
+Epoch 164, step 77000: Generator loss: 389.5240583443609, discriminator loss: 38.86517985518313
+Epoch 165, step 77500: Generator loss: 391.03840900992975, discriminator loss: 39.2906370651278
+Epoch 166, step 78000: Generator loss: 392.5464544711076, discriminator loss: 39.721142644957055
+Epoch 167, step 78500: Generator loss: 394.00427189612026, discriminator loss: 40.1641705771241
+Epoch 168, step 79000: Generator loss: 395.46359187006504, discriminator loss: 40.59312671466205
+Epoch 169, step 79500: Generator loss: 396.9764012856443, discriminator loss: 41.01415931405161
+Epoch 170, step 80000: Generator loss: 398.4665536525207, discriminator loss: 41.44914047016231
+Epoch 171, step 80500: Generator loss: 399.928027463909, discriminator loss: 41.898203575745534
+Epoch 172, step 81000: Generator loss: 401.35226719307525, discriminator loss: 42.34961423660848
+Epoch 173, step 81500: Generator loss: 402.755100608345, discriminator loss: 42.80539890702103
+Epoch 174, step 82000: Generator loss: 404.20674481272334, discriminator loss: 43.24797727032035
+Epoch 175, step 82500: Generator loss: 405.5875528542955, discriminator loss: 43.70413655342189
+Epoch 176, step 83000: Generator loss: 406.996485474105, discriminator loss: 44.14383787514301
+Epoch 178, step 83500: Generator loss: 408.51472447251757, discriminator loss: 44.5618221577559
+Epoch 179, step 84000: Generator loss: 409.9555259230086, discriminator loss: 45.00513509877067
+Epoch 180, step 84500: Generator loss: 411.34518149303915, discriminator loss: 45.46295582236392
+Epoch 181, step 85000: Generator loss: 412.76307955407606, discriminator loss: 45.90488618047579
+Epoch 182, step 85500: Generator loss: 414.20778040551676, discriminator loss: 46.3328997991239
+Epoch 183, step 86000: Generator loss: 415.7189940671875, discriminator loss: 46.74983654846302
+Epoch 184, step 86500: Generator loss: 417.1262406063032, discriminator loss: 47.20697522135125
+Epoch 185, step 87000: Generator loss: 418.5405145945506, discriminator loss: 47.65106870479926
+Epoch 186, step 87500: Generator loss: 419.85746509861497, discriminator loss: 48.13346999247417
+Epoch 187, step 88000: Generator loss: 421.3327572398142, discriminator loss: 48.55154551084388
+Epoch 188, step 88500: Generator loss: 422.77578687786604, discriminator loss: 48.988886494830666
+Epoch 189, step 89000: Generator loss: 424.19347491693065, discriminator loss: 49.42870082064015
+Epoch 190, step 89500: Generator loss: 425.5934523332076, discriminator loss: 49.869885915711876
+Epoch 191, step 90000: Generator loss: 426.9583982460456, discriminator loss: 50.33552295585008
+Epoch 192, step 90500: Generator loss: 428.32161497497054, discriminator loss: 50.780792436138015
+Epoch 194, step 91000: Generator loss: 429.6980452136947, discriminator loss: 51.228236056104514
+Epoch 195, step 91500: Generator loss: 431.1086738290737, discriminator loss: 51.68411712010224
+Epoch 196, step 92000: Generator loss: 432.5028065311861, discriminator loss: 52.12574461145719
+Epoch 197, step 92500: Generator loss: 433.9369675047347, discriminator loss: 52.556491162196025
+Epoch 198, step 93000: Generator loss: 435.28689947604653, discriminator loss: 53.02032177992185
+Epoch 199, step 93500: Generator loss: 436.6074355573607, discriminator loss: 53.49974791260088
+Ended: 2021-04-08 14:16:38.267756
+Elapsed: 0:23:13.390897
+#+end_example
+** Looking at the Final model.
+#+begin_src python :results none
+def plot_image(image: torch.Tensor,
+                filename: str,
+                title: str,
+                num_images: int=25,
+                size: tuple=(1, 28, 28),
+                folder: str="files/posts/gans/mnist-gan/") -> None:
+    """Plot the image and save it
+
+    Args:
+     image: the tensor with the image to plot
+     filename: name for the final image file
+     title: title to put on top of the image
+     num_images: how many images to put in the composite image
+     size: the size for the image
+     folder: sub-folder to save the file in
+    """
+    unflattened_image = image.detach().cpu().view(-1, *size)
+    image_grid = make_grid(unflattened_image[:num_images], nrow=5)
+
+    pyplot.title(title)
+    pyplot.grid(False)
+    pyplot.tick_params(axis="both", which="both", bottom="off", top="off", labelbottom="off", right="off", left="off", labelleft="off")
+    pyplot.imshow(image_grid.permute(1, 2, 0).squeeze())
+    pyplot.savefig(folder + filename)
+    print(f"[[file:{filename}]]")
+    return
+#+end_src
+#+begin_src python :results output :exports both
+fake_noise = get_noise(cur_batch_size, z_dim, device=device)
+fake = gen(fake_noise)
+plot_image(image=fake, filename="fake_digits.png", title="Fake Digits")
+#+end_src
+
+
+[[file:fake_digits.png]]
+
+
+#+begin_src python :results output :exports both
+plot_image(real, filename="real_digits.png", title="Real Digits")
+#+end_src
+
+[[file:real_digits.png]]
+
+* End
+
