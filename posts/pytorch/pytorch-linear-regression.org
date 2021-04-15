@@ -1,0 +1,135 @@
+#+BEGIN_COMMENT
+.. title: PyTorch Linear Regression
+.. slug: pytorch-linear-regression
+.. date: 2021-04-10 16:05:44 UTC-07:00
+.. tags: 
+.. category: 
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3cd55662-37cb-403e-a8e5-c048ecbb5261-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* Beginning
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from functools import partial
+
+# pypi
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
+
+import hvplot.pandas
+import numpy
+import pandas
+
+# local stuff
+from graeae import EmbedHoloviews
+#+end_src
+** Set Up
+#+begin_src python :results none
+random_generator = numpy.random.default_rng(seed=2021)
+#+end_src
+
+#+begin_src python :results none
+slug = "pytorch-linear-regression"
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/pytorch/{slug}")
+
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+#+end_src
+
+#+begin_src python :results none
+def sample(start: float, stop: float, shape: tuple, uniform: bool=True) -> numpy.ndarray:
+    """Create a random sample
+
+    Args:
+     start: lowest allowed value
+     stop: highest allowed value
+     shape: shape for the final array (just an int for single values)
+     uniform: use the uniform distribution instead of the standard normal
+    """
+    if uniform:
+        return (stop - start) * random_generator.random(shape) + start
+    return (stop - start) * random_generator.standard_normal(shape) + start
+#+end_src
+* Middle
+#+begin_src python :results none
+SAMPLES = 200
+X_RANGE = 5
+x_values = sample(-X_RANGE, X_RANGE, SAMPLES)
+SLOPE = sample(-5, 5, 1)
+INTERCEPT = sample(-5, 5, 1)
+noise = sample(-2, 2, SAMPLES, uniform=False)
+y_values = SLOPE * x_values + INTERCEPT + noise
+#+end_src
+
+#+begin_src python :results none
+data_frame = pandas.DataFrame.from_dict(dict(X=x_values, Y=y_values))
+first, last = x_values.min(), x_values.max()
+line_frame = pandas.DataFrame.from_dict(
+    dict(X=[first, last],
+         Y=[SLOPE * first + INTERCEPT,
+            SLOPE * last + INTERCEPT]))
+line_plot = line_frame.hvplot(x="X", y="Y", color=PLOT.blue)
+data_plot = data_frame.hvplot.scatter(x="X", y="Y", title="Sample Data",
+                                      color=PLOT.tan)
+plot = (data_plot * line_plot).opts(
+    height=PLOT.height,
+    width=PLOT.width,
+    fontscale=PLOT.fontscale
+)
+output = Embed(plot=plot, file_name="sample_data")()
+#+end_src
+
+#+begin_src python :results output html :exports results
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="sample_data.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+#+begin_src python :results none
+class XY(Dataset):
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        return
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, index):
+        if torch.is_tensor(index):
+            index = index.tolist()
+
+        return {"x": self.x[index], "y": self.y[index]}
+#+end_src
+
+#+begin_src python :results none
+dataset = XY(x_values, y_values)
+loader = DataLoader(dataset, batch_size=4)
+#+end_src
+
+#+begin_src python :results none
+model = nn.Linear(1, 1)
+#+end_src
