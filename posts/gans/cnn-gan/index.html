@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="Using a Convolutional-Neural-Network with a Generative Adversarial Network." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>CNN GAN | Neurotic Networking</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" hreflang="en" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/Neurotic-Networking/posts/gans/cnn-gan/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<meta content="Cloistered Monkey" name="author">
+<link href="../../pytorch/pytorch-linear-regression/" rel="prev" title="PyTorch Linear Regression" type="text/html">
+<meta content="Neurotic Networking" property="og:site_name">
+<meta content="CNN GAN" property="og:title">
+<meta content="https://necromuralist.github.io/Neurotic-Networking/posts/gans/cnn-gan/" property="og:url">
+<meta content="Using a Convolutional-Neural-Network with a Generative Adversarial Network." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2021-04-14T19:52:11-07:00" property="article:published_time">
+<meta content="cnn" property="article:tag">
+<meta content="gan" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="../../../"><span id="blog-title">Neurotic Networking</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/Neurotic-Networking/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">CNN GAN</a></h1>
+<div class="metadata">
+<p class="byline author vcard p-author h-card"><span class="byline-name fn p-name" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2021-04-14T19:52:11-07:00" itemprop="datePublished" title="2021-04-14 19:52">2021-04-14 19:52</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org2eb810b">Deep Convolutional GAN (DCGAN)</a>
+<ul>
+<li><a href="#orgadb4ce5">Imports</a></li>
+<li><a href="#org76abedc">Set Up</a>
+<ul>
+<li><a href="#org5ef907b">The Random Seed</a></li>
+<li><a href="#orgf519141">Plotting and Timing</a></li>
+</ul>
+</li>
+<li><a href="#org4bed3ac">Helper Functions</a>
+<ul>
+<li><a href="#orgc65eccf">A Plotter</a></li>
+<li><a href="#org3818178">A Noise Maker</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#org9c2ae14">Middle</a>
+<ul>
+<li><a href="#org9afd59d">The Generator</a>
+<ul>
+<li><a href="#org0e8c98f">The Generator Class</a></li>
+<li><a href="#orgdd26498">Setup Testing</a></li>
+<li><a href="#org6b1aee0">Unit Tests</a></li>
+</ul>
+</li>
+<li><a href="#org17172a2">The Discriminator</a>
+<ul>
+<li><a href="#org8e3369f">The Discriminator Class</a></li>
+<li><a href="#orgd04e936">Set Up Testing</a></li>
+<li><a href="#org6d98ddd">Unit Testing</a></li>
+</ul>
+</li>
+<li><a href="#orge636bc2">Training The Model</a>
+<ul>
+<li><a href="#orgf665903">Set Up The Data</a></li>
+<li><a href="#org3b45d33">Set Up the GAN</a></li>
+<li><a href="#org7466db9">A Weight Initializer</a></li>
+<li><a href="#orgfdd058a">Train it</a></li>
+</ul>
+</li>
+<li><a href="#orgc5381fe">Looking at the Final model.</a></li>
+</ul>
+</li>
+<li><a href="#orga727767">End</a>
+<ul>
+<li><a href="#org37eb952">Sources</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org2eb810b">
+<h2 id="org2eb810b">Deep Convolutional GAN (DCGAN)</h2>
+<div class="outline-text-2" id="text-org2eb810b">
+<p>We're going to build a Generative Adversarial Network to generate handwritten digits. Instead of using fully-connected layers we'll use Convolutional layers.</p>
+<p>Here are the main features of a DCGAN.</p>
+<ul class="org-ul">
+<li>Replace any pooling layers with strided convolutions (discriminator) and fractional-strided convolutions (generator).</li>
+<li>Use BatchNorm in both the generator and the discriminator.</li>
+<li>Remove fully connected hidden layers for deeper architectures.</li>
+<li>ReLU activation in generator for all layers except for the output, which uses Tanh.</li>
+<li>Use LeakyReLU activation in the discriminator for all layers.</li>
+</ul>
+</div>
+<div class="outline-3" id="outline-container-orgadb4ce5">
+<h3 id="orgadb4ce5">Imports</h3>
+<div class="outline-text-3" id="text-orgadb4ce5">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="c1"># conda</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">torch.utils.data</span> <span class="kn">import</span> <span class="n">DataLoader</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">transforms</span>
+<span class="kn">from</span> <span class="nn">torchvision.datasets</span> <span class="kn">import</span> <span class="n">MNIST</span>
+<span class="kn">from</span> <span class="nn">torchvision.utils</span> <span class="kn">import</span> <span class="n">make_grid</span>
+
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="c1"># my stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">Timer</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org76abedc">
+<h3 id="org76abedc">Set Up</h3>
+<div class="outline-text-3" id="text-org76abedc"></div>
+<div class="outline-4" id="outline-container-org5ef907b">
+<h4 id="org5ef907b">The Random Seed</h4>
+<div class="outline-text-4" id="text-org5ef907b">
+<div class="highlight">
+<pre><span></span><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgf519141">
+<h4 id="orgf519141">Plotting and Timing</h4>
+<div class="outline-text-4" id="text-orgf519141">
+<div class="highlight">
+<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
+<span class="n">slug</span> <span class="o">=</span> <span class="s2">"cnn-gan"</span>
+
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/gans/</span><span class="si">{</span><span class="n">slug</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="n">Plot</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">"Plot"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"width"</span><span class="p">,</span> <span class="s2">"height"</span><span class="p">,</span> <span class="s2">"fontscale"</span><span class="p">,</span> <span class="s2">"tan"</span><span class="p">,</span> <span class="s2">"blue"</span><span class="p">,</span> <span class="s2">"red"</span><span class="p">])</span>
+<span class="n">PLOT</span> <span class="o">=</span> <span class="n">Plot</span><span class="p">(</span>
+    <span class="n">width</span><span class="o">=</span><span class="mi">900</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="mi">750</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">tan</span><span class="o">=</span><span class="s2">"#ddb377"</span><span class="p">,</span>
+    <span class="n">blue</span><span class="o">=</span><span class="s2">"#4687b7"</span><span class="p">,</span>
+    <span class="n">red</span><span class="o">=</span><span class="s2">"#ce7b6d"</span><span class="p">,</span>
+ <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org4bed3ac">
+<h3 id="org4bed3ac">Helper Functions</h3>
+<div class="outline-text-3" id="text-org4bed3ac"></div>
+<div class="outline-4" id="outline-container-orgc65eccf">
+<h4 id="orgc65eccf">A Plotter</h4>
+<div class="outline-text-4" id="text-orgc65eccf">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">plot_image</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+                <span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                <span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                <span class="n">num_images</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span>
+                <span class="n">size</span><span class="p">:</span> <span class="nb">tuple</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">),</span>
+                <span class="n">folder</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/gans/</span><span class="si">{</span><span class="n">slug</span><span class="si">}</span><span class="s2">/"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="sd">"""Plot the image and save it</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     image: the tensor with the image to plot</span>
+<span class="sd">     filename: name for the final image file</span>
+<span class="sd">     title: title to put on top of the image</span>
+<span class="sd">     num_images: how many images to put in the composite image</span>
+<span class="sd">     size: the size for the image</span>
+<span class="sd">     folder: sub-folder to save the file in</span>
+<span class="sd">    """</span>
+    <span class="n">unflattened_image</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="n">size</span><span class="p">)</span>
+    <span class="n">image_grid</span> <span class="o">=</span> <span class="n">make_grid</span><span class="p">(</span><span class="n">unflattened_image</span><span class="p">[:</span><span class="n">num_images</span><span class="p">],</span> <span class="n">nrow</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">image_grid</span><span class="o">.</span><span class="n">permute</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">())</span>
+
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">tick_params</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">top</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelbottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                       <span class="n">right</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">left</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelleft</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="n">filename</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[[file:</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">]]"</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org3818178">
+<h4 id="org3818178">A Noise Maker</h4>
+<div class="outline-text-4" id="text-org3818178">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">make_some_noise</span><span class="p">(</span><span class="n">n_samples</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="s2">"cpu"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""create noise vectors</span>
+
+<span class="sd">    creates </span>
+<span class="sd">    Args:</span>
+<span class="sd">       n_samples: the number of samples to generate, a scalar</span>
+<span class="sd">       z_dim: the dimension of the noise vector, a scalar</span>
+<span class="sd">       device: the device type (cpu or cuda)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     tensor with random numbers from the normal distribution.</span>
+<span class="sd">    """</span>
+
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_samples</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org9c2ae14">
+<h2 id="org9c2ae14">Middle</h2>
+<div class="outline-text-2" id="text-org9c2ae14"></div>
+<div class="outline-3" id="outline-container-org9afd59d">
+<h3 id="org9afd59d">The Generator</h3>
+<div class="outline-text-3" id="text-org9afd59d">
+<p>The first component you will make is the generator. You may notice that instead of passing in the image dimension, you will pass the number of image channels to the generator. This is because with DCGAN, you use convolutions which don’t depend on the number of pixels on an image. However, the number of channels is important to determine the size of the filters.</p>
+<p>You will build a generator using 4 layers (3 hidden layers + 1 output layer). As before, you will need to write a function to create a single block for the generator's neural network. From the paper:</p>
+<ul class="org-ul">
+<li>[u]se batchnorm in both the generator and the discriminator"</li>
+<li>[u]se ReLU activation in generator for all layers except for the output, which uses Tanh.</li>
+</ul>
+<p>Since in DCGAN the activation function will be different for the output layer, you will need to check what layer is being created.</p>
+<p>At the end of the generator class, you are given a forward pass function that takes in a noise vector and generates an image of the output dimension using your neural network. You are also given a function to create a noise vector. These functions are the same as the ones from the last assignment.</p>
+<p>See also:</p>
+<ul class="org-ul">
+<li><a href="https://pytorch.org/docs/master/generated/torch.nn.ConvTranspose2d.html">nn.ConvTranspose2d</a></li>
+<li><a href="https://pytorch.org/docs/master/generated/torch.nn.BatchNorm2d.html">nn.BatchNorm2d</a></li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-org0e8c98f">
+<h4 id="org0e8c98f">The Generator Class</h4>
+<div class="outline-text-4" id="text-org0e8c98f">
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Generator</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""The DCGAN Generator</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       z_dim: the dimension of the noise vector</span>
+<span class="sd">       im_chan: the number of channels in the images, fitted for the dataset used</span>
+<span class="sd">             (MNIST is black-and-white, so 1 channel is your default)</span>
+<span class="sd">       hidden_dim: the inner dimension,</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">z_dim</span> <span class="o">=</span> <span class="n">z_dim</span>
+        <span class="c1"># Build the neural network</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">z_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_gen_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                       <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                       <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Creates a block for the generator (sub sequence)</span>
+
+<span class="sd">       The parts</span>
+<span class="sd">        - a transposed convolution</span>
+<span class="sd">        - a batchnorm (except for in the last layer)</span>
+<span class="sd">        - an activation.</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           input_channels: how many channels the input feature representation has</span>
+<span class="sd">           output_channels: how many channels the output feature representation should have</span>
+<span class="sd">           kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">           stride: the stride of the convolution</span>
+<span class="sd">           final_layer: a boolean, true if it is the final layer and false otherwise </span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        the sub-sequence of layers</span>
+<span class="sd">       """</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c1"># Final Layer</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Tanh</span><span class="p">()</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">unsqueeze_noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""transforms the noize tensor</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           noise: a noise tensor with dimensions (n_samples, z_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        copy of noise with width and height = 1 and channels = z_dim.</span>
+<span class="sd">       """</span>
+        <span class="k">return</span> <span class="n">noise</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">noise</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">z_dim</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""complete a forward pass of the generator: Given a noise tensor, </span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        noise: a noise tensor with dimensions (n_samples, z_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        generated images.</span>
+<span class="sd">       """</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unsqueeze_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgdd26498">
+<h4 id="orgdd26498">Setup Testing</h4>
+<div class="outline-text-4" id="text-orgdd26498">
+<div class="highlight">
+<pre><span></span><span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">()</span>
+<span class="n">num_test</span> <span class="o">=</span> <span class="mi">100</span>
+
+<span class="c1"># Test the hidden block</span>
+<span class="n">test_hidden_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="n">gen</span><span class="o">.</span><span class="n">z_dim</span><span class="p">)</span>
+<span class="n">test_hidden_block</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">test_uns_noise</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">unsqueeze_noise</span><span class="p">(</span><span class="n">test_hidden_noise</span><span class="p">)</span>
+<span class="n">hidden_output</span> <span class="o">=</span> <span class="n">test_hidden_block</span><span class="p">(</span><span class="n">test_uns_noise</span><span class="p">)</span>
+
+<span class="c1"># Check that it works with other strides</span>
+<span class="n">test_hidden_block_stride</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="n">test_final_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="n">gen</span><span class="o">.</span><span class="n">z_dim</span><span class="p">)</span> <span class="o">*</span> <span class="mi">20</span>
+<span class="n">test_final_block</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">test_final_uns_noise</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">unsqueeze_noise</span><span class="p">(</span><span class="n">test_final_noise</span><span class="p">)</span>
+<span class="n">final_output</span> <span class="o">=</span> <span class="n">test_final_block</span><span class="p">(</span><span class="n">test_final_uns_noise</span><span class="p">)</span>
+
+<span class="c1"># Test the whole thing:</span>
+<span class="n">test_gen_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="n">gen</span><span class="o">.</span><span class="n">z_dim</span><span class="p">)</span>
+<span class="n">test_uns_gen_noise</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">unsqueeze_noise</span><span class="p">(</span><span class="n">test_gen_noise</span><span class="p">)</span>
+<span class="n">gen_output</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">test_uns_gen_noise</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org6b1aee0">
+<h4 id="org6b1aee0">Unit Tests</h4>
+<div class="outline-text-4" id="text-org6b1aee0">
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">hidden_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">1</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.2</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">1</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.5</span>
+
+<span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">test_hidden_block_stride</span><span class="p">(</span><span class="n">hidden_output</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span>
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span>
+
+<span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">gen_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">gen_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.5</span>
+<span class="k">assert</span> <span class="n">gen_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.8</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Success!"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org17172a2">
+<h3 id="org17172a2">The Discriminator</h3>
+<div class="outline-text-3" id="text-org17172a2">
+<p>The second component you need to create is the discriminator.</p>
+<p>You will use 3 layers in your discriminator's neural network. Like with the generator, you will need to create the method to create a single neural network block for the discriminator.</p>
+<p>From the paper:</p>
+<ul class="org-ul">
+<li>[u]se LeakyReLU activation in the discriminator for all layers.</li>
+<li>For the LeakyReLUs, "the slope of the leak was set to 0.2" in DCGAN.</li>
+</ul>
+<p>See Also:</p>
+<ul class="org-ul">
+<li><a href="https://pytorch.org/docs/master/generated/torch.nn.Conv2d.html">nn.Conv2d</a></li>
+<li><a href="https://pytorch.org/docs/master/generated/torch.nn.BatchNorm2d.html">nn.BatchNorm2d</a></li>
+<li><a href="https://pytorch.org/docs/master/generated/torch.nn.LeakyReLU.html">nn.LeakyReLU</a></li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-org8e3369f">
+<h4 id="org8e3369f">The Discriminator Class</h4>
+<div class="outline-text-4" id="text-org8e3369f">
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Discriminator</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""The DCGAN Discriminator</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     im_chan: the number of channels in the images, fitted for the dataset used</span>
+<span class="sd">             (MNIST is black-and-white, so 1 channel is the default)</span>
+<span class="sd">     hidden_dim: the inner dimension,</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">16</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Discriminator</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">disc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">im_chan</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">make_disc_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                        <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Make a sub-block of layers for the discriminator</span>
+
+<span class="sd">        - a convolution</span>
+<span class="sd">        - a batchnorm (except for in the last layer)</span>
+<span class="sd">        - an activation.</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">         input_channels: how many channels the input feature representation has</span>
+<span class="sd">         output_channels: how many channels the output feature representation should have</span>
+<span class="sd">         kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">         stride: the stride of the convolution</span>
+<span class="sd">         final_layer: if true it is the final layer and otherwise not</span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+<span class="sd">       """</span>        
+        <span class="c1"># Build the neural block</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">LeakyReLU</span><span class="p">(</span><span class="mf">0.2</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c1"># Final Layer</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="c1">#### START CODE HERE #### #</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="c1">#### END CODE HERE ####</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""Complete a forward pass of the discriminator</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">         image: a flattened image tensor with dimension (im_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        a 1-dimension tensor representing fake/real.</span>
+<span class="sd">       """</span>
+        <span class="n">disc_pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">disc</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">disc_pred</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">disc_pred</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgd04e936">
+<h4 id="orgd04e936">Set Up Testing</h4>
+<div class="outline-text-4" id="text-orgd04e936">
+<div class="highlight">
+<pre><span></span><span class="n">num_test</span> <span class="o">=</span> <span class="mi">100</span>
+
+<span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">()</span>
+<span class="n">disc</span> <span class="o">=</span> <span class="n">Discriminator</span><span class="p">()</span>
+<span class="n">test_images</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">make_some_noise</span><span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="n">gen</span><span class="o">.</span><span class="n">z_dim</span><span class="p">))</span>
+
+<span class="c1"># Test the hidden block</span>
+<span class="n">test_hidden_block</span> <span class="o">=</span> <span class="n">disc</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">hidden_output</span> <span class="o">=</span> <span class="n">test_hidden_block</span><span class="p">(</span><span class="n">test_images</span><span class="p">)</span>
+
+<span class="c1"># Test the final block</span>
+<span class="n">test_final_block</span> <span class="o">=</span> <span class="n">disc</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">final_output</span> <span class="o">=</span> <span class="n">test_final_block</span><span class="p">(</span><span class="n">test_images</span><span class="p">)</span>
+
+<span class="c1"># Test the whole thing:</span>
+<span class="n">disc_output</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">test_images</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org6d98ddd">
+<h4 id="org6d98ddd">Unit Testing</h4>
+<div class="outline-text-4" id="text-org6d98ddd"></div>
+<ul class="org-ul">
+<li><a id="orgd25c066"></a>The Hidden Block<br>
+<div class="outline-text-5" id="text-orgd25c066">
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">hidden_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="c1"># Because of the LeakyReLU slope</span>
+<span class="k">assert</span> <span class="o">-</span><span class="n">hidden_output</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">/</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.15</span>
+<span class="k">assert</span> <span class="o">-</span><span class="n">hidden_output</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">/</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.25</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.5</span>
+<span class="k">assert</span> <span class="n">hidden_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">1</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org0763c49"></a>The Final Block<br>
+<div class="outline-text-5" id="text-org0763c49">
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">final_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">1.0</span>
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">1.0</span>
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.3</span>
+<span class="k">assert</span> <span class="n">final_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.6</span>
+</pre></div>
+</div>
+</li>
+<li><a id="org08c4b60"></a>The Whole Thing<br>
+<div class="outline-text-5" id="text-org08c4b60">
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">disc_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">num_test</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">disc_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.25</span>
+<span class="k">assert</span> <span class="n">disc_output</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.5</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Success!"</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orge636bc2">
+<h3 id="orge636bc2">Training The Model</h3>
+<div class="outline-text-3" id="text-orge636bc2">
+<p>Remember that these are your parameters:</p>
+<ul class="org-ul">
+<li>criterion: the loss function</li>
+<li>n_epochs: the number of times you iterate through the entire dataset when training</li>
+<li>z_dim: the dimension of the noise vector</li>
+<li>display_step: how often to display/visualize the images</li>
+<li>batch_size: the number of images per forward/backward pass</li>
+<li>lr: the learning rate</li>
+<li>beta_1, beta_2: the momentum term</li>
+<li>device: the device type</li>
+</ul>
+</div>
+<div class="outline-4" id="outline-container-orgf665903">
+<h4 id="orgf665903">Set Up The Data</h4>
+<div class="outline-text-4" id="text-orgf665903">
+<div class="highlight">
+<pre><span></span><span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">BCEWithLogitsLoss</span><span class="p">()</span>
+<span class="n">z_dim</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">batch_size</span> <span class="o">=</span> <span class="mi">128</span>
+<span class="c1"># A learning rate of 0.0002 works well on DCGAN</span>
+<span class="n">lr</span> <span class="o">=</span> <span class="mf">0.0002</span>
+
+<span class="c1"># These parameters control the optimizer's momentum, which you can read more about here:</span>
+<span class="c1"># https://distill.pub/2017/momentum/ but you don’t need to worry about it for this course!</span>
+<span class="n">beta_1</span> <span class="o">=</span> <span class="mf">0.5</span> 
+<span class="n">beta_2</span> <span class="o">=</span> <span class="mf">0.999</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s1">'cuda'</span>
+
+<span class="c1"># You can tranform the image values to be between -1 and 1 (the range of the tanh activation)</span>
+<span class="n">transform</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span>
+    <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+    <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">((</span><span class="mf">0.5</span><span class="p">,),</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,)),</span>
+<span class="p">])</span>
+
+<span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/pytorch-data/MNIST"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="n">dataloader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span>
+    <span class="n">MNIST</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">download</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">),</span>
+    <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size</span><span class="p">,</span>
+    <span class="n">shuffle</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org3b45d33">
+<h4 id="org3b45d33">Set Up the GAN</h4>
+<div class="outline-text-4" id="text-org3b45d33">
+<div class="highlight">
+<pre><span></span><span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">z_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">gen_opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta_1</span><span class="p">,</span> <span class="n">beta_2</span><span class="p">))</span>
+<span class="n">disc</span> <span class="o">=</span> <span class="n">Discriminator</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> 
+<span class="n">disc_opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">disc</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta_1</span><span class="p">,</span> <span class="n">beta_2</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org7466db9">
+<h4 id="org7466db9">A Weight Initializer</h4>
+<div class="outline-text-4" id="text-org7466db9">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">initial_weights</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+    <span class="sd">"""Initialize the weights to the normal distribution</span>
+
+<span class="sd">     - mean 0</span>
+<span class="sd">     - standard deviation 0.02</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     m: layer whose weights to initialize</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">constant_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">gen</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">initial_weights</span><span class="p">)</span>
+<span class="n">disc</span> <span class="o">=</span> <span class="n">disc</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">initial_weights</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgfdd058a">
+<h4 id="orgfdd058a">Train it</h4>
+<div class="outline-text-4" id="text-orgfdd058a">
+<p>For each epoch, you will process the entire dataset in batches. For every batch, you will update the discriminator and generator. Then, you can see DCGAN's results!</p>
+<p>Here's roughly the progression you should be expecting. On GPU this takes about 30 seconds per thousand steps. On CPU, this can take about 8 hours per thousand steps. You might notice that in the image of Step 5000, the generator is disproprotionately producing things that look like ones. If the discriminator didn't learn to detect this imbalance quickly enough, then the generator could just produce more ones. As a result, it may have ended up tricking the discriminator so well that there would be no more improvement, known as mode collapse.</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_epochs</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">cur_step</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">display_step</span> <span class="o">=</span> <span class="mi">1000</span>
+<span class="n">mean_generator_loss</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">mean_discriminator_loss</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">generator_losses</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">discriminator_losses</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">steps</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="n">best_loss</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">)</span>
+<span class="n">best_step</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">best_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/models/gans/mnist-dcgan/best_model.pth"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+
+<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_epochs</span><span class="p">):</span>
+        <span class="c1"># Dataloader returns the batches</span>
+        <span class="k">for</span> <span class="n">real</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+            <span class="n">cur_batch_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="n">real</span> <span class="o">=</span> <span class="n">real</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+            <span class="c1">## Update discriminator ##</span>
+            <span class="n">disc_opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="n">fake_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">cur_batch_size</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">fake_noise</span><span class="p">)</span>
+            <span class="n">disc_fake_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">fake</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+            <span class="n">disc_fake_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">))</span>
+            <span class="n">disc_real_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="n">disc_real_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="p">))</span>
+            <span class="n">disc_loss</span> <span class="o">=</span> <span class="p">(</span><span class="n">disc_fake_loss</span> <span class="o">+</span> <span class="n">disc_real_loss</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+
+            <span class="c1"># Keep track of the average discriminator loss</span>
+            <span class="n">mean_discriminator_loss</span> <span class="o">+=</span> <span class="n">disc_loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">/</span> <span class="n">display_step</span>
+            <span class="c1"># Update gradients</span>
+            <span class="n">disc_loss</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">retain_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="c1"># Update optimizer</span>
+            <span class="n">disc_opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+            <span class="c1">## Update generator ##</span>
+            <span class="n">gen_opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="n">fake_noise_2</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">cur_batch_size</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">fake_2</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">fake_noise_2</span><span class="p">)</span>
+            <span class="n">disc_fake_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">fake_2</span><span class="p">)</span>
+            <span class="n">gen_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">))</span>
+            <span class="n">gen_loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+            <span class="n">gen_opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+            <span class="c1"># Keep track of the average generator loss</span>
+            <span class="n">mean_generator_loss</span> <span class="o">+=</span> <span class="n">gen_loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">/</span> <span class="n">display_step</span>
+            <span class="k">if</span> <span class="n">mean_generator_loss</span> <span class="o">&lt;</span> <span class="n">best_loss</span><span class="p">:</span>
+                <span class="n">best_loss</span><span class="p">,</span> <span class="n">best_step</span> <span class="o">=</span> <span class="n">mean_generator_loss</span><span class="p">,</span> <span class="n">cur_step</span>
+                <span class="k">with</span> <span class="n">best_path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">gen</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span>
+            <span class="c1">## Visualization code ##</span>
+            <span class="k">if</span> <span class="n">cur_step</span> <span class="o">%</span> <span class="n">display_step</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">cur_step</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Epoch </span><span class="si">{</span><span class="n">epoch</span><span class="si">}</span><span class="s2">, step </span><span class="si">{</span><span class="n">cur_step</span><span class="si">}</span><span class="s2">: Generator loss:"</span>
+                        <span class="sa">f</span><span class="s2">" </span><span class="si">{</span><span class="n">mean_generator_loss</span><span class="si">}</span><span class="s2">, discriminator loss:"</span>
+                        <span class="sa">f</span><span class="s2">" </span><span class="si">{</span><span class="n">mean_discriminator_loss</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+                <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur_step</span><span class="p">)</span>
+                <span class="n">generator_losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mean_generator_loss</span><span class="p">)</span>
+                <span class="n">discriminator_losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mean_discriminator_loss</span><span class="p">)</span>
+
+                <span class="n">mean_generator_loss</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="n">mean_discriminator_loss</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">cur_step</span> <span class="o">+=</span> <span class="mi">1</span>
+</pre></div>
+<pre class="example">
+Started: 2021-04-21 12:45:12.452739
+Epoch 2, step 1000: Generator loss: 1.2671969079673289, discriminator loss: 0.43014343224465823
+Epoch 4, step 2000: Generator loss: 1.1353899730443968, discriminator loss: 0.5306872705817226
+Epoch 6, step 3000: Generator loss: 0.8764803466945883, discriminator loss: 0.611450107574464
+Epoch 8, step 4000: Generator loss: 0.7747784045338618, discriminator loss: 0.6631499938964849
+Epoch 10, step 5000: Generator loss: 0.7640163034200661, discriminator loss: 0.6734729865789411
+Epoch 12, step 6000: Generator loss: 0.7452541967928404, discriminator loss: 0.6805261079072958
+Epoch 14, step 7000: Generator loss: 0.7337032879889016, discriminator loss: 0.6874966211915009
+Epoch 17, step 8000: Generator loss: 0.7245009585618979, discriminator loss: 0.6908933531045917
+Epoch 19, step 9000: Generator loss: 0.7180560626983646, discriminator loss: 0.6936621717810626
+Epoch 21, step 10000: Generator loss: 0.7115822317004211, discriminator loss: 0.695760274052621
+Epoch 23, step 11000: Generator loss: 0.7090291924774644, discriminator loss: 0.6962701203227039
+Epoch 25, step 12000: Generator loss: 0.7059894913136957, discriminator loss: 0.6973492541313167
+Epoch 27, step 13000: Generator loss: 0.7030480077862743, discriminator loss: 0.6978999735713001
+Epoch 29, step 14000: Generator loss: 0.7028095332086096, discriminator loss: 0.6974007876515396
+Epoch 31, step 15000: Generator loss: 0.7027116653919212, discriminator loss: 0.6965595571994787
+Epoch 34, step 16000: Generator loss: 0.7005282629728309, discriminator loss: 0.6962912415862079
+Epoch 36, step 17000: Generator loss: 0.7007142878770828, discriminator loss: 0.6961965024471283
+Epoch 38, step 18000: Generator loss: 0.699474583208561, discriminator loss: 0.6952810400128371
+Epoch 40, step 19000: Generator loss: 0.6989677719473828, discriminator loss: 0.6954642050266268
+Epoch 42, step 20000: Generator loss: 0.6977452509403238, discriminator loss: 0.695180906951427
+Epoch 44, step 21000: Generator loss: 0.6973587237596515, discriminator loss: 0.6950308464765543
+Epoch 46, step 22000: Generator loss: 0.6960379970669743, discriminator loss: 0.6949119175076485
+Epoch 49, step 23000: Generator loss: 0.6957966268062581, discriminator loss: 0.6948324624896048
+Epoch 51, step 24000: Generator loss: 0.6958502059578898, discriminator loss: 0.6945331234931943
+Epoch 53, step 25000: Generator loss: 0.6954856168627734, discriminator loss: 0.6943869084119801
+Epoch 55, step 26000: Generator loss: 0.6957543395757682, discriminator loss: 0.694317172288894
+Epoch 57, step 27000: Generator loss: 0.6947923063635825, discriminator loss: 0.694082073867321
+Epoch 59, step 28000: Generator loss: 0.6945026598572728, discriminator loss: 0.6939926172494871
+Epoch 61, step 29000: Generator loss: 0.6947789136767392, discriminator loss: 0.6938506522774704
+Epoch 63, step 30000: Generator loss: 0.6946699734926227, discriminator loss: 0.6937169924378406
+Epoch 66, step 31000: Generator loss: 0.6944284628629694, discriminator loss: 0.6936815274357805
+Epoch 68, step 32000: Generator loss: 0.6940396347641948, discriminator loss: 0.6935891906023032
+Epoch 70, step 33000: Generator loss: 0.6946771386265761, discriminator loss: 0.6937210547327995
+Epoch 72, step 34000: Generator loss: 0.693429798424244, discriminator loss: 0.6937174627780922
+Epoch 74, step 35000: Generator loss: 0.6937471128702157, discriminator loss: 0.6935204346776015
+Epoch 76, step 36000: Generator loss: 0.6938841561675072, discriminator loss: 0.6934832554459566
+Epoch 78, step 37000: Generator loss: 0.6934520475268362, discriminator loss: 0.6934578058719627
+Epoch 81, step 38000: Generator loss: 0.6936635475754732, discriminator loss: 0.6934186050295835
+Epoch 83, step 39000: Generator loss: 0.6936795052289972, discriminator loss: 0.6935187472105031
+Epoch 85, step 40000: Generator loss: 0.6933113215565679, discriminator loss: 0.6933534587025645
+Epoch 87, step 41000: Generator loss: 0.6934976277351385, discriminator loss: 0.6933284662365923
+Epoch 89, step 42000: Generator loss: 0.6933313971757892, discriminator loss: 0.693348657488824
+Epoch 91, step 43000: Generator loss: 0.6937436528205883, discriminator loss: 0.6933502901792529
+Epoch 93, step 44000: Generator loss: 0.6943431540131578, discriminator loss: 0.6933887023925772
+Epoch 95, step 45000: Generator loss: 0.6938722513914105, discriminator loss: 0.6932663491368296
+Epoch 98, step 46000: Generator loss: 0.6933276618123067, discriminator loss: 0.6934270900487906
+Ended: 2021-04-21 13:06:00.256725
+Elapsed: 0:20:47.803986
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgc5381fe">
+<h3 id="orgc5381fe">Looking at the Final model.</h3>
+<div class="outline-text-3" id="text-orgc5381fe">
+<div class="highlight">
+<pre><span></span><span class="n">fake_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">cur_batch_size</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+
+<span class="n">best_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">best_path</span><span class="p">)</span>
+<span class="n">fake</span> <span class="o">=</span> <span class="n">best_model</span><span class="p">(</span><span class="n">fake_noise</span><span class="p">)</span>
+<span class="n">plot_image</span><span class="p">(</span><span class="n">image</span><span class="o">=</span><span class="n">fake</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="s2">"fake_digits.png"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Fake Digits"</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="fake_digits.png" src="fake_digits.png"></p>
+</div>
+<div class="highlight">
+<pre><span></span><span class="n">plot_image</span><span class="p">(</span><span class="n">real</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="s2">"real_digits.png"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Real Digits"</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="real_digits.png" src="real_digits.png"></p>
+</div>
+<div class="highlight">
+<pre><span></span><span class="n">plotting</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span>
+    <span class="s2">"Step"</span><span class="p">:</span> <span class="n">steps</span><span class="p">,</span>
+    <span class="s2">"Generator Loss"</span><span class="p">:</span> <span class="n">generator_losses</span><span class="p">,</span>
+    <span class="s2">"Discriminator Loss"</span><span class="p">:</span> <span class="n">discriminator_losses</span>
+<span class="p">})</span>
+
+<span class="n">best</span> <span class="o">=</span> <span class="n">plotting</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">plotting</span><span class="p">[</span><span class="s2">"Generator Loss"</span><span class="p">]</span><span class="o">.</span><span class="n">argmin</span><span class="p">()]</span>
+<span class="n">best_line</span> <span class="o">=</span> <span class="n">holoviews</span><span class="o">.</span><span class="n">VLine</span><span class="p">(</span><span class="n">best</span><span class="o">.</span><span class="n">Step</span><span class="p">)</span>
+<span class="n">gen_plot</span> <span class="o">=</span> <span class="n">plotting</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"Step"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"Generator Loss"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">blue</span><span class="p">)</span>
+<span class="n">disc_plot</span> <span class="o">=</span> <span class="n">plotting</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="s2">"Step"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"Discriminator Loss"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">red</span><span class="p">)</span>
+
+<span class="n">plot</span> <span class="o">=</span> <span class="p">(</span><span class="n">gen_plot</span> <span class="o">*</span> <span class="n">disc_plot</span> <span class="o">*</span> <span class="n">best_line</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"Training Losses"</span><span class="p">,</span>
+                                               <span class="n">height</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">height</span><span class="p">,</span>
+                                               <span class="n">width</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">width</span><span class="p">,</span>
+                                               <span class="n">ylabel</span><span class="o">=</span><span class="s2">"Loss"</span><span class="p">,</span>
+                                               <span class="n">fontscale</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">fontscale</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"losses"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="losses.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-orga727767">
+<h2 id="orga727767">End</h2>
+<div class="outline-text-2" id="text-orga727767"></div>
+<div class="outline-3" id="outline-container-org37eb952">
+<h3 id="org37eb952">Sources</h3>
+<div class="outline-text-3" id="text-org37eb952">
+<ul class="org-ul">
+<li>Radford A, Metz L, Chintala S. Unsupervised representation learning with deep convolutional generative adversarial networks. arXiv preprint arXiv:1511.06434. 2015 Nov 19. (<a href="https://arxiv.org/pdf/1511.06434v1.pdf">PDF</a>)</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/cnn/" rel="tag">cnn</a></li>
+<li><a class="tag p-category" href="../../../categories/gan/" rel="tag">gan</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../../pytorch/pytorch-linear-regression/" rel="prev" title="PyTorch Linear Regression">Previous post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element){var i=element.getElementsByTagName('img')[0];return i===undefined?'':i.alt;}});
+</script>
+</body>
+</html>

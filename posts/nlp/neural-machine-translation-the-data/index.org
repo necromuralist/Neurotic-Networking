@@ -1,0 +1,690 @@
+#+BEGIN_COMMENT
+.. title: Neural Machine Translation: The Data
+.. slug: neural-machine-translation-the-data
+.. date: 2021-02-14 14:53:32 UTC-08:00
+.. tags: nlp,machine translation
+.. category: NLP
+.. link: 
+.. description: The data for our machine translation model.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-29cb2d40-c7da-4132-800a-6f12f42c8842-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* The Data
+  This is the first post in a series that will look at creating a Long-Short-Term-Memory (LSTM) model with attention for Machine Learning. The {{% lancelot title="previous post" %}}neural-machine-translation{{% /lancelot %}} was an overview that holds the links to all the posts in the series.
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+import random
+
+# pypi
+from termcolor import colored
+
+import numpy
+import trax
+#+end_src
+* Middle
+** Loading the Data  
+  Next, we will import the dataset we will use to train the model. If you are running out of space, you can just use a small dataset from [[http://opus.nlpl.eu/][Opus]], a growing collection of translated texts from the web. Particularly, we will get an English to German translation subset specified as ~opus/medical~ which has medical related texts. If storage is not an issue, you can opt to get a larger corpus such as the English to German translation dataset from [[https://paracrawl.eu/][ParaCrawl]], a large multi-lingual translation dataset created by the European Union. Both of these datasets are available via [[https://www.tensorflow.org/datasets][Tensorflow Datasets (TFDS)]]
+ and you can browse through the other available datasets [[https://www.tensorflow.org/datasets/catalog/overview][here]]. As you'll see below, you can easily access this dataset from TFDS with ~trax.data.TFDS~. The result is a python generator function yielding tuples. Use the ~keys~ argument to select what appears at which position in the tuple. For example, ~keys=('en', 'de')~ below will return pairs as (English sentence, German sentence).
+
+ The [[https://www.tensorflow.org/datasets/catalog/para_crawl#para_crawlende][=para_crawl/ende=]] dataset is 4.04 GiB while the [[https://www.tensorflow.org/datasets/catalog/opus#opusmedical_default_config][=opus/medical=]] dataset is 188.85 MiB.
+
+**Note:** Trying to download the ParaCrawl dataset using trax creates an out of resource error. You can try downloading the source from:
+
+https://s3.amazonaws.com/web-language-models/paracrawl/release4/en-de.bicleaner07.txt.gz
+
+Although I haven't figured out how to get it into the trax data yet so I'm sticking with the smaller data set.
+
+*** The Training Data
+The first time you run this it will download the dataset, after that it will just load it from the file.
+
+#+begin_src python :results output :exports both
+path = Path("~/data/tensorflow/translation/").expanduser()
+
+data_set = "opus/medical"
+# data_set = "para_crawl/ende"
+
+train_stream_fn = trax.data.TFDS(data_set,
+                                 data_dir=path,
+                                 keys=('en', 'de'),
+                                 eval_holdout_size=0.01,
+                                 train=True)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+#+begin_example
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+<ipython-input-6-fb62d04026f5> in <module>
+      4 # data_set = "para_crawl/ende"
+      5 
+----> 6 train_stream_fn = trax.data.TFDS(data_set,
+      7                                  data_dir=path,
+      8                                  keys=('en', 'de'),
+
+/usr/local/lib/python3.8/dist-packages/gin/config.py in gin_wrapper(*args, **kwargs)
+   1067       scope_info = " in scope '{}'".format(scope_str) if scope_str else ''
+   1068       err_str = err_str.format(name, fn_or_cls, scope_info)
+-> 1069       utils.augment_exception_message_and_reraise(e, err_str)
+   1070 
+   1071   return gin_wrapper
+
+/usr/local/lib/python3.8/dist-packages/gin/utils.py in augment_exception_message_and_reraise(exception, message)
+     39   proxy = ExceptionProxy()
+     40   ExceptionProxy.__qualname__ = type(exception).__qualname__
+---> 41   raise proxy.with_traceback(exception.__traceback__) from None
+     42 
+     43 
+
+/usr/local/lib/python3.8/dist-packages/gin/config.py in gin_wrapper(*args, **kwargs)
+   1044 
+   1045     try:
+-> 1046       return fn(*new_args, **new_kwargs)
+   1047     except Exception as e:  # pylint: disable=broad-except
+   1048       err_str = ''
+
+/usr/local/lib/python3.8/dist-packages/gin/config.py in gin_wrapper(*args, **kwargs)
+   1067       scope_info = " in scope '{}'".format(scope_str) if scope_str else ''
+   1068       err_str = err_str.format(name, fn_or_cls, scope_info)
+-> 1069       utils.augment_exception_message_and_reraise(e, err_str)
+   1070 
+   1071   return gin_wrapper
+
+/usr/local/lib/python3.8/dist-packages/gin/utils.py in augment_exception_message_and_reraise(exception, message)
+     39   proxy = ExceptionProxy()
+     40   ExceptionProxy.__qualname__ = type(exception).__qualname__
+---> 41   raise proxy.with_traceback(exception.__traceback__) from None
+     42 
+     43 
+
+/usr/local/lib/python3.8/dist-packages/gin/config.py in gin_wrapper(*args, **kwargs)
+   1044 
+   1045     try:
+-> 1046       return fn(*new_args, **new_kwargs)
+   1047     except Exception as e:  # pylint: disable=broad-except
+   1048       err_str = ''
+
+~/trax/trax/data/tf_inputs.py in TFDS(dataset_name, data_dir, tfds_preprocess_fn, keys, train, shuffle_train, host_id, n_hosts, eval_holdout_size)
+    279   else:
+    280     subsplit = None
+--> 281   (train_data, eval_data, _) = _train_and_eval_dataset(
+    282       dataset_name, data_dir, eval_holdout_size,
+    283       train_shuffle_files=shuffle_train, subsplit=subsplit)
+
+~/trax/trax/data/tf_inputs.py in _train_and_eval_dataset(dataset_name, data_dir, eval_holdout_size, train_shuffle_files, eval_shuffle_files, subsplit)
+    224   if eval_holdout_examples > 0 or subsplit is not None:
+    225     n_train = train_examples - eval_holdout_examples
+--> 226     train_start = int(n_train * subsplit[0])
+    227     train_end = int(n_train * subsplit[1])
+    228     if train_end - train_start < 1:
+
+TypeError: 'NoneType' object is not subscriptable
+  In call to configurable 'TFDS' (<function TFDS at 0x7f960c527280>)
+  In call to configurable 'TFDS' (<function TFDS at 0x7f960c526f70>)
+#+end_example
+:END:
+
+*** The Evaluation Data
+    Since we already downloaded the data in the previous code-block, this will just load the evaluation set from the downloaded data.
+    
+#+begin_src python :results none
+eval_stream_fn = trax.data.TFDS('opus/medical',
+                                data_dir=path,
+                                keys=('en', 'de'),
+                                eval_holdout_size=0.01,
+                                train=False)
+#+end_src
+
+
+ Notice that TFDS returns a generator *function*, not a generator. This is because in Python, you cannot reset generators so you cannot go back to a previously yielded value. During deep learning training, you use Stochastic Gradient Descent and don't actually need to go back -- but it is sometimes good to be able to do that, and that's where the functions come in. Let's print a a sample pair from our train and eval data. Notice that the raw output is represented in bytes (denoted by the ~b'~ prefix) and these will be converted to strings internally in the next steps.
+
+#+begin_src python :results output :exports both
+train_stream = train_stream_fn()
+print(colored('train data (en, de) tuple:', 'red'), next(train_stream))
+print()
+#+end_src
+
+#+RESULTS:
+: [31mtrain data (en, de) tuple:[0m (b'Tel: +421 2 57 103 777\n', b'Tel: +421 2 57 103 777\n')
+: 
+
+#+begin_src python :results output :exports both
+eval_stream = eval_stream_fn()
+print(colored('eval data (en, de) tuple:', 'red'), next(eval_stream))
+#+end_src
+
+#+RESULTS:
+: [31meval data (en, de) tuple:[0m (b'Lutropin alfa Subcutaneous use.\n', b'Pulver zur Injektion Lutropin alfa Subkutane Anwendung\n')
+
+**  Tokenization and Formatting
+
+ Now that we have imported our corpus, we will be preprocessing the sentences into a format that our model can accept. This will be composed of several steps:
+
+ **Tokenizing the sentences using subword representations:** We want to represent each sentence as an array of integers instead of strings. For our application, we will use *subword* representations to tokenize our sentences. This is a common technique to avoid out-of-vocabulary words by allowing parts of words to be represented separately. For example, instead of having separate entries in your vocabulary for --"fear", "fearless", "fearsome", "some", and "less"--, you can simply store --"fear", "some", and "less"-- then allow your tokenizer to combine these subwords when needed. This allows it to be more flexible so you won't have to save uncommon words explicitly in your vocabulary (e.g. *stylebender*, *nonce*, etc). Tokenizing is done with the `trax.data.Tokenize()` command and we have provided you the combined subword vocabulary for English and German (i.e. `ende_32k.subword`) retrieved from https://storage.googleapis.com/trax-ml/vocabs/ende_32k.subword (I'm using the web-interface, but you could also just download it and put it in a directory).
+
+#+begin_src python :results none
+VOCAB_FILE = 'ende_32k.subword'
+VOCAB_DIR = "gs://trax-ml/vocabs/" # google storage
+
+# Tokenize the dataset.
+tokenized_train_stream = trax.data.Tokenize(vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR)(train_stream)
+tokenized_eval_stream = trax.data.Tokenize(vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR)(eval_stream)
+#+end_src
+
+
+**Append an end-of-sentence token to each sentence:** We will assign a token (i.e. in this case ~1~) to mark the end of a sentence. This will be useful in inference/prediction so we'll know that the model has completed the translation.
+
+** Integer assigned as end-of-sentence (EOS)
+
+#+begin_src python :results none
+EOS = 1
+#+end_src
+
+#+begin_src python :results none
+def append_eos(stream):
+    """helper to add end of sentence token to sentences in the stream
+
+    Yields:
+     next tuple of numpy arrays with EOS token added (inputs, targets)
+    """
+    for (inputs, targets) in stream:
+        inputs_with_eos = list(inputs) + [EOS]
+        targets_with_eos = list(targets) + [EOS]
+        yield numpy.array(inputs_with_eos), numpy.array(targets_with_eos)
+    return
+#+end_src
+
+#+begin_src python :results none
+tokenized_train_stream = append_eos(tokenized_train_stream)
+tokenized_eval_stream = append_eos(tokenized_eval_stream)
+#+end_src
+
+*** Filter long sentences
+    We will place a limit on the number of tokens per sentence to ensure we won't run out of memory. This is done with the ~trax.data.FilterByLength()~ method and you can see its syntax below.
+
+ Filter too long sentences to not run out of memory. length_keys=[0, 1] means we filter both English and German sentences, so both must not be longer that 256 tokens for training and 512 tokens for evaluation.
+
+#+begin_src python :results none
+filtered_train_stream = trax.data.FilterByLength(
+    max_length=256, length_keys=[0, 1])(tokenized_train_stream)
+filtered_eval_stream = trax.data.FilterByLength(
+    max_length=512, length_keys=[0, 1])(tokenized_eval_stream)
+#+end_src 
+
+#+begin_src python :results output :exports both
+train_input, train_target = next(filtered_train_stream)
+print(colored(f'Single tokenized example input:', 'red' ), train_input)
+print(colored(f'Single tokenized example target:', 'red'), train_target)
+#+end_src
+
+#+RESULTS:
+: [31mSingle tokenized example input:[0m [ 2538  2248    30 12114 23184 16889     5     2 20852  6456 20592  5812
+:   3932    96  5178  3851    30  7891  3550 30650  4729   992     1]
+: [31mSingle tokenized example target:[0m [ 1872    11  3544    39  7019 17877 30432    23  6845    10 14222    47
+:   4004    18 21674     5 27467  9513   920   188 10630    18  3550 30650
+:   4729   992     1]
+
+**  tokenize & detokenize helper functions
+
+ Given any data set, you have to be able to map words to their indices, and indices to their words. The inputs and outputs to your trax models are usually tensors of numbers where each number corresponds to a word. If you were to process your data manually, you would have to make use of the following: 
+
+ * word2Ind:  a dictionary mapping the word to its index.
+ * ind2Word: a dictionary mapping the index to its word.
+ * word2Count: a dictionary mapping the word to the number of times it appears. 
+ * num_words: total number of words that have appeared. 
+
+#+begin_src python :results none
+def tokenize(input_str: str,
+             vocab_file: str=None, vocab_dir: str=None, EOS: int=EOS) -> numpy.ndarray:
+    """Encodes a string to an array of integers
+
+    Args:
+        input_str: human-readable string to encode
+        vocab_file: filename of the vocabulary text file
+        vocab_dir: path to the vocabulary file
+  
+    Returns:
+        tokenized version of the input string
+    """
+    # Use the trax.data.tokenize method. It takes streams and returns streams,
+    # we get around it by making a 1-element stream with `iter`.
+    inputs =  next(trax.data.tokenize(iter([input_str]),
+                                      vocab_file=vocab_file,
+                                      vocab_dir=vocab_dir))
+    
+    # Mark the end of the sentence with EOS
+    inputs = list(inputs) + [EOS]
+    
+    # Adding the batch dimension to the front of the shape
+    batch_inputs = numpy.reshape(numpy.array(inputs), [1, -1])
+    
+    return batch_inputs
+#+end_src
+
+#+begin_src python :results none
+def detokenize(integers: numpy.ndarray,
+               vocab_file: str=None,
+               vocab_dir: str=None,
+               EOS: int=EOS) -> str:
+    """Decodes an array of integers to a human readable string
+
+    Args:
+        integers: array of integers to decode
+        vocab_file: filename of the vocabulary text file
+        vocab_dir: path to the vocabulary file
+  
+    Returns:
+        str: the decoded sentence.
+    """
+    # Remove the dimensions of size 1
+    integers = list(numpy.squeeze(integers))
+    
+    # Remove the EOS to decode only the original tokens
+    if EOS in integers:
+        integers = integers[:integers.index(EOS)] 
+    
+    return trax.data.detokenize(integers, vocab_file=vocab_file, vocab_dir=vocab_dir)
+#+end_src
+
+Let's see how we might use these functions:
+
+ Detokenize an input-target pair of tokenized sentences
+
+#+begin_src python :results output :exports both
+print(colored(f'Single detokenized example input:', 'red'), detokenize(train_input, vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR))
+print(colored(f'Single detokenized example target:', 'red'), detokenize(train_target, vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR))
+print()
+#+end_src
+
+#+RESULTS:
+: [31mSingle detokenized example input:[0m During treatment with olanzapine, adolescents gained significantly more weight compared with adults.
+: 
+: [31mSingle detokenized example target:[0m Während der Behandlung mit Olanzapin nahmen die Jugendlichen im Vergleich zu Erwachsenen signifikant mehr Gewicht zu.
+: 
+
+Tokenize and detokenize a word that is not explicitly saved in the vocabulary file.
+ See how it combines the subwords -- 'hell' and 'o'-- to form the word 'hello'.
+
+#+begin_src python :results output :exports both 
+print(colored("tokenize('hello'): ", 'green'), tokenize('hello', vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR))
+print(colored("detokenize([17332, 140, 1]): ", 'green'), detokenize([17332, 140, 1], vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR))
+#+end_src
+
+#+RESULTS:
+: [32mtokenize('hello'): [0m [[17332   140     1]]
+: [32mdetokenize([17332, 140, 1]): [0m hello
+
+** Bucketing
+
+ Bucketing the tokenized sentences is an important technique used to speed up training in NLP. Here is a [[https://medium.com/@rashmi.margani/how-to-speed-up-the-training-of-the-sequence-model-using-bucketing-techniques-9e302b0fd976][nice article describing it in detail]] but the gist is very simple. Our inputs have variable lengths and you want to make these the same when batching groups of sentences together. One way to do that is to pad each sentence to the length of the longest sentence in the dataset. This might lead to some wasted computation though. For example, if there are multiple short sentences with just two tokens, do we want to pad these when the longest sentence is composed of a 100 tokens? Instead of padding with 0s to the maximum length of a sentence each time, we can group our tokenized sentences by length and bucket.
+
+
+ We batch the sentences with similar length together and only add minimal padding to make them have equal length (usually up to the nearest power of two). This allows us to waste less computation when processing padded sequences.
+
+ In Trax, it is implemented in the [[https://github.com/google/trax/blob/5fb8aa8c5cb86dabb2338938c745996d5d87d996/trax/supervised/inputs.py#L378][bucket_by_length]] function.
+
+*** Bucketing to create streams of batches.
+
+Buckets are defined in terms of boundaries and batch sizes. Batch_sizes[i] determines the batch size for items with length < boundaries[i]. So below, we'll take a batch of 256 sentences of length < 8, 128 if length is between 8 and 16, and so on -- and only 2 if length is over 512. We'll do the bucketing using [[https://trax-ml.readthedocs.io/en/latest/trax.data.html?highlight=bucket_by_length#trax.data.inputs.bucket_by_length][bucket_by_length]].
+
+#+begin_src python :results none
+boundaries = [2**power_of_two for power_of_two in range(3, 10)]
+batch_sizes = [2**power_of_two for power_of_two in range(8, 0, -1)]
+#+end_src
+
+Create the generators.
+
+#+begin_src python :results none
+train_batch_stream = trax.data.BucketByLength(
+    boundaries, batch_sizes,
+    length_keys=[0, 1]  # As before: count inputs and targets to length.
+)(filtered_train_stream)
+
+eval_batch_stream = trax.data.BucketByLength(
+    boundaries, batch_sizes,
+    length_keys=[0, 1]
+)(filtered_eval_stream)
+#+end_src
+
+ Add masking for the padding (0s) using [[https://trax-ml.readthedocs.io/en/latest/trax.data.html][add_loss_weights]] (we're using =AddLossWeights= but the documentation for that just says "see add_loss_weights"). I can't find any documentation for it, but I think the 0's are what BucketByLength uses for padding.
+
+#+begin_src python :results none
+train_batch_stream = trax.data.AddLossWeights(id_to_mask=0)(train_batch_stream)
+eval_batch_stream = trax.data.AddLossWeights(id_to_mask=0)(eval_batch_stream)
+#+end_src
+** Exploring the data
+
+ We will now be displaying some of our data. You will see that the functions defined above (i.e. ~tokenize()~ and ~detokenize()~) do the same things you have been doing again and again throughout the specialization. We gave these so you can focus more on building the model from scratch. Let us first get the data generator and get one batch of the data.
+
+#+begin_src python :results none
+input_batch, target_batch, mask_batch = next(train_batch_stream)
+#+end_src
+
+Let's see the data type of a batch.
+
+#+begin_src python :results output :exports both
+print("input_batch data type: ", type(input_batch))
+print("target_batch data type: ", type(target_batch))
+#+end_src
+
+#+RESULTS:
+: input_batch data type:  <class 'numpy.ndarray'>
+: target_batch data type:  <class 'numpy.ndarray'>
+
+Let's see the shape of this particular batch (batch length, sentence length).
+
+#+begin_src python :results output :exports both
+print("input_batch shape: ", input_batch.shape)
+print("target_batch shape: ", target_batch.shape)
+#+end_src
+
+#+RESULTS:
+: input_batch shape:  (32, 64)
+: target_batch shape:  (32, 64)
+
+ The ~input_batch~ and ~target_batch~ are Numpy arrays consisting of tokenized English sentences and German sentences respectively. These tokens will later be used to produce embedding vectors for each word in the sentence (so the embedding for a sentence will be a matrix). The number of sentences in each batch is usually a power of 2 for optimal computer memory usage. 
+
+ We can now visually inspect some of the data. You can run the cell below several times to shuffle through the sentences. Just to note, while this is a standard data set that is used widely, it does have some known wrong translations. With that, let's pick a random sentence and print its tokenized representation.
+
+Pick a random index less than the batch size.
+
+#+begin_src python :results none
+index = random.randrange(len(input_batch))
+#+end_src
+
+Use the index to grab an entry from the input and target batch.
+
+#+begin_src python :results output :exports both
+print(colored('THIS IS THE ENGLISH SENTENCE: \n', 'red'), detokenize(input_batch[index], vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR), '\n')
+print(colored('THIS IS THE TOKENIZED VERSION OF THE ENGLISH SENTENCE: \n ', 'red'), input_batch[index], '\n')
+print(colored('THIS IS THE GERMAN TRANSLATION: \n', 'red'), detokenize(target_batch[index], vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR), '\n')
+print(colored('THIS IS THE TOKENIZED VERSION OF THE GERMAN TRANSLATION: \n', 'red'), target_batch[index], '\n')
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[31mTHIS IS THE ENGLISH SENTENCE: 
+[0m Kidneys and urinary tract (no effects were found to be common); uncommon: blood in the urine, proteins in the urine, sugar in the urine; rare: urge to pass urine, kidney pain, passing urine frequently.
+ 
+
+[31mTHIS IS THE TOKENIZED VERSION OF THE ENGLISH SENTENCE: 
+ [0m [ 5381 17607  3093     8  8670  6086   105 19166     5    50   154  1743
+   152  1103     9    32   568  8076 19124  6847    64  6196     6     4
+  8670   510     2 13355   823     6     4  8670   510     2  4968     6
+     4  8670   510   115  7227    64  7628     9  2685  8670   510     2
+ 12220  5509 12095     2 19632  8670   510  7326  3550 30650  4729   992
+     1     0     0     0] 
+
+[31mTHIS IS THE GERMAN TRANSLATION: 
+[0m Harndrang, Nierenschmerzen, häufiges Wasserlassen.
+ 
+
+[31mTHIS IS THE TOKENIZED VERSION OF THE GERMAN TRANSLATION: 
+[0m [ 5135 14970  2920     2  6262  4594 27552    28     2 20052    33  3736
+   530  3550 30650  4729   992     1     0     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+     0     0     0     0] 
+#+end_example
+* Bundle it Up
+#+begin_src python :tangle ../../neurotic/nlp/machine_translation/data_generator.py :exports none
+<<imports>>
+
+<<constants>>
+
+<<tokenizer>>
+
+<<detokenizer>>
+
+<<data-generator>>
+
+    <<append-end-of-sentence>>
+
+    <<generator-function>>
+
+    <<batch-stream>>
+#+end_src
+** Imports
+#+begin_src python :noweb-ref imports
+# python
+from collections import namedtuple
+from pathlib import Path
+
+# pypi
+import attr
+import numpy
+import trax
+#+end_src
+** Constants
+#+begin_src python :noweb-ref constants
+DataDefaults = namedtuple("DataDefaults",
+                          ["path",
+                           "dataset",
+                           "keys",
+                           "evaluation_size",
+                           "end_of_sentence",
+                           "vocabulary_file",
+                           "vocabulary_path",
+                           "length_keys",
+                           "boundaries",
+                           "batch_sizes",
+                           "padding_token"])
+
+DEFAULTS = DataDefaults(
+    path=Path("~/data/tensorflow/translation/").expanduser(),
+    dataset="opus/medical",
+    keys=("en", "de"),
+    evaluation_size=0.01,
+    end_of_sentence=1,
+    vocabulary_file="ende_32k.subword",
+    vocabulary_path="gs://trax-ml/vocabs/",
+    length_keys=[0, 1],
+    boundaries=[2**power_of_two for power_of_two in range(3, 10)],
+    batch_sizes=[2**power_of_two for power_of_two in range(8, 0, -1)],
+    padding_token=0,
+)
+
+MaxLength = namedtuple("MaxLength", "train evaluate".split())
+MAX_LENGTH = MaxLength(train=256, evaluate=512)
+END_OF_SENTENCE = 1
+#+end_src
+** Tokenizer/Detokenizer
+*** Tokenizer
+#+begin_src python :noweb-ref tokenizer
+def tokenize(input_str: str,
+             vocab_file: str=None, vocab_dir: str=None,
+             end_of_sentence: int=DEFAULTS.end_of_sentence) -> numpy.ndarray:
+    """Encodes a string to an array of integers
+
+    Args:
+        input_str: human-readable string to encode
+        vocab_file: filename of the vocabulary text file
+        vocab_dir: path to the vocabulary file
+        end_of_sentence: token for the end of sentence
+    Returns:
+        tokenized version of the input string
+    """
+    # The trax.data.tokenize method takes streams and returns streams,
+    # we get around it by making a 1-element stream with `iter`.
+    inputs =  next(trax.data.tokenize(iter([input_str]),
+                                      vocab_file=vocab_file,
+                                      vocab_dir=vocab_dir))
+    
+    # Mark the end of the sentence with EOS
+    inputs = list(inputs) + [end_of_sentence]
+    
+    # Adding the batch dimension to the front of the shape
+    batch_inputs = numpy.reshape(numpy.array(inputs), [1, -1])
+    return batch_inputs
+#+end_src
+*** Detokenizer
+#+begin_src python :noweb-ref detokenizer
+def detokenize(integers: numpy.ndarray,
+               vocab_file: str=None,
+               vocab_dir: str=None,
+               end_of_sentence: int=DEFAULTS.end_of_sentence) -> str:
+    """Decodes an array of integers to a human readable string
+
+    Args:
+        integers: array of integers to decode
+        vocab_file: filename of the vocabulary text file
+        vocab_dir: path to the vocabulary file
+        end_of_sentence: token to mark the end of a sentence
+    Returns:
+        str: the decoded sentence.
+    """
+    # Remove the dimensions of size 1
+    integers = list(numpy.squeeze(integers))
+    
+    # Remove the EOS to decode only the original tokens
+    if end_of_sentence in integers:
+        integers = integers[:integers.index(end_of_sentence)] 
+    
+    return trax.data.detokenize(integers, vocab_file=vocab_file, vocab_dir=vocab_dir)
+#+end_src    
+** Data Generator
+#+begin_src python :noweb-ref data-generator
+@attr.s(auto_attribs=True)
+class DataGenerator:
+    """Generates the streams of data
+
+    Args:
+     training: whether this generates training data or not
+     path: path to the data set
+     data_set: name of the data set (from tensorflow datasets)
+     keys: the names of the data
+     max_length: longest allowed set of tokens
+     evaluation_fraction: how much of the data is saved for evaluation
+     length_keys: keys (indexes) to use when setting length
+     boundaries: upper limits for batch sizes
+     batch_sizes: batch_size for each boundary
+     padding_token: which token is used for padding
+     vocabulary_file: name of the sub-words vocabulary file
+     vocabulary_path: where to find the vocabulary file
+     end_of_sentence: token to indicate the end of a sentence
+    """
+    training: bool=True
+    path: Path=DEFAULTS.path
+    data_set: str=DEFAULTS.dataset
+    keys: tuple=DEFAULTS.keys
+    max_length: int=MAX_LENGTH.train
+    length_keys: list=DEFAULTS.length_keys
+    boundaries: list=DEFAULTS.boundaries
+    batch_sizes: list=DEFAULTS.batch_sizes
+    evaluation_fraction: float=DEFAULTS.evaluation_size
+    vocabulary_file: str=DEFAULTS.vocabulary_file
+    vocabulary_path: str=DEFAULTS.vocabulary_path
+    padding_token: int=DEFAULTS.padding_token
+    end_of_sentence: int=DEFAULTS.end_of_sentence
+    _generator_function: type=None
+    _batch_generator: type=None
+#+end_src
+*** Append End of Sentence
+#+begin_src python :noweb-ref append-end-of-sentence
+def end_of_sentence_generator(self, original):
+    """Generator that adds end of sentence tokens
+
+    Args:
+     original: generator to add the end of sentence tokens to
+
+    Yields:
+     next tuple of arrays with EOS token added
+    """
+    for inputs, targets in original:
+        inputs = list(inputs) + [self.end_of_sentence]
+        targets = list(targets) + [self.end_of_sentence]
+        yield numpy.array(inputs), numpy.array(targets)
+    return 
+#+end_src    
+*** Generator Function
+#+begin_src python :noweb-ref generator-function
+@property
+def generator_function(self):
+    """Function to create the data generator"""
+    if self._generator_function is None:
+        self._generator_function = trax.data.TFDS(self.data_set,
+                                                  data_dir=self.path,
+                                                  keys=self.keys,
+                                                  eval_holdout_size=self.evaluation_fraction,
+                                                  train=self.training)
+    return self._generator_function
+#+end_src
+*** Batch Stream
+#+begin_src python :noweb-ref batch-stream
+@property
+def batch_generator(self):
+    """batch data generator"""
+    if self._batch_generator is None:
+        generator = self.generator_function()
+        generator = trax.data.Tokenize(
+            vocab_file=self.vocabulary_file,
+            vocab_dir=self.vocabulary_path)(generator)
+        generator = self.end_of_sentence_generator(generator)
+        generator = trax.data.FilterByLength(
+            max_length=self.max_length,
+            length_keys=self.length_keys)(generator)
+        generator = trax.data.BucketByLength(
+            self.boundaries, self.batch_sizes,
+            length_keys=self.length_keys
+        )(generator)
+        self._batch_generator = trax.data.AddLossWeights(
+            id_to_mask=self.padding_token)(generator)
+    return self._batch_generator
+#+end_src
+** Try It Out
+#+begin_src python :results output :exports both
+from neurotic.nlp.machine_translation import DataGenerator, detokenize
+
+generator = DataGenerator().batch_generator
+input_batch, target_batch, mask_batch = next(generator)
+index = random.randrange(len(batch))
+
+
+print(colored('THIS IS THE ENGLISH SENTENCE: \n', 'red'), detokenize(input_batch[index], vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR), '\n')
+print(colored('THIS IS THE TOKENIZED VERSION OF THE ENGLISH SENTENCE: \n ', 'red'), input_batch[index], '\n')
+print(colored('THIS IS THE GERMAN TRANSLATION: \n', 'red'), detokenize(target_batch[index], vocab_file=VOCAB_FILE, vocab_dir=VOCAB_DIR), '\n')
+print(colored('THIS IS THE TOKENIZED VERSION OF THE GERMAN TRANSLATION: \n', 'red'), target_batch[index], '\n')
+
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[31mTHIS IS THE ENGLISH SENTENCE: 
+[0m Signs of hypersensitivity reactions include hives, generalised urticaria, tightness of the chest, wheezing, hypotension and anaphylaxis.
+ 
+
+[31mTHIS IS THE TOKENIZED VERSION OF THE ENGLISH SENTENCE: 
+ [0m [10495    14     7 10224 19366 10991  1020  3481  2486     2  9547  7417
+   103  4572 11927  9371     2 13197  1496     7     4 24489    62     2
+ 16402 24010   211     2  4814 23010 12122    22     8  4867 19606  6457
+  5175    14  3550 30650  4729   992     1     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+     0     0     0     0] 
+
+[31mTHIS IS THE GERMAN TRANSLATION: 
+[0m Überempfindlichkeitsreaktionen können sich durch Anzeichen wie Nesselausschlag, generalisierte Urtikaria, Engegefühl im Brustkorb, Pfeifatmung, Blutdruckabfall und Anaphylaxie äußern.
+ 
+
+[31mTHIS IS THE TOKENIZED VERSION OF THE GERMAN TRANSLATION: 
+[0m [ 3916 29551 13504  5020  4094 13522   119    51   121  8602    93 31508
+  6050 30327  6978     2  9547  7417  2446  5618  4581  5530  1384     2
+ 26006  7831 13651     5    47  8584  4076  5262   868     2 25389  8898
+ 28268     2  9208 29697 17944    83    12  9925 19606  6457 16384     5
+ 11790  3550 30650  4729   992     1     0     0     0     0     0     0
+     0     0     0     0] 
+#+end_example
+
+* End
+  Now that we have our data prepared it's time to move on to {{% lancelot title="defining the Attention Model" %}}neural-machine-translation-the-attention-model{{% /lancelot %}}.

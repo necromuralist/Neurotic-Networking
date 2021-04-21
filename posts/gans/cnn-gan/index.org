@@ -1,0 +1,637 @@
+#+BEGIN_COMMENT
+.. title: CNN GAN
+.. slug: cnn-gan
+.. date: 2021-04-14 19:52:11 UTC-07:00
+.. tags: cnn,gan
+.. category: GAN
+.. link: 
+.. description: Using a Convolutional-Neural-Network with a Generative Adversarial Network.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+TOC: headlines 3
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b2bcd25b-6121-4d12-94ff-4767af4260c5-ssh.json
+#+BEGIN_SRC python :results none :exports none
+%load_ext autoreload
+%autoreload 2
+%config InlineBackend.figure_format 'retina'
+#+END_SRC
+* Deep Convolutional GAN (DCGAN)
+  We're going to build a Generative Adversarial Network to generate handwritten digits. Instead of using fully-connected layers we'll use Convolutional layers.
+
+ Here are the main features of a DCGAN.
+
+ - Replace any pooling layers with strided convolutions (discriminator) and fractional-strided convolutions (generator).
+ - Use BatchNorm in both the generator and the discriminator.
+ - Remove fully connected hidden layers for deeper architectures.
+ - ReLU activation in generator for all layers except for the output, which uses Tanh.
+ - Use LeakyReLU activation in the discriminator for all layers.
+** Imports
+#+begin_src python :results none
+# python
+from collections import namedtuple
+from functools import partial
+from pathlib import Path
+
+# conda
+from torch import nn
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.datasets import MNIST
+from torchvision.utils import make_grid
+
+import holoviews
+import hvplot.pandas
+import matplotlib.pyplot as pyplot
+import pandas
+import torch
+# my stuff
+from graeae import EmbedHoloviews, Timer
+#+end_src
+** Set Up
+*** The Random Seed
+#+begin_src python :results none
+torch.manual_seed(0)
+#+end_src
+*** Plotting and Timing
+#+begin_src python :results none
+TIMER = Timer()
+slug = "cnn-gan"
+
+Embed = partial(EmbedHoloviews, folder_path=f"files/posts/gans/{slug}")
+
+Plot = namedtuple("Plot", ["width", "height", "fontscale", "tan", "blue", "red"])
+PLOT = Plot(
+    width=900,
+    height=750,
+    fontscale=2,
+    tan="#ddb377",
+    blue="#4687b7",
+    red="#ce7b6d",
+ )
+
+#+end_src
+** Helper Functions
+*** A Plotter
+#+begin_src python :results none
+def plot_image(image: torch.Tensor,
+                filename: str,
+                title: str,
+                num_images: int=25,
+                size: tuple=(1, 28, 28),
+                folder: str=f"files/posts/gans/{slug}/") -> None:
+    """Plot the image and save it
+
+    Args:
+     image: the tensor with the image to plot
+     filename: name for the final image file
+     title: title to put on top of the image
+     num_images: how many images to put in the composite image
+     size: the size for the image
+     folder: sub-folder to save the file in
+    """
+    unflattened_image = image.detach().cpu().view(-1, *size)
+    image_grid = make_grid(unflattened_image[:num_images], nrow=5)
+
+    pyplot.title(title)
+    pyplot.grid(False)
+    pyplot.imshow(image_grid.permute(1, 2, 0).squeeze())
+
+    pyplot.tick_params(bottom=False, top=False, labelbottom=False,
+                       right=False, left=False, labelleft=False)
+    pyplot.savefig(folder + filename)
+    print(f"[[file:{filename}]]")
+    return
+#+end_src
+*** A Noise Maker
+#+begin_src python :results none
+def make_some_noise(n_samples: int, z_dim: int, device: str="cpu") -> torch.Tensor:
+    """create noise vectors
+
+    creates 
+    Args:
+        n_samples: the number of samples to generate, a scalar
+        z_dim: the dimension of the noise vector, a scalar
+        device: the device type (cpu or cuda)
+
+    Returns:
+     tensor with random numbers from the normal distribution.
+    """
+    
+    return torch.randn(n_samples, z_dim, device=device)
+#+end_src
+
+* Middle
+** The Generator
+
+ The first component you will make is the generator. You may notice that instead of passing in the image dimension, you will pass the number of image channels to the generator. This is because with DCGAN, you use convolutions which don’t depend on the number of pixels on an image. However, the number of channels is important to determine the size of the filters.
+
+ You will build a generator using 4 layers (3 hidden layers + 1 output layer). As before, you will need to write a function to create a single block for the generator's neural network.
+From the paper:
+
+ - [u]se batchnorm in both the generator and the discriminator"
+ - [u]se ReLU activation in generator for all layers except for the output, which uses Tanh.
+
+ Since in DCGAN the activation function will be different for the output layer, you will need to check what layer is being created.
+
+ At the end of the generator class, you are given a forward pass function that takes in a noise vector and generates an image of the output dimension using your neural network. You are also given a function to create a noise vector. These functions are the same as the ones from the last assignment.
+
+See also:
+ - [[https://pytorch.org/docs/master/generated/torch.nn.ConvTranspose2d.html][nn.ConvTranspose2d]]
+ - [[https://pytorch.org/docs/master/generated/torch.nn.BatchNorm2d.html][nn.BatchNorm2d]]
+
+*** The Generator Class
+#+begin_src python :results none
+class Generator(nn.Module):
+    """The DCGAN Generator
+
+    Args:
+        z_dim: the dimension of the noise vector
+        im_chan: the number of channels in the images, fitted for the dataset used
+              (MNIST is black-and-white, so 1 channel is your default)
+        hidden_dim: the inner dimension,
+    """
+    def __init__(self, z_dim: int=10, im_chan: int=1, hidden_dim: int=64):
+        super().__init__()
+        self.z_dim = z_dim
+        # Build the neural network
+        self.gen = nn.Sequential(
+            self.make_gen_block(z_dim, hidden_dim * 4),
+            self.make_gen_block(hidden_dim * 4, hidden_dim * 2, kernel_size=4, stride=1),
+            self.make_gen_block(hidden_dim * 2, hidden_dim),
+            self.make_gen_block(hidden_dim, im_chan, kernel_size=4, final_layer=True),
+        )
+
+    def make_gen_block(self, input_channels: int, output_channels: int,
+                       kernel_size: int=3, stride: int=2,
+                       final_layer: bool=False) -> nn.Sequential:
+        """Creates a block for the generator (sub sequence)
+
+        The parts
+         - a transposed convolution
+         - a batchnorm (except for in the last layer)
+         - an activation.
+
+        Args:
+            input_channels: how many channels the input feature representation has
+            output_channels: how many channels the output feature representation should have
+            kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)
+            stride: the stride of the convolution
+            final_layer: a boolean, true if it is the final layer and false otherwise 
+                      (affects activation and batchnorm)
+
+        Returns:
+         the sub-sequence of layers
+        """
+        if not final_layer:
+            return nn.Sequential(
+                nn.ConvTranspose2d(input_channels, output_channels, kernel_size, stride),
+                nn.BatchNorm2d(output_channels),
+                nn.ReLU()
+            )
+        else: # Final Layer
+            return nn.Sequential(
+                nn.ConvTranspose2d(input_channels, output_channels, kernel_size, stride),
+                nn.Tanh()
+            )
+
+    def unsqueeze_noise(self, noise: torch.Tensor) -> torch.Tensor:
+        """transforms the noize tensor
+
+        Args:
+            noise: a noise tensor with dimensions (n_samples, z_dim)
+
+        Returns:
+         copy of noise with width and height = 1 and channels = z_dim.
+        """
+        return noise.view(len(noise), self.z_dim, 1, 1)
+
+    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+        """complete a forward pass of the generator: Given a noise tensor, 
+
+        Args:
+         noise: a noise tensor with dimensions (n_samples, z_dim)
+
+        Returns:
+         generated images.
+        """
+        x = self.unsqueeze_noise(noise)
+        return self.gen(x)
+#+end_src
+
+*** Setup Testing
+#+begin_src python :results none
+gen = Generator()
+num_test = 100
+
+# Test the hidden block
+test_hidden_noise = make_some_noise(num_test, gen.z_dim)
+test_hidden_block = gen.make_gen_block(10, 20, kernel_size=4, stride=1)
+test_uns_noise = gen.unsqueeze_noise(test_hidden_noise)
+hidden_output = test_hidden_block(test_uns_noise)
+
+# Check that it works with other strides
+test_hidden_block_stride = gen.make_gen_block(20, 20, kernel_size=4, stride=2)
+
+test_final_noise = make_some_noise(num_test, gen.z_dim) * 20
+test_final_block = gen.make_gen_block(10, 20, final_layer=True)
+test_final_uns_noise = gen.unsqueeze_noise(test_final_noise)
+final_output = test_final_block(test_final_uns_noise)
+
+# Test the whole thing:
+test_gen_noise = make_some_noise(num_test, gen.z_dim)
+test_uns_gen_noise = gen.unsqueeze_noise(test_gen_noise)
+gen_output = gen(test_uns_gen_noise)
+#+end_src
+
+*** Unit Tests
+#+begin_src python :results none
+assert tuple(hidden_output.shape) == (num_test, 20, 4, 4)
+assert hidden_output.max() > 1
+assert hidden_output.min() == 0
+assert hidden_output.std() > 0.2
+assert hidden_output.std() < 1
+assert hidden_output.std() > 0.5
+
+assert tuple(test_hidden_block_stride(hidden_output).shape) == (num_test, 20, 10, 10)
+
+assert final_output.max().item() == 1
+assert final_output.min().item() == -1
+
+assert tuple(gen_output.shape) == (num_test, 1, 28, 28)
+assert gen_output.std() > 0.5
+assert gen_output.std() < 0.8
+print("Success!")
+#+end_src
+** The Discriminator
+ The second component you need to create is the discriminator.
+
+ You will use 3 layers in your discriminator's neural network. Like with the generator, you will need to create the method to create a single neural network block for the discriminator.
+
+From the paper:
+ - [u]se LeakyReLU activation in the discriminator for all layers.
+ - For the LeakyReLUs, "the slope of the leak was set to 0.2" in DCGAN.
+
+See Also:
+ - [[https://pytorch.org/docs/master/generated/torch.nn.Conv2d.html][nn.Conv2d]]
+ - [[https://pytorch.org/docs/master/generated/torch.nn.BatchNorm2d.html][nn.BatchNorm2d]]
+ - [[https://pytorch.org/docs/master/generated/torch.nn.LeakyReLU.html][nn.LeakyReLU]]
+
+*** The Discriminator Class
+#+begin_src python :results none
+class Discriminator(nn.Module):
+    """The DCGAN Discriminator
+
+    Args:
+     im_chan: the number of channels in the images, fitted for the dataset used
+              (MNIST is black-and-white, so 1 channel is the default)
+     hidden_dim: the inner dimension,
+    """
+    def __init__(self, im_chan: int=1, hidden_dim: int=16):
+        super(Discriminator, self).__init__()
+        self.disc = nn.Sequential(
+            self.make_disc_block(im_chan, hidden_dim),
+            self.make_disc_block(hidden_dim, hidden_dim * 2),
+            self.make_disc_block(hidden_dim * 2, 1, final_layer=True),
+        )
+        return
+
+    def make_disc_block(self, input_channels: int, output_channels: int,
+                        kernel_size: int=4, stride: int=2,
+                        final_layer: bool=False) -> nn.Sequential:
+        """Make a sub-block of layers for the discriminator
+
+         - a convolution
+         - a batchnorm (except for in the last layer)
+         - an activation.
+
+        Args:
+          input_channels: how many channels the input feature representation has
+          output_channels: how many channels the output feature representation should have
+          kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)
+          stride: the stride of the convolution
+          final_layer: if true it is the final layer and otherwise not
+                      (affects activation and batchnorm)
+        """        
+        # Build the neural block
+        if not final_layer:
+            return nn.Sequential(
+                nn.Conv2d(input_channels, output_channels, kernel_size, stride),
+                nn.BatchNorm2d(output_channels),
+                nn.LeakyReLU(0.2)
+            )
+        else: # Final Layer
+            return nn.Sequential(
+                #### START CODE HERE #### #
+                nn.Conv2d(input_channels, output_channels, kernel_size, stride),
+                #### END CODE HERE ####
+            )
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        """Complete a forward pass of the discriminator
+
+        Args:
+          image: a flattened image tensor with dimension (im_dim)
+
+        Returns:
+         a 1-dimension tensor representing fake/real.
+        """
+        disc_pred = self.disc(image)
+        return disc_pred.view(len(disc_pred), -1)
+#+end_src
+
+*** Set Up Testing
+#+begin_src python :results none
+num_test = 100
+
+gen = Generator()
+disc = Discriminator()
+test_images = gen(make_some_noise(num_test, gen.z_dim))
+
+# Test the hidden block
+test_hidden_block = disc.make_disc_block(1, 5, kernel_size=6, stride=3)
+hidden_output = test_hidden_block(test_images)
+
+# Test the final block
+test_final_block = disc.make_disc_block(1, 10, kernel_size=2, stride=5, final_layer=True)
+final_output = test_final_block(test_images)
+
+# Test the whole thing:
+disc_output = disc(test_images)
+#+end_src
+
+
+*** Unit Testing
+**** The Hidden Block
+#+begin_src python :results none
+assert tuple(hidden_output.shape) == (num_test, 5, 8, 8)
+# Because of the LeakyReLU slope
+assert -hidden_output.min() / hidden_output.max() > 0.15
+assert -hidden_output.min() / hidden_output.max() < 0.25
+assert hidden_output.std() > 0.5
+assert hidden_output.std() < 1
+#+end_src
+**** The Final Block
+#+begin_src python :results none
+assert tuple(final_output.shape) == (num_test, 10, 6, 6)
+assert final_output.max() > 1.0
+assert final_output.min() < -1.0
+assert final_output.std() > 0.3
+assert final_output.std() < 0.6
+#+end_src
+
+**** The Whole Thing
+#+begin_src python :results none
+assert tuple(disc_output.shape) == (num_test, 1)
+assert disc_output.std() > 0.25
+assert disc_output.std() < 0.5
+print("Success!")
+#+end_src
+** Training The Model
+ Remember that these are your parameters:
+   -   criterion: the loss function
+   -   n_epochs: the number of times you iterate through the entire dataset when training
+   -   z_dim: the dimension of the noise vector
+   -   display_step: how often to display/visualize the images
+   -   batch_size: the number of images per forward/backward pass
+   -   lr: the learning rate
+   -   beta_1, beta_2: the momentum term
+   -   device: the device type
+
+*** Set Up The Data
+#+begin_src python :results none
+criterion = nn.BCEWithLogitsLoss()
+z_dim = 64
+batch_size = 128
+# A learning rate of 0.0002 works well on DCGAN
+lr = 0.0002
+
+# These parameters control the optimizer's momentum, which you can read more about here:
+# https://distill.pub/2017/momentum/ but you don’t need to worry about it for this course!
+beta_1 = 0.5 
+beta_2 = 0.999
+device = 'cuda'
+
+# You can tranform the image values to be between -1 and 1 (the range of the tanh activation)
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,)),
+])
+
+path = Path("~/pytorch-data/MNIST").expanduser()
+dataloader = DataLoader(
+    MNIST(path, download=True, transform=transform),
+    batch_size=batch_size,
+    shuffle=True)
+#+end_src
+
+*** Set Up the GAN
+#+begin_src python :results none
+gen = Generator(z_dim).to(device)
+gen_opt = torch.optim.Adam(gen.parameters(), lr=lr, betas=(beta_1, beta_2))
+disc = Discriminator().to(device) 
+disc_opt = torch.optim.Adam(disc.parameters(), lr=lr, betas=(beta_1, beta_2))
+#+end_src
+*** A Weight Initializer
+#+begin_src python :results none
+def initial_weights(m):
+    """Initialize the weights to the normal distribution
+
+     - mean 0
+     - standard deviation 0.02
+
+    Args:
+     m: layer whose weights to initialize
+    """
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+        torch.nn.init.normal_(m.weight, 0.0, 0.02)
+    if isinstance(m, nn.BatchNorm2d):
+        torch.nn.init.normal_(m.weight, 0.0, 0.02)
+        torch.nn.init.constant_(m.bias, 0)
+    return
+#+end_src
+
+#+begin_src python :results none
+gen = gen.apply(initial_weights)
+disc = disc.apply(initial_weights)
+#+end_src
+
+*** Train it
+ For each epoch, you will process the entire dataset in batches. For every batch, you will update the discriminator and generator. Then, you can see DCGAN's results!
+
+ Here's roughly the progression you should be expecting. On GPU this takes about 30 seconds per thousand steps. On CPU, this can take about 8 hours per thousand steps. You might notice that in the image of Step 5000, the generator is disproprotionately producing things that look like ones. If the discriminator didn't learn to detect this imbalance quickly enough, then the generator could just produce more ones. As a result, it may have ended up tricking the discriminator so well that there would be no more improvement, known as mode collapse.
+
+#+begin_src python :results output :exports both
+n_epochs = 100
+cur_step = 0
+display_step = 1000
+mean_generator_loss = 0
+mean_discriminator_loss = 0
+generator_losses = []
+discriminator_losses = []
+steps = []
+
+best_loss = float("inf")
+best_step = 0
+best_path = Path("~/models/gans/mnist-dcgan/best_model.pth").expanduser()
+
+with TIMER:
+    for epoch in range(n_epochs):
+        # Dataloader returns the batches
+        for real, _ in dataloader:
+            cur_batch_size = len(real)
+            real = real.to(device)
+    
+            ## Update discriminator ##
+            disc_opt.zero_grad()
+            fake_noise = make_some_noise(cur_batch_size, z_dim, device=device)
+            fake = gen(fake_noise)
+            disc_fake_pred = disc(fake.detach())
+            disc_fake_loss = criterion(disc_fake_pred, torch.zeros_like(disc_fake_pred))
+            disc_real_pred = disc(real)
+            disc_real_loss = criterion(disc_real_pred, torch.ones_like(disc_real_pred))
+            disc_loss = (disc_fake_loss + disc_real_loss) / 2
+    
+            # Keep track of the average discriminator loss
+            mean_discriminator_loss += disc_loss.item() / display_step
+            # Update gradients
+            disc_loss.backward(retain_graph=True)
+            # Update optimizer
+            disc_opt.step()
+    
+            ## Update generator ##
+            gen_opt.zero_grad()
+            fake_noise_2 = make_some_noise(cur_batch_size, z_dim, device=device)
+            fake_2 = gen(fake_noise_2)
+            disc_fake_pred = disc(fake_2)
+            gen_loss = criterion(disc_fake_pred, torch.ones_like(disc_fake_pred))
+            gen_loss.backward()
+            gen_opt.step()
+    
+            # Keep track of the average generator loss
+            mean_generator_loss += gen_loss.item() / display_step
+            if mean_generator_loss < best_loss:
+                best_loss, best_step = mean_generator_loss, cur_step
+                with best_path.open("wb") as writer:
+                    torch.save(gen, writer)
+            ## Visualization code ##
+            if cur_step % display_step == 0 and cur_step > 0:
+                print(f"Epoch {epoch}, step {cur_step}: Generator loss:"
+                        f" {mean_generator_loss}, discriminator loss:"
+                        f" {mean_discriminator_loss}")
+                
+                steps.append(cur_step)
+                generator_losses.append(mean_generator_loss)
+                discriminator_losses.append(mean_discriminator_loss)
+    
+                mean_generator_loss = 0
+                mean_discriminator_loss = 0
+            cur_step += 1
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Started: 2021-04-21 12:45:12.452739
+Epoch 2, step 1000: Generator loss: 1.2671969079673289, discriminator loss: 0.43014343224465823
+Epoch 4, step 2000: Generator loss: 1.1353899730443968, discriminator loss: 0.5306872705817226
+Epoch 6, step 3000: Generator loss: 0.8764803466945883, discriminator loss: 0.611450107574464
+Epoch 8, step 4000: Generator loss: 0.7747784045338618, discriminator loss: 0.6631499938964849
+Epoch 10, step 5000: Generator loss: 0.7640163034200661, discriminator loss: 0.6734729865789411
+Epoch 12, step 6000: Generator loss: 0.7452541967928404, discriminator loss: 0.6805261079072958
+Epoch 14, step 7000: Generator loss: 0.7337032879889016, discriminator loss: 0.6874966211915009
+Epoch 17, step 8000: Generator loss: 0.7245009585618979, discriminator loss: 0.6908933531045917
+Epoch 19, step 9000: Generator loss: 0.7180560626983646, discriminator loss: 0.6936621717810626
+Epoch 21, step 10000: Generator loss: 0.7115822317004211, discriminator loss: 0.695760274052621
+Epoch 23, step 11000: Generator loss: 0.7090291924774644, discriminator loss: 0.6962701203227039
+Epoch 25, step 12000: Generator loss: 0.7059894913136957, discriminator loss: 0.6973492541313167
+Epoch 27, step 13000: Generator loss: 0.7030480077862743, discriminator loss: 0.6978999735713001
+Epoch 29, step 14000: Generator loss: 0.7028095332086096, discriminator loss: 0.6974007876515396
+Epoch 31, step 15000: Generator loss: 0.7027116653919212, discriminator loss: 0.6965595571994787
+Epoch 34, step 16000: Generator loss: 0.7005282629728309, discriminator loss: 0.6962912415862079
+Epoch 36, step 17000: Generator loss: 0.7007142878770828, discriminator loss: 0.6961965024471283
+Epoch 38, step 18000: Generator loss: 0.699474583208561, discriminator loss: 0.6952810400128371
+Epoch 40, step 19000: Generator loss: 0.6989677719473828, discriminator loss: 0.6954642050266268
+Epoch 42, step 20000: Generator loss: 0.6977452509403238, discriminator loss: 0.695180906951427
+Epoch 44, step 21000: Generator loss: 0.6973587237596515, discriminator loss: 0.6950308464765543
+Epoch 46, step 22000: Generator loss: 0.6960379970669743, discriminator loss: 0.6949119175076485
+Epoch 49, step 23000: Generator loss: 0.6957966268062581, discriminator loss: 0.6948324624896048
+Epoch 51, step 24000: Generator loss: 0.6958502059578898, discriminator loss: 0.6945331234931943
+Epoch 53, step 25000: Generator loss: 0.6954856168627734, discriminator loss: 0.6943869084119801
+Epoch 55, step 26000: Generator loss: 0.6957543395757682, discriminator loss: 0.694317172288894
+Epoch 57, step 27000: Generator loss: 0.6947923063635825, discriminator loss: 0.694082073867321
+Epoch 59, step 28000: Generator loss: 0.6945026598572728, discriminator loss: 0.6939926172494871
+Epoch 61, step 29000: Generator loss: 0.6947789136767392, discriminator loss: 0.6938506522774704
+Epoch 63, step 30000: Generator loss: 0.6946699734926227, discriminator loss: 0.6937169924378406
+Epoch 66, step 31000: Generator loss: 0.6944284628629694, discriminator loss: 0.6936815274357805
+Epoch 68, step 32000: Generator loss: 0.6940396347641948, discriminator loss: 0.6935891906023032
+Epoch 70, step 33000: Generator loss: 0.6946771386265761, discriminator loss: 0.6937210547327995
+Epoch 72, step 34000: Generator loss: 0.693429798424244, discriminator loss: 0.6937174627780922
+Epoch 74, step 35000: Generator loss: 0.6937471128702157, discriminator loss: 0.6935204346776015
+Epoch 76, step 36000: Generator loss: 0.6938841561675072, discriminator loss: 0.6934832554459566
+Epoch 78, step 37000: Generator loss: 0.6934520475268362, discriminator loss: 0.6934578058719627
+Epoch 81, step 38000: Generator loss: 0.6936635475754732, discriminator loss: 0.6934186050295835
+Epoch 83, step 39000: Generator loss: 0.6936795052289972, discriminator loss: 0.6935187472105031
+Epoch 85, step 40000: Generator loss: 0.6933113215565679, discriminator loss: 0.6933534587025645
+Epoch 87, step 41000: Generator loss: 0.6934976277351385, discriminator loss: 0.6933284662365923
+Epoch 89, step 42000: Generator loss: 0.6933313971757892, discriminator loss: 0.693348657488824
+Epoch 91, step 43000: Generator loss: 0.6937436528205883, discriminator loss: 0.6933502901792529
+Epoch 93, step 44000: Generator loss: 0.6943431540131578, discriminator loss: 0.6933887023925772
+Epoch 95, step 45000: Generator loss: 0.6938722513914105, discriminator loss: 0.6932663491368296
+Epoch 98, step 46000: Generator loss: 0.6933276618123067, discriminator loss: 0.6934270900487906
+Ended: 2021-04-21 13:06:00.256725
+Elapsed: 0:20:47.803986
+#+end_example
+** Looking at the Final model.
+#+begin_src python :results output :exports both
+fake_noise = make_some_noise(cur_batch_size, z_dim, device=device)
+
+best_model = torch.load(best_path)
+fake = best_model(fake_noise)
+plot_image(image=fake, filename="fake_digits.png", title="Fake Digits")
+#+end_src
+
+
+ [[file:fake_digits.png]]
+
+
+#+begin_src python :results output :exports both
+plot_image(real, filename="real_digits.png", title="Real Digits")
+#+end_src
+
+[[file:real_digits.png]]
+
+#+begin_src python :results none
+plotting = pandas.DataFrame.from_dict({
+    "Step": steps,
+    "Generator Loss": generator_losses,
+    "Discriminator Loss": discriminator_losses
+})
+
+best = plotting.iloc[plotting["Generator Loss"].argmin()]
+best_line = holoviews.VLine(best.Step)
+gen_plot = plotting.hvplot(x="Step", y="Generator Loss", color=PLOT.blue)
+disc_plot = plotting.hvplot(x="Step", y="Discriminator Loss", color=PLOT.red)
+
+plot = (gen_plot * disc_plot * best_line).opts(title="Training Losses",
+                                               height=PLOT.height,
+                                               width=PLOT.width,
+                                               ylabel="Loss",
+                                               fontscale=PLOT.fontscale)
+output = Embed(plot=plot, file_name="losses")()
+#+end_src
+
+#+begin_src python :results output html :exports output
+print(output)
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="losses.html" style="width:100%" height=800>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+* End
+** Sources
+ - Radford A, Metz L, Chintala S. Unsupervised representation learning with deep convolutional generative adversarial networks. arXiv preprint arXiv:1511.06434. 2015 Nov 19. ([[https://arxiv.org/pdf/1511.06434v1.pdf][PDF]])
