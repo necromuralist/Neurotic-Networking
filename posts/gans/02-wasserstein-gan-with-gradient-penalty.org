@@ -103,18 +103,20 @@ def make_noise(n_samples: int, z_dim: int, device: str='cpu') -> torch.Tensor:
 #+end_src
 * Middle
 ** The Generator
+   This is the Deep Convolutional GAN from before.
+
 #+begin_src python :results none
 class Generator(nn.Module):
-    '''
-    Generator Class
-    Values:
-        z_dim: the dimension of the noise vector, a scalar
-        im_chan: the number of channels in the images, fitted for the dataset used, a scalar
+    """The DCGAN Generator
+
+    Args:
+        z_dim: the dimension of the noise vector
+        im_chan: the number of channels in the images, fitted for the dataset used
               (MNIST is black-and-white, so 1 channel is your default)
-        hidden_dim: the inner dimension, a scalar
-    '''
-    def __init__(self, z_dim=10, im_chan=1, hidden_dim=64):
-        super(Generator, self).__init__()
+        hidden_dim: the inner dimension,
+    """
+    def __init__(self, z_dim: int=10, im_chan: int=1, hidden_dim: int=64):
+        super().__init__()
         self.z_dim = z_dim
         # Build the neural network
         self.gen = nn.Sequential(
@@ -124,18 +126,28 @@ class Generator(nn.Module):
             self.make_gen_block(hidden_dim, im_chan, kernel_size=4, final_layer=True),
         )
 
-    def make_gen_block(self, input_channels, output_channels, kernel_size=3, stride=2, final_layer=False):
-        '''
-        Function to return a sequence of operations corresponding to a generator block of DCGAN;
-        a transposed convolution, a batchnorm (except in the final layer), and an activation.
-        Parameters:
+    def make_gen_block(self, input_channels: int, output_channels: int,
+                       kernel_size: int=3, stride: int=2,
+                       final_layer: bool=False) -> nn.Sequential:
+        """Creates a block for the generator (sub sequence)
+
+        The parts
+         - a transposed convolution
+         - a batchnorm (except for in the last layer)
+         - an activation.
+
+        Args:
             input_channels: how many channels the input feature representation has
             output_channels: how many channels the output feature representation should have
             kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)
             stride: the stride of the convolution
             final_layer: a boolean, true if it is the final layer and false otherwise 
                       (affects activation and batchnorm)
-        '''
+
+        Returns:
+         the sub-sequence of layers
+        """
+
         if not final_layer:
             return nn.Sequential(
                 nn.ConvTranspose2d(input_channels, output_channels, kernel_size, stride),
@@ -148,64 +160,79 @@ class Generator(nn.Module):
                 nn.Tanh(),
             )
 
-    def forward(self, noise):
-        '''
-        Function for completing a forward pass of the generator: Given a noise tensor,
-        returns generated images.
-        Parameters:
-            noise: a noise tensor with dimensions (n_samples, z_dim)
-        '''
+    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+        """complete a forward pass of the generator: Given a noise tensor, 
+
+        Args:
+         noise: a noise tensor with dimensions (n_samples, z_dim)
+
+        Returns:
+         generated images.
+        """
+        # unsqueeze the noise
         x = noise.view(len(noise), self.z_dim, 1, 1)
         return self.gen(x)
 #+end_src
 ** The Critic
+   This is also essentially the same as our Discriminator class from before.
+
 #+begin_src python :results none
 class Critic(nn.Module):
-    '''
+    """
     Critic Class
-    Values:
-        im_chan: the number of channels in the images, fitted for the dataset used, a scalar
+
+    Args:
+        im_chan: the number of channels in the images, fitted for the dataset used
               (MNIST is black-and-white, so 1 channel is your default)
-        hidden_dim: the inner dimension, a scalar
-    '''
-    def __init__(self, im_chan=1, hidden_dim=64):
-        super(Critic, self).__init__()
+        hidden_dim: the inner dimension
+    """
+    def __init__(self, im_chan: int=1, hidden_dim: int=64):
+        super().__init__()
         self.crit = nn.Sequential(
             self.make_crit_block(im_chan, hidden_dim),
             self.make_crit_block(hidden_dim, hidden_dim * 2),
             self.make_crit_block(hidden_dim * 2, 1, final_layer=True),
         )
 
-    def make_crit_block(self, input_channels, output_channels, kernel_size=4, stride=2, final_layer=False):
-        '''
-        Function to return a sequence of operations corresponding to a critic block of DCGAN;
-        a convolution, a batchnorm (except in the final layer), and an activation (except in the final layer).
-        Parameters:
+    def make_crit_block(self, input_channels: int, output_channels: int,
+                        kernel_size: int=4, stride: int=2,
+                        final_layer: bool=False) -> nn.Sequential:
+        """Creates a sub-block for the network
+
+         - a convolution
+         - a batchnorm (except in the final layer)
+         - an activation (except in the final layer).
+
+        Args:
             input_channels: how many channels the input feature representation has
             output_channels: how many channels the output feature representation should have
             kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)
             stride: the stride of the convolution
             final_layer: a boolean, true if it is the final layer and false otherwise 
                       (affects activation and batchnorm)
-        '''
+        """
         if not final_layer:
             return nn.Sequential(
-                nn.Conv2d(input_channels, output_channels, kernel_size, stride),
+                nn.Conv2d(input_channels, output_channels, kernel_size,
+                          stride),
                 nn.BatchNorm2d(output_channels),
-                nn.LeakyReLU(0.2, inplace=True),
+                nn.LeakyReLU(0.2),
             )
         else:
             return nn.Sequential(
-                nn.Conv2d(input_channels, output_channels, kernel_size, stride),
+                nn.Conv2d(input_channels, output_channels, kernel_size,
+                          stride),
             )
 
-    def forward(self, image):
-        '''
-        Function for completing a forward pass of the critic: Given an image tensor, 
-        returns a 1-dimension tensor representing fake/real.
-        Parameters:
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        """Run a forward pass of the critic
+
+        Args:
             image: a flattened image tensor with dimension (im_chan)
-        '''
+
+        Returns:
+         a 1-dimension tensor representing fake/real.
+        """
         crit_pred = self.crit(image)
         return crit_pred.view(len(crit_pred), -1)
 #+end_src
@@ -273,20 +300,23 @@ crit = crit.apply(weights_init)
 *** The Gradient
  Calculating the gradient penalty can be broken into two functions: (1) compute the gradient with respect to the images and (2) compute the gradient penalty given the gradient.
 
- You can start by getting the gradient. The gradient is computed by first creating a mixed image. This is done by weighing the fake and real image using epsilon and then adding them together. Once you have the intermediate image, you can get the critic's output on the image. Finally, you compute the gradient of the critic score's on the mixed images (output) with respect to the pixels of the mixed images (input). You will need to fill in the code to get the gradient wherever you see *None*. There is a test function in the next block for you to test your solution.
+ You can start by getting the gradient. The gradient is computed by first creating a mixed image. This is done by weighing the fake and real image using epsilon and then adding them together. Once you have the intermediate image, you can get the critic's output on the image. Finally, you compute the gradient of the critic score's on the mixed images (output) with respect to the pixels of the mixed images (input). You will need to fill in the code to get the gradient wherever you see *None*. There is a test function in the next block for you to test your 
+
+ - See [[https://pytorch.org/docs/stable/autograd.html#torch.autograd.grad][pytorch's autograd documentation]]
 
 #+begin_src python :results none
-def get_gradient(crit, real, fake, epsilon):
-    '''
-    Return the gradient of the critic's scores with respect to mixes of real and fake images.
-    Parameters:
+def get_gradient(crit: Critic, real: torch.Tensor, fake: torch.Tensor, epsilon: torch.Tensor) -> torch.tensor:
+    """Gradient of the critic's scores with respect to mixes of real and fake images.
+
+    Args:
         crit: the critic model
         real: a batch of real images
         fake: a batch of fake images
         epsilon: a vector of the uniformly random proportions of real/fake per mixed image
+
     Returns:
         gradient: the gradient of the critic's scores, with respect to the mixed image
-    '''
+    """
     # Mix the images together
     mixed_images = real * epsilon + fake * (1 - epsilon)
 
@@ -296,13 +326,11 @@ def get_gradient(crit, real, fake, epsilon):
     # Take the gradient of the scores with respect to the images
     gradient = torch.autograd.grad(
         # Note: You need to take the gradient of outputs with respect to inputs.
-        # This documentation may be useful, but it should not be necessary:
-        # https://pytorch.org/docs/stable/autograd.html#torch.autograd.grad
         #### START CODE HERE ####
         inputs=None,
         outputs=None,
         #### END CODE HERE ####
-        # These other parameters have to do with the pytorch autograd engine works
+        # These other parameters have to do with how the pytorch autograd engine works
         grad_outputs=torch.ones_like(mixed_scores), 
         create_graph=True,
         retain_graph=True,
@@ -335,16 +363,16 @@ The second function you need to complete is to compute the gradient penalty give
 
 
 #+begin_src python :results none
-def gradient_penalty(gradient):
-    '''
-    Return the gradient penalty, given a gradient.
-    Given a batch of image gradients, you calculate the magnitude of each image's gradient
+def gradient_penalty(gradient: torch.Tensor) -> torch.Tensor:
+    """Calculate the size of each image's gradient
     and penalize the mean quadratic distance of each magnitude to 1.
-    Parameters:
+
+    Args:
         gradient: the gradient of the critic's scores, with respect to the mixed image
+
     Returns:
         penalty: the gradient penalty
-    '''
+    """
     # Flatten the gradients so that each row captures one image
     gradient = gradient.view(len(gradient), -1)
 
@@ -359,7 +387,7 @@ def gradient_penalty(gradient):
 #+end_src
 **** Unit Testing
 #+begin_src python :results none
-def test_gradient_penalty(image_shape):
+def test_gradient_penalty(image_shape: tuple):
     bad_gradient = torch.zeros(*image_shape)
     bad_gradient_penalty = gradient_penalty(bad_gradient)
     assert torch.isclose(bad_gradient_penalty, torch.tensor(1.))
@@ -387,14 +415,15 @@ test_gradient_penalty((256, 1, 28, 28))
  2. This is the negative of the mean of the critic's scores.
 
 #+begin_src python :results none
-def get_gen_loss(crit_fake_pred):
-    '''
-    Return the loss of a generator given the critic's scores of the generator's fake images.
-    Parameters:
+def get_gen_loss(crit_fake_pred: torch.Tensor) -> torch.Tensor:
+    """loss of generator given critic's scores of generator's fake images.
+
+    Args:
         crit_fake_pred: the critic's scores of the fake images
+
     Returns:
         gen_loss: a scalar loss value for the current batch of the generator
-    '''
+    """
     #### START CODE HERE ####
     gen_loss = None
     #### END CODE HERE ####
@@ -418,18 +447,20 @@ assert torch.isclose(
  3. The higher the gradient penalty, the higher the critic's loss is, proportional to lambda.
 
 #+begin_src python :results none
-def get_crit_loss(crit_fake_pred, crit_real_pred, gp, c_lambda):
-    '''
-    Return the loss of a critic given the critic's scores for fake and real images,
+def get_crit_loss(crit_fake_pred: torch.Tensor, crit_real_pred: torch.Tensor,
+                  gp: torch.Tensor, c_lambda: torch.Tensor) -> torch.Tensor:
+    """loss of a critic given critic's scores for fake and real images,
     the gradient penalty, and gradient penalty weight.
-    Parameters:
+
+    Args:
         crit_fake_pred: the critic's scores of the fake images
         crit_real_pred: the critic's scores of the real images
         gp: the unweighted gradient penalty
         c_lambda: the current weight of the gradient penalty 
+
     Returns:
         crit_loss: a scalar for the critic's loss, accounting for the relevant factors
-    '''
+    """
     #### START CODE HERE ####
     crit_loss = None
     #### END CODE HERE ####
@@ -524,6 +555,8 @@ for epoch in range(n_epochs):
 
         cur_step += 1
 #+end_src
+* End
+ -  Arjovsky M, Chintala S, Bottou L. Wasserstein generative adversarial networks. InInternational conference on machine learning 2017 Jul 17 (pp. 214-223). PMLR. ([[https://arxiv.org/abs/1701.07875?source=post_page-----aee68ed8a38c----------------------][archiv.org]])
 * Raw
 #+begin_example python
 # ## Generator and Critic
