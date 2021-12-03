@@ -17,6 +17,6 @@ setup(name='neurotic',
       author="russell",
       platforms=['linux'],
       url='https://github.com/necromuralist/In-Too-Deep',
-      author_email="necromuralist@protonmail.com",
+      author_email="cloisteredmonkey.jmark@slmail.me",
       packages=find_packages(),
       )
