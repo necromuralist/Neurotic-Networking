@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>Controllable Generation | Neurotic Networking</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" hreflang="en" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/Neurotic-Networking/posts/gans/controllable-generation/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<meta content="Cloistered Monkey" name="author">
+<link href="../a-conditional-gan/" rel="prev" title="A Conditional GAN" type="text/html">
+<link href="../evaluating-gans/" rel="next" title="Evaluating GANs" type="text/html">
+<meta content="Neurotic Networking" property="og:site_name">
+<meta content="Controllable Generation" property="og:title">
+<meta content="https://necromuralist.github.io/Neurotic-Networking/posts/gans/controllable-generation/" property="og:url">
+<meta content="Controllable Generation In this notebook, we're going to implement a GAN controllability method using gradients from a classifier. By training a classifier to recognize a relevant feature, we can us" property="og:description">
+<meta content="article" property="og:type">
+<meta content="2021-05-02T16:23:09-07:00" property="article:published_time">
+<meta content="gan" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="../../../"><span id="blog-title">Neurotic Networking</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/Neurotic-Networking/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">Controllable Generation</a></h1>
+<div class="metadata">
+<p class="byline author vcard p-author h-card"><span class="byline-name fn p-name" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2021-05-02T16:23:09-07:00" itemprop="datePublished" title="2021-05-02 16:23">2021-05-02 16:23</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div class="outline-2" id="outline-container-org7cc5cb6">
+<h2 id="org7cc5cb6">Controllable Generation</h2>
+<div class="outline-text-2" id="text-org7cc5cb6">
+<p>In this notebook, we're going to implement a GAN controllability method using gradients from a classifier. By training a classifier to recognize a relevant feature, we can use it to change the generator's inputs (z-vectors) to make it generate images with more or less of that feature.</p>
+<p>We will be started we off with a pre-trained generator and classifier, so that we can focus on the controllability aspects.</p>
+<p>The classifier has the same archicture as the earlier critic (remember that the discriminator/critic is simply a classifier used to classify real and fake).</p>
+</div>
+<div class="outline-3" id="outline-container-org947c08e">
+<h3 id="org947c08e">CelebA</h3>
+<div class="outline-text-3" id="text-org947c08e">
+<p>Instead of the MNIST dataset, we will be using <a href="http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html">CelebA</a>. CelebA is a dataset of annotated celebrity images. Since they are colored (not black-and-white), the images have three channels for red, green, and blue (RGB). We'll be using the pre-built <a href="https://pytorch.org/vision/stable/datasets.html?highlight=celeba#torchvision.datasets.CelebA">pytorch Celeba dataset</a>.</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgb78e197">
+<h3 id="orgb78e197">Imports</h3>
+<div class="outline-text-3" id="text-orgb78e197">
+<div class="highlight">
+<pre><span></span><span class="c1"># python</span>
+<span class="kn">from</span> <span class="nn">argparse</span> <span class="kn">import</span> <span class="n">Namespace</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">pickle</span>
+
+<span class="c1"># pypi</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">torch.utils.data</span> <span class="kn">import</span> <span class="n">DataLoader</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">transforms</span>
+<span class="kn">from</span> <span class="nn">torchvision.datasets</span> <span class="kn">import</span> <span class="n">CelebA</span>
+<span class="kn">from</span> <span class="nn">torchvision.utils</span> <span class="kn">import</span> <span class="n">make_grid</span>
+
+<span class="kn">import</span> <span class="nn">holoviews</span>
+<span class="kn">import</span> <span class="nn">hvplot.pandas</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">pandas</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># my stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">Timer</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgf2b5bd0">
+<h3 id="orgf2b5bd0">Set Up</h3>
+<div class="outline-text-3" id="text-orgf2b5bd0"></div>
+<div class="outline-4" id="outline-container-org22fc2e0">
+<h4 id="org22fc2e0">The Timer</h4>
+<div class="outline-text-4" id="text-org22fc2e0">
+<div class="highlight">
+<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org193c28e">
+<h4 id="org193c28e">The Random Seed</h4>
+<div class="outline-text-4" id="text-org193c28e">
+<div class="highlight">
+<pre><span></span><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org63066c5">
+<h4 id="org63066c5">Plotting</h4>
+<div class="outline-text-4" id="text-org63066c5">
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"controllable-generation"</span>
+<span class="n">OUTPUT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"files/posts/gans/</span><span class="si">{</span><span class="n">SLUG</span><span class="si">}</span><span class="s2">/"</span>
+
+<span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="n">OUTPUT</span><span class="p">)</span>
+
+<span class="n">Plot</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">"Plot"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"width"</span><span class="p">,</span> <span class="s2">"height"</span><span class="p">,</span> <span class="s2">"fontscale"</span><span class="p">,</span> <span class="s2">"tan"</span><span class="p">,</span> <span class="s2">"blue"</span><span class="p">,</span> <span class="s2">"red"</span><span class="p">])</span>
+<span class="n">PLOT</span> <span class="o">=</span> <span class="n">Plot</span><span class="p">(</span>
+    <span class="n">width</span><span class="o">=</span><span class="mi">900</span><span class="p">,</span>
+    <span class="n">height</span><span class="o">=</span><span class="mi">750</span><span class="p">,</span>
+    <span class="n">fontscale</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">tan</span><span class="o">=</span><span class="s2">"#ddb377"</span><span class="p">,</span>
+    <span class="n">blue</span><span class="o">=</span><span class="s2">"#4687b7"</span><span class="p">,</span>
+    <span class="n">red</span><span class="o">=</span><span class="s2">"#ce7b6d"</span><span class="p">,</span>
+ <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org5407ffc">
+<h4 id="org5407ffc">Paths</h4>
+<div class="outline-text-4" id="text-org5407ffc">
+<div class="highlight">
+<pre><span></span><span class="n">base_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/models/gans/celeba/"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">base_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span>
+
+<span class="n">prebuilt_models</span> <span class="o">=</span> <span class="n">Namespace</span><span class="p">(</span>
+    <span class="n">celeba</span> <span class="o">=</span> <span class="n">base_path</span><span class="o">/</span><span class="s2">"pretrained_celeba.pth"</span><span class="p">,</span>
+    <span class="n">classifier</span> <span class="o">=</span> <span class="n">base_path</span><span class="o">/</span><span class="s2">"pretrained_classifier.pth"</span>
+<span class="p">)</span>
+
+<span class="n">data_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/pytorch-data/"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">data_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+    <span class="n">data_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">prebuilt_models</span><span class="o">.</span><span class="n">celeba</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">prebuilt_models</span><span class="o">.</span><span class="n">classifier</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org4aaf992">
+<h4 id="org4aaf992">Helpers</h4>
+<div class="outline-text-4" id="text-org4aaf992">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">save_tensor_images</span><span class="p">(</span><span class="n">image_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+                       <span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> 
+                       <span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                       <span class="n">folder</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/gans</span><span class="si">{</span><span class="n">SLUG</span><span class="si">}</span><span class="s2">/"</span><span class="p">,</span>
+                       <span class="n">num_images</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="nb">tuple</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">),</span> <span class="n">nrow</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+    <span class="sd">"""Plot an Image Tensor</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     image_tensor: tensor with the values for the image to plot</span>
+<span class="sd">     filename: name to save the file under</span>
+<span class="sd">     folder: path to put the file in</span>
+<span class="sd">     title: title for the image</span>
+<span class="sd">     num_images: how many images from the tensor to use</span>
+<span class="sd">     size: the dimensions for each image</span>
+<span class="sd">    """</span>
+    <span class="n">image_tensor</span> <span class="o">=</span> <span class="p">(</span><span class="n">image_tensor</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+    <span class="n">image_unflat</span> <span class="o">=</span> <span class="n">image_tensor</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+    <span class="n">image_grid</span> <span class="o">=</span> <span class="n">make_grid</span><span class="p">(</span><span class="n">image_unflat</span><span class="p">[:</span><span class="n">num_images</span><span class="p">],</span> <span class="n">nrow</span><span class="o">=</span><span class="n">nrow</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">image_grid</span><span class="o">.</span><span class="n">permute</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">())</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">tick_params</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">top</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelbottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                       <span class="n">right</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">left</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelleft</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="n">filename</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[[file:</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">]]"</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orga550d35">
+<h3 id="orga550d35">The Generator</h3>
+<div class="outline-text-3" id="text-orga550d35">
+<p>This is mostly the same as the other Generators but the images are now color so the channels are different and the model has more initial hidden nodes (and one extra hidden block).</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Generator</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""Generator for the celeba images</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       z_dim: the dimension of the noise vector, a scalar</span>
+<span class="sd">       im_chan: the number of channels in the images, fitted for the dataset used, a scalar</span>
+<span class="sd">             (CelebA is rgb, so 3 is our default)</span>
+<span class="sd">       hidden_dim: the inner dimension, a scalar</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">z_dim</span> <span class="o">=</span> <span class="n">z_dim</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">z_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">8</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">8</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_gen_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                       <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                       <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Create a sequence of operations corresponding to a generator block of DCGAN</span>
+
+<span class="sd">        - a transposed convolution</span>
+<span class="sd">        - a batchnorm (except in the final layer)</span>
+<span class="sd">        - an activation.</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           input_channels: how many channels the input feature representation has</span>
+<span class="sd">           output_channels: how many channels the output feature representation should have</span>
+<span class="sd">           kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">           stride: the stride of the convolution</span>
+<span class="sd">           final_layer: a boolean, true if it is the final layer and false otherwise </span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+<span class="sd">       Returns:</span>
+<span class="sd">        sequence of layers</span>
+<span class="sd">       """</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(</span><span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Tanh</span><span class="p">(),</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""Complete a forward pass of the generator</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">       Parameters:</span>
+<span class="sd">           noise: a noise tensor with dimensions (n_samples, z_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        generated images.</span>
+
+<span class="sd">       """</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">noise</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">noise</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">z_dim</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orgc64c8c4">
+<h4 id="orgc64c8c4">Noise Alias</h4>
+<div class="outline-text-4" id="text-orgc64c8c4">
+<p>I still don't get this…</p>
+<div class="highlight">
+<pre><span></span><span class="n">get_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org8020e00">
+<h4 id="org8020e00">Classifier</h4>
+<div class="outline-text-4" id="text-org8020e00">
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Classifier</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""The Classifier (Discriminator)</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       im_chan: the number of channels in the images, fitted for the dataset used, a scalar</span>
+<span class="sd">             (CelebA is rgb, so 3 is our default)</span>
+<span class="sd">       n_classes: the total number of classes in the dataset, an integer scalar</span>
+<span class="sd">       hidden_dim: the inner dimension, a scalar</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">classifier</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_classifier_block</span><span class="p">(</span><span class="n">im_chan</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_classifier_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_classifier_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_classifier_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_classifier_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                              <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                              <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Create a sequence of operations corresponding to a classifier block</span>
+
+<span class="sd">        - a convolution</span>
+<span class="sd">        - a batchnorm (except in the final layer)</span>
+<span class="sd">        - an activation (except in the final layer).</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           input_channels: how many channels the input feature representation has</span>
+<span class="sd">           output_channels: how many channels the output feature representation should have</span>
+<span class="sd">           kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">           stride: the stride of the convolution</span>
+<span class="sd">           final_layer: a boolean, true if it is the final layer and false otherwise </span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        Sequence of layers</span>
+<span class="sd">       """</span>
+        <span class="k">if</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">LeakyReLU</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""Complete a forward pass of the classifier</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           image: a flattened image tensor with im_chan channels</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        an n_classes-dimension tensor representing fake/real.</span>
+<span class="sd">       """</span>
+        <span class="n">class_pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">classifier</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">class_pred</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">class_pred</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org73206dd">
+<h2 id="org73206dd">Middle</h2>
+<div class="outline-text-2" id="text-org73206dd"></div>
+<div class="outline-3" id="outline-container-org0aefe3e">
+<h3 id="org0aefe3e">Specifying Parameters</h3>
+<div class="outline-text-3" id="text-org0aefe3e">
+<p>Before we begin training, we need to specify a few parameters:</p>
+<ul class="org-ul">
+<li>z<sub>dim</sub>: the dimension of the noise vector</li>
+<li>batch<sub>size</sub>: the number of images per forward/backward pass</li>
+<li>device: the device type</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="n">z_dim</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">batch_size</span> <span class="o">=</span> <span class="mi">128</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s1">'cuda'</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgec5f4f0">
+<h3 id="orgec5f4f0">Train a Classifier</h3>
+<div class="outline-text-3" id="text-orgec5f4f0">
+<p><b>Note:</b> the <code>Celeba</code> class will sometimes raise an exception:</p>
+<pre class="example">
+Traceback (most recent call last):
+  File "/home/neurotic/download_celeba.py", line 27, in &lt;module&gt;
+    CelebA(data_path, split='train', download=True, transform=transform),
+  File "/home/neurotic/.conda/envs/neurotic-pytorch/lib/python3.9/site-packages/torchvision/datasets/celeba.py", line 77, in __init__
+    self.download()
+  File "/home/neurotic/.conda/envs/neurotic-pytorch/lib/python3.9/site-packages/torchvision/datasets/celeba.py", line 131, in download
+    with zipfile.ZipFile(os.path.join(self.root, self.base_folder, "img_align_celeba.zip"), "r") as f:
+  File "/home/neurotic/.conda/envs/neurotic-pytorch/lib/python3.9/zipfile.py", line 1257, in __init__
+    self._RealGetContents()
+  File "/home/neurotic/.conda/envs/neurotic-pytorch/lib/python3.9/zipfile.py", line 1324, in _RealGetContents
+    raise BadZipFile("File is not a zip file")
+zipfile.BadZipFile: File is not a zip file
+</pre>
+<p>According to <a href="https://github.com/pytorch/vision/issues/2262">this bug report</a> the problem is that the files are stored on Google Drive which has a limit on the amount of data you can download per day and if it's been exceeded then when you try to download =img<sub>align</sub><sub>celeba.zip</sub>" instead of the zip file you get an HTML page (of the same name) with this message:</p>
+<pre class="example">
+Sorry, you can't view or download this file at this time.
+
+Too many users have viewed or downloaded this file recently. Please try accessing the file again later. If the file you are trying to access is particularly large or is shared with many people, it may take up to 24 hours to be able to view or download the file. If you still can't access a file after 24 hours, contact your domain administrator.
+</pre>
+<p>The data is available on <a href="https://www.kaggle.com/jessicali9530/celeba-dataset?select=img_align_celeba">kaggle</a> so if you download it from them and put the file where the bad file is it should work - except of course, it doesn't. It turns out that some of the text files were also replaced with warnings that the download limit was exceeded so I needed to download those as well, but the files on kaggle are formatted as comma-separated files while the original files are space-separated, but even replacing the commas with spaces won't pass the MD5 check - maybe the line endings are different too? Anyway, the images work so I just waited a day and downloaded the text files from the google drive, which seemed to fix it.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">train_classifier</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">data_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">epochs</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+                     <span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">display_step</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+                     <span class="n">classifier</span><span class="p">:</span> <span class="n">Classifier</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="sd">"""Trains the Classifier</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     filename: path to save the state-dict to</span>
+<span class="sd">     data_path: path to the celeba data</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     classifier losses</span>
+<span class="sd">    """</span>
+    <span class="n">label_indices</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">40</span><span class="p">)</span>
+
+    <span class="n">display_step</span> <span class="o">=</span> <span class="mi">500</span>
+    <span class="n">beta_1</span> <span class="o">=</span> <span class="mf">0.5</span>
+    <span class="n">beta_2</span> <span class="o">=</span> <span class="mf">0.999</span>
+    <span class="n">image_size</span> <span class="o">=</span> <span class="mi">64</span>
+    <span class="n">best_loss</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">)</span>
+    <span class="n">transform</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span>
+        <span class="n">transforms</span><span class="o">.</span><span class="n">Resize</span><span class="p">(</span><span class="n">image_size</span><span class="p">),</span>
+        <span class="n">transforms</span><span class="o">.</span><span class="n">CenterCrop</span><span class="p">(</span><span class="n">image_size</span><span class="p">),</span>
+        <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+        <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">((</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)),</span>
+    <span class="p">])</span>
+
+    <span class="n">dataloader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span>
+        <span class="n">CelebA</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">data_path</span><span class="p">),</span> <span class="n">split</span><span class="o">=</span><span class="s1">'train'</span><span class="p">,</span> <span class="n">download</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">),</span>
+        <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size</span><span class="p">,</span>
+        <span class="n">shuffle</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">classifier</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">classifier</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">(</span><span class="n">n_classes</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">label_indices</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">class_opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">classifier</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">learning_rate</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="n">beta_1</span><span class="p">,</span> <span class="n">beta_2</span><span class="p">))</span>
+    <span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">BCEWithLogitsLoss</span><span class="p">()</span>
+
+    <span class="n">cur_step</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">classifier_losses</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c1"># classifier_val_losses = []</span>
+    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">epochs</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">real</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+            <span class="n">real</span> <span class="o">=</span> <span class="n">real</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">labels</span> <span class="o">=</span> <span class="n">labels</span><span class="p">[:,</span> <span class="n">label_indices</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+
+            <span class="n">class_opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="n">class_pred</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="n">class_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">class_pred</span><span class="p">,</span> <span class="n">labels</span><span class="p">)</span>
+            <span class="n">class_loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span> <span class="c1"># Calculate the gradients</span>
+            <span class="n">class_opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span> <span class="c1"># Update the weights</span>
+            <span class="n">classifier_losses</span> <span class="o">+=</span> <span class="p">[</span><span class="n">class_loss</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span> <span class="c1"># Keep track of the average classifier loss</span>
+
+            <span class="c1">## Visualization code ##</span>
+            <span class="k">if</span> <span class="n">classifier_losses</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">best_loss</span><span class="p">:</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span><span class="s2">"classifier"</span><span class="p">:</span> <span class="n">classifier</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()},</span> <span class="n">filename</span><span class="p">)</span>
+                <span class="n">best_loss</span> <span class="o">=</span> <span class="n">classifier_losses</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">cur_step</span> <span class="o">%</span> <span class="n">display_step</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">cur_step</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">class_mean</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">classifier_losses</span><span class="p">[</span><span class="o">-</span><span class="n">display_step</span><span class="p">:])</span> <span class="o">/</span> <span class="n">display_step</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step </span><span class="si">{</span><span class="n">cur_step</span><span class="si">}</span><span class="s2">: Classifier loss: </span><span class="si">{</span><span class="n">class_mean</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="n">step_bins</span> <span class="o">=</span> <span class="mi">20</span>
+            <span class="n">cur_step</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">classifier_losses</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">classifier_state_dict</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/models/gans/celeba/trained_classifier.pth"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">classifier_losses</span> <span class="o">=</span> <span class="n">train_classifier</span><span class="p">(</span><span class="n">classifier_state_dict</span><span class="p">,</span> <span class="n">data_path</span><span class="p">,</span> <span class="n">epochs</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Started: 2021-05-10 16:52:26.506156
+Step 500: Classifier loss: 0.2693843246996403
+Step 1000: Classifier loss: 0.24250468423962593
+Step 1500: Classifier loss: 0.2307623517513275
+Step 2000: Classifier loss: 0.22525288465619087
+Step 2500: Classifier loss: 0.22275795283913613
+Step 3000: Classifier loss: 0.2154263758957386
+Step 3500: Classifier loss: 0.21474265044927596
+Step 4000: Classifier loss: 0.21102887812256813
+Step 4500: Classifier loss: 0.20789319404959677
+Step 5000: Classifier loss: 0.20887315857410432
+Step 5500: Classifier loss: 0.20212965056300164
+Step 6000: Classifier loss: 0.20280044555664062
+Step 6500: Classifier loss: 0.20041452285647393
+Step 7000: Classifier loss: 0.19656063199043275
+Step 7500: Classifier loss: 0.19845477828383445
+Step 8000: Classifier loss: 0.19205777409672736
+Step 8500: Classifier loss: 0.19296112078428268
+Step 9000: Classifier loss: 0.19257169529795648
+Step 9500: Classifier loss: 0.18672975289821625
+Step 10000: Classifier loss: 0.18999777460098266
+Step 10500: Classifier loss: 0.18432555946707727
+Step 11000: Classifier loss: 0.18430076670646667
+Step 11500: Classifier loss: 0.18558891993761062
+Step 12000: Classifier loss: 0.17852741411328316
+Step 12500: Classifier loss: 0.18172698724269867
+Step 13000: Classifier loss: 0.1773110607266426
+Step 13500: Classifier loss: 0.17672735232114792
+Step 14000: Classifier loss: 0.17991324526071548
+Step 14500: Classifier loss: 0.17025035387277604
+Step 15000: Classifier loss: 0.17529139894247056
+Step 15500: Classifier loss: 0.17104978796839715
+Step 16000: Classifier loss: 0.17034502020478248
+Step 16500: Classifier loss: 0.17325083956122397
+Step 17000: Classifier loss: 0.1642009498178959
+Step 17500: Classifier loss: 0.16845661264657974
+Step 18000: Classifier loss: 0.1664019832611084
+Step 18500: Classifier loss: 0.1633680825829506
+Step 19000: Classifier loss: 0.16797509816288947
+Step 19500: Classifier loss: 0.15925687023997306
+Step 20000: Classifier loss: 0.16292004188895226
+Step 20500: Classifier loss: 0.16216046965122222
+Step 21000: Classifier loss: 0.15743515598773955
+Step 21500: Classifier loss: 0.16243972438573837
+Step 22000: Classifier loss: 0.1545857997238636
+Step 22500: Classifier loss: 0.15797922548651694
+Step 23000: Classifier loss: 0.15804208835959435
+Step 23500: Classifier loss: 0.15213489854335785
+Step 24000: Classifier loss: 0.15730918619036674
+Step 24500: Classifier loss: 0.1511693196296692
+Step 25000: Classifier loss: 0.1527680770754814
+Step 25500: Classifier loss: 0.15510675182938577
+Step 26000: Classifier loss: 0.14683012741804122
+Step 26500: Classifier loss: 0.15305917632579805
+Step 27000: Classifier loss: 0.14754199008643626
+Step 27500: Classifier loss: 0.14820717003941536
+Step 28000: Classifier loss: 0.15238315638899802
+Step 28500: Classifier loss: 0.14171919177472592
+Step 29000: Classifier loss: 0.14881789454817773
+Step 29500: Classifier loss: 0.1449408364146948
+Step 30000: Classifier loss: 0.1441956951916218
+Step 30500: Classifier loss: 0.1483478535115719
+Step 31000: Classifier loss: 0.13893532317876817
+Step 31500: Classifier loss: 0.1450331158787012
+Step 32000: Classifier loss: 0.14139907719194889
+Step 32500: Classifier loss: 0.1396861730515957
+Step 33000: Classifier loss: 0.1451952086240053
+Step 33500: Classifier loss: 0.1358419010192156
+Step 34000: Classifier loss: 0.14111693547666074
+Step 34500: Classifier loss: 0.1400791739821434
+Step 35000: Classifier loss: 0.1358947957903147
+Step 35500: Classifier loss: 0.14151665523648263
+Step 36000: Classifier loss: 0.1336766537129879
+Step 36500: Classifier loss: 0.13722201707959175
+Step 37000: Classifier loss: 0.1379301232844591
+Step 37500: Classifier loss: 0.13219603390991688
+Step 38000: Classifier loss: 0.13811730867624283
+Step 38500: Classifier loss: 0.13158722695708275
+Step 39000: Classifier loss: 0.13359902986884117
+Step 39500: Classifier loss: 0.1366793801188469
+Step 40000: Classifier loss: 0.12849617034196853
+Step 40500: Classifier loss: 0.13549049003422262
+Step 41000: Classifier loss: 0.12929423077404498
+Step 41500: Classifier loss: 0.13080933578312398
+Step 42000: Classifier loss: 0.13500430592894555
+Step 42500: Classifier loss: 0.12454062223434448
+Step 43000: Classifier loss: 0.13214491476118564
+Step 43500: Classifier loss: 0.1284936859458685
+Step 44000: Classifier loss: 0.12763021168112754
+Step 44500: Classifier loss: 0.13298917169868946
+Step 45000: Classifier loss: 0.12208985219895839
+Step 45500: Classifier loss: 0.129048362582922
+Step 46000: Classifier loss: 0.12678204217553138
+Step 46500: Classifier loss: 0.12455842156708241
+Step 47000: Classifier loss: 0.1303500325381756
+Step 47500: Classifier loss: 0.12025414818525314
+Step 48000: Classifier loss: 0.12684993542730807
+Step 48500: Classifier loss: 0.1252559674978256
+Step 49000: Classifier loss: 0.12153738121688366
+Step 49500: Classifier loss: 0.12777481034398078
+Step 50000: Classifier loss: 0.118936713129282
+Step 50500: Classifier loss: 0.12405500474572181
+Ended: 2021-05-10 18:56:36.980805
+Elapsed: 2:04:10.474649
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">losses</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">Loss</span><span class="o">=</span><span class="n">classifier_losses</span><span class="p">))</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="s2">"Loss"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Classifier Loss"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">height</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"classifier_loss"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="classifier_loss.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object></div>
+<div class="outline-4" id="outline-container-org2be56be">
+<h4 id="org2be56be">Take Two</h4>
+<div class="outline-text-4" id="text-org2be56be">
+<div class="highlight">
+<pre><span></span><span class="n">n_classes</span> <span class="o">=</span> <span class="mi">40</span>
+<span class="n">classifier</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">(</span><span class="n">n_classes</span><span class="o">=</span><span class="n">n_classes</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">class_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">classifier_state_dict</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">))[</span><span class="s2">"classifier"</span><span class="p">]</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">class_dict</span><span class="p">)</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">classifier_losses</span> <span class="o">=</span> <span class="n">train_classifier</span><span class="p">(</span><span class="n">classifier_state_dict</span><span class="p">,</span> <span class="n">data_path</span><span class="p">,</span>
+                                         <span class="n">epochs</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span>
+                                         <span class="n">classifier</span><span class="o">=</span><span class="n">classifier</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Started: 2021-05-11 16:02:16.181203
+Step 500: Classifier loss: 0.1181784438341856
+Step 1000: Classifier loss: 0.12448641647398472
+Step 1500: Classifier loss: 0.1214247584193945
+Step 2000: Classifier loss: 0.1198666417747736
+Step 2500: Classifier loss: 0.1255625690817833
+Step 3000: Classifier loss: 0.11589906251430511
+Step 3500: Classifier loss: 0.12224359685182572
+Step 4000: Classifier loss: 0.11944249965250492
+Step 4500: Classifier loss: 0.1175859476029873
+Step 5000: Classifier loss: 0.12318077574670315
+Step 5500: Classifier loss: 0.11450052106380462
+Step 6000: Classifier loss: 0.11944048409163951
+Step 6500: Classifier loss: 0.11928777326643467
+Step 7000: Classifier loss: 0.11463624723255635
+Step 7500: Classifier loss: 0.12107200682163238
+Step 8000: Classifier loss: 0.11355004295706748
+Step 8500: Classifier loss: 0.11719673483073711
+Step 9000: Classifier loss: 0.11821492326259612
+Step 9500: Classifier loss: 0.11198448015749454
+Step 10000: Classifier loss: 0.11870198084414005
+Step 10500: Classifier loss: 0.11221958647668362
+Step 11000: Classifier loss: 0.11476752410829068
+Step 11500: Classifier loss: 0.11772396117448806
+Step 12000: Classifier loss: 0.10936097744107247
+Step 12500: Classifier loss: 0.11677812692523003
+Step 13000: Classifier loss: 0.11107682411372662
+Step 13500: Classifier loss: 0.11222303664684295
+Step 14000: Classifier loss: 0.11760448211431504
+Step 14500: Classifier loss: 0.10662877394258977
+Step 15000: Classifier loss: 0.11471863305568696
+Step 15500: Classifier loss: 0.11056565625965595
+Step 16000: Classifier loss: 0.11046012189984322
+Step 16500: Classifier loss: 0.1158019468486309
+Step 17000: Classifier loss: 0.10568901741504669
+Step 17500: Classifier loss: 0.11223984396457672
+Step 18000: Classifier loss: 0.11002579489350318
+Step 18500: Classifier loss: 0.10752195838093757
+Step 19000: Classifier loss: 0.11419818633794784
+Step 19500: Classifier loss: 0.10464896529912948
+Step 20000: Classifier loss: 0.11005591739714146
+Step 20500: Classifier loss: 0.10996675519645215
+Step 21000: Classifier loss: 0.10543355357646943
+Step 21500: Classifier loss: 0.11205300988256932
+Step 22000: Classifier loss: 0.1038715885579586
+Step 22500: Classifier loss: 0.10818033437430859
+Step 23000: Classifier loss: 0.10912492156028747
+Step 23500: Classifier loss: 0.10302072758972645
+Step 24000: Classifier loss: 0.11008756360411644
+Step 24500: Classifier loss: 0.10342664630711079
+Step 25000: Classifier loss: 0.10618587562441825
+Step 25500: Classifier loss: 0.10913233712315559
+Step 26000: Classifier loss: 0.10061963592469693
+Step 26500: Classifier loss: 0.10828037586808205
+Step 27000: Classifier loss: 0.10266246040165425
+Step 27500: Classifier loss: 0.1047897623181343
+Step 28000: Classifier loss: 0.10866250747442245
+Step 28500: Classifier loss: 0.09820086953043938
+Step 29000: Classifier loss: 0.10674160474538803
+Step 29500: Classifier loss: 0.10230921612679958
+Step 30000: Classifier loss: 0.1021555609256029
+Step 30500: Classifier loss: 0.10775842162966728
+Step 31000: Classifier loss: 0.09722121758759021
+Step 31500: Classifier loss: 0.10439497400820255
+Step 32000: Classifier loss: 0.10229390095174312
+Step 32500: Classifier loss: 0.10003190772235393
+Step 33000: Classifier loss: 0.10617333140969276
+Step 33500: Classifier loss: 0.09686395044624806
+Step 34000: Classifier loss: 0.10285020883381367
+Step 34500: Classifier loss: 0.10199978332221508
+Step 35000: Classifier loss: 0.09819360673427582
+Step 35500: Classifier loss: 0.10397693109512329
+Step 36000: Classifier loss: 0.09642438031733036
+Step 36500: Classifier loss: 0.10087257397174836
+Step 37000: Classifier loss: 0.10197833214700222
+Step 37500: Classifier loss: 0.09598418261110783
+Step 38000: Classifier loss: 0.10283542364835739
+Step 38500: Classifier loss: 0.09644483177363873
+Step 39000: Classifier loss: 0.09908602401614189
+Step 39500: Classifier loss: 0.10129908196628094
+Step 40000: Classifier loss: 0.0939527989178896
+Step 40500: Classifier loss: 0.1016722819507122
+Step 41000: Classifier loss: 0.09578396078944207
+Step 41500: Classifier loss: 0.09706279496848583
+Step 42000: Classifier loss: 0.10207961940765381
+Step 42500: Classifier loss: 0.09211373472213745
+Step 43000: Classifier loss: 0.09958744782209396
+Step 43500: Classifier loss: 0.09534277887642384
+Step 44000: Classifier loss: 0.0952163600474596
+Step 44500: Classifier loss: 0.10136887782812118
+Step 45000: Classifier loss: 0.09021547995507717
+Step 45500: Classifier loss: 0.09812712541222572
+Step 46000: Classifier loss: 0.09560927426815033
+Step 46500: Classifier loss: 0.09358323478698731
+Step 47000: Classifier loss: 0.09991893386840821
+Step 47500: Classifier loss: 0.0899157041311264
+Step 48000: Classifier loss: 0.096542285323143
+Step 48500: Classifier loss: 0.09535252919793129
+Step 49000: Classifier loss: 0.09194727616012097
+Step 49500: Classifier loss: 0.09831891848146915
+Step 50000: Classifier loss: 0.0901611197590828
+Step 50500: Classifier loss: 0.09490065774321556
+Ended: 2021-05-11 18:06:19.399986
+Elapsed: 2:04:03.218783
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">losses</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">Loss</span><span class="o">=</span><span class="n">classifier_losses</span><span class="p">))</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="s2">"Loss"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Classifier Loss Session 2"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">height</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"classifier_loss_2"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="classifier_loss_2.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object></div>
+</div>
+<div class="outline-4" id="outline-container-org2c34d19">
+<h4 id="org2c34d19">Take Three</h4>
+<div class="outline-text-4" id="text-org2c34d19">
+<div class="highlight">
+<pre><span></span><span class="n">n_classes</span> <span class="o">=</span> <span class="mi">40</span>
+<span class="n">classifier</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">(</span><span class="n">n_classes</span><span class="o">=</span><span class="n">n_classes</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">class_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">classifier_state_dict</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">))[</span><span class="s2">"classifier"</span><span class="p">]</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">class_dict</span><span class="p">)</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="n">classifier_losses</span> <span class="o">=</span> <span class="n">train_classifier</span><span class="p">(</span><span class="n">classifier_state_dict</span><span class="p">,</span> <span class="n">data_path</span><span class="p">,</span>
+                                         <span class="n">epochs</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span>
+                                         <span class="n">classifier</span><span class="o">=</span><span class="n">classifier</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+Started: 2021-05-11 21:11:32.420506
+Step 500: Classifier loss: 0.09006546361744404
+Step 1000: Classifier loss: 0.09647199404239655
+Step 1500: Classifier loss: 0.092734768897295
+Step 2000: Classifier loss: 0.09196118661761284
+Step 2500: Classifier loss: 0.09789373110234738
+Step 3000: Classifier loss: 0.08788785541057587
+Step 3500: Classifier loss: 0.0945415845811367
+Step 4000: Classifier loss: 0.09308994428813458
+Step 4500: Classifier loss: 0.09022623193264008
+Step 5000: Classifier loss: 0.09615834753215313
+Step 5500: Classifier loss: 0.08742603194713593
+Step 6000: Classifier loss: 0.09316775412857532
+Step 6500: Classifier loss: 0.09275233449041843
+Step 7000: Classifier loss: 0.08822614887356758
+Step 7500: Classifier loss: 0.09528714890778064
+Step 8000: Classifier loss: 0.08681275172531605
+Step 8500: Classifier loss: 0.09150236696004868
+Step 9000: Classifier loss: 0.09338522186875343
+Step 9500: Classifier loss: 0.08638478130102158
+Step 10000: Classifier loss: 0.09388372772932052
+Step 10500: Classifier loss: 0.08720742921531201
+Step 11000: Classifier loss: 0.09009483934938908
+Step 11500: Classifier loss: 0.0929495030939579
+Step 12000: Classifier loss: 0.08460890363156795
+Step 12500: Classifier loss: 0.0924714410007
+Step 13000: Classifier loss: 0.08704712373018265
+Step 13500: Classifier loss: 0.08819058662652969
+Step 14000: Classifier loss: 0.09366303083300591
+Step 14500: Classifier loss: 0.08295501434803008
+Step 15000: Classifier loss: 0.09084490737318993
+Step 15500: Classifier loss: 0.08707242746651173
+Step 16000: Classifier loss: 0.08690852355957031
+Step 16500: Classifier loss: 0.09254233407974242
+Step 17000: Classifier loss: 0.08242024271190167
+Step 17500: Classifier loss: 0.08904271678626538
+Step 18000: Classifier loss: 0.08771026766300201
+Step 18500: Classifier loss: 0.08471861970424652
+Step 19000: Classifier loss: 0.09134728060662746
+Step 19500: Classifier loss: 0.08233513435721397
+Step 20000: Classifier loss: 0.08778411850333213
+Step 20500: Classifier loss: 0.08791485584527255
+Step 21000: Classifier loss: 0.08345357306301594
+Step 21500: Classifier loss: 0.08975999920070171
+Step 22000: Classifier loss: 0.08225472408533097
+Step 22500: Classifier loss: 0.08668080273270606
+Step 23000: Classifier loss: 0.08786206224560737
+Step 23500: Classifier loss: 0.08155409483611584
+Step 24000: Classifier loss: 0.08907847443222999
+Step 24500: Classifier loss: 0.08202618369460106
+Step 25000: Classifier loss: 0.08517973597347736
+Step 25500: Classifier loss: 0.08817093770205975
+Step 26000: Classifier loss: 0.08008052316308022
+Step 26500: Classifier loss: 0.08741954331099987
+Step 27000: Classifier loss: 0.08247932478785515
+Step 27500: Classifier loss: 0.08377225384116173
+Step 28000: Classifier loss: 0.08846944206953049
+Step 28500: Classifier loss: 0.07859189368784428
+Step 29000: Classifier loss: 0.08617163190245629
+Step 29500: Classifier loss: 0.0824531610161066
+Step 30000: Classifier loss: 0.08195052224397659
+Step 30500: Classifier loss: 0.08803890940546989
+Step 31000: Classifier loss: 0.07793828934431075
+Step 31500: Classifier loss: 0.08464510484039783
+Step 32000: Classifier loss: 0.08275749842077494
+Step 32500: Classifier loss: 0.0805082704871893
+Step 33000: Classifier loss: 0.08703124921023846
+Step 33500: Classifier loss: 0.0772736611738801
+Step 34000: Classifier loss: 0.08353734220564366
+Step 34500: Classifier loss: 0.08343685203790664
+Step 35000: Classifier loss: 0.07905932680517436
+Step 35500: Classifier loss: 0.08568261863291264
+Step 36000: Classifier loss: 0.07762402860075235
+Step 36500: Classifier loss: 0.08223582464456558
+Step 37000: Classifier loss: 0.08341778349876404
+Step 37500: Classifier loss: 0.07801838412880897
+Step 38000: Classifier loss: 0.0842266542762518
+Step 38500: Classifier loss: 0.07764634099602699
+Step 39000: Classifier loss: 0.08104524739086628
+Step 39500: Classifier loss: 0.08389902476221323
+Step 40000: Classifier loss: 0.07612183248996734
+Step 40500: Classifier loss: 0.08296740844845772
+Step 41000: Classifier loss: 0.0781253460124135
+Step 41500: Classifier loss: 0.07980525248497725
+Step 42000: Classifier loss: 0.08405549557507039
+Step 42500: Classifier loss: 0.0743530157059431
+Step 43000: Classifier loss: 0.08219673927128315
+Step 43500: Classifier loss: 0.07845095673948527
+Step 44000: Classifier loss: 0.07780187250673772
+Step 44500: Classifier loss: 0.08399353076517582
+Step 45000: Classifier loss: 0.07365029990673065
+Step 45500: Classifier loss: 0.0808380290567875
+Step 46000: Classifier loss: 0.0786423703506589
+Step 46500: Classifier loss: 0.07693013155460357
+Step 47000: Classifier loss: 0.08244228959083558
+Step 47500: Classifier loss: 0.07365631985664367
+Step 48000: Classifier loss: 0.07970952866971492
+Step 48500: Classifier loss: 0.07868134459108114
+Step 49000: Classifier loss: 0.07539512529224157
+Step 49500: Classifier loss: 0.08191524033248425
+Step 50000: Classifier loss: 0.07361406400799751
+Step 50500: Classifier loss: 0.07847459720075131
+Ended: 2021-05-11 23:15:24.444278
+Elapsed: 2:03:52.023772
+</pre>
+<div class="highlight">
+<pre><span></span><span class="n">losses</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">Loss</span><span class="o">=</span><span class="n">classifier_losses</span><span class="p">))</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">hvplot</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="s2">"Loss"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Classifier Loss Session 3"</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">tan</span><span class="p">)</span><span class="o">.</span><span class="n">opts</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">PLOT</span><span class="o">.</span><span class="n">height</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">Embed</span><span class="p">(</span><span class="n">plot</span><span class="o">=</span><span class="n">plot</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="s2">"classifier_loss_3"</span><span class="p">)()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</pre></div>
+<object data="classifier_loss_2.html" height="800" style="width:100%" type="text/html">
+<p>Figure Missing</p>
+</object></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org3310b64">
+<h3 id="org3310b64">Loading the Pretrained Models</h3>
+<div class="outline-text-3" id="text-org3310b64">
+<p>We will then load the pretrained generator and classifier using the following code. (If we trained our own classifier, we can load that one here instead.)</p>
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">torch</span>
+<span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">z_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">gen_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">prebuilt_models</span><span class="o">.</span><span class="n">celeba</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">))[</span><span class="s2">"gen"</span><span class="p">]</span>
+<span class="n">gen</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">gen_dict</span><span class="p">)</span>
+<span class="n">gen</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+<span class="n">n_classes</span> <span class="o">=</span> <span class="mi">40</span>
+<span class="n">classifier</span> <span class="o">=</span> <span class="n">Classifier</span><span class="p">(</span><span class="n">n_classes</span><span class="o">=</span><span class="n">n_classes</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">class_dict</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">prebuilt_models</span><span class="o">.</span><span class="n">classifier</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">))[</span><span class="s2">"classifier"</span><span class="p">]</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">class_dict</span><span class="p">)</span>
+<span class="n">classifier</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">classifier</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orge8f3af8">
+<h3 id="orge8f3af8">Training</h3>
+<div class="outline-text-3" id="text-orge8f3af8">
+<p>Now we can start implementing a method for controlling our GAN.</p>
+</div>
+<div class="outline-4" id="outline-container-org9b12555">
+<h4 id="org9b12555">Update Noise</h4>
+<div class="outline-text-4" id="text-org9b12555">
+<p>For training, we need to write the code to update the noise to produce more of our desired feature. We do this by performing stochastic gradient ascent. We use stochastic gradient ascent to find the local maxima, as opposed to stochastic gradient descent which finds the local minima. Gradient ascent is gradient descent over the negative of the value being optimized. Their formulas are essentially the same, however, instead of subtracting the weighted value, stochastic gradient ascent adds it; it can be calculated by \(new = old + (∇ old * weight)\), where ∇ is the gradient of <code>old</code>. We perform stochastic gradient ascent to try and maximize the amount of the feature we want. If we wanted to reduce the amount of the feature, we would perform gradient descent. However, in this assignment we are interested in maximize our feature using gradient ascent, since many features in the dataset are not present much more often than they're present and we are trying to add a feature to the images, not remove.</p>
+<p>Given the noise with its gradient already calculated through the classifier, we want to return the new noise vector.</p>
+<ol class="org-ol">
+<li>Remember the equation for gradient ascent: \(new = old + (∇ old * weight)\).</li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">calculate_updated_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""Update noise vectors with stochastic gradient ascent.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     noise: the current noise vectors. </span>
+<span class="sd">           We have already called the backwards function on the target class</span>
+<span class="sd">           so we can access the gradient of the output class with respect </span>
+<span class="sd">           to the noise by using noise.grad</span>
+<span class="sd">     weight: the scalar amount by which we should weight the noise gradient</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     updated noise</span>
+<span class="sd">    """</span>
+    <span class="n">new_noise</span> <span class="o">=</span> <span class="n">noise</span> <span class="o">+</span> <span class="p">(</span><span class="n">noise</span><span class="o">.</span><span class="n">grad</span> <span class="o">*</span> <span class="n">weight</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">new_noise</span>
+</pre></div>
+</div>
+<ul class="org-ul">
+<li><a id="orgcf43b6a"></a>UNIT TEST<br>
+<div class="outline-text-5" id="text-orgcf43b6a">
+<p>Check that the basic function works.</p>
+<div class="highlight">
+<pre><span></span><span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+<span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="n">noise</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="n">fake_classes</span> <span class="o">=</span> <span class="p">(</span><span class="n">noise</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">fake_classes</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">new_noise</span> <span class="o">=</span> <span class="n">calculate_updated_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
+<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">new_noise</span><span class="p">)</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+<span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">new_noise</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">new_noise</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">==</span> <span class="mf">2.0010</span>
+<span class="k">assert</span> <span class="n">new_noise</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">==</span> <span class="mf">2.0010</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">new_noise</span><span class="o">.</span><span class="n">sum</span><span class="p">(),</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">0.4</span><span class="p">)</span> <span class="o">+</span> <span class="mi">20</span> <span class="o">*</span> <span class="mi">20</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</pre></div>
+<p>Check that it works for generated images</p>
+<div class="highlight">
+<pre><span></span><span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+<span class="n">noise</span> <span class="o">=</span> <span class="n">get_noise</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise</span><span class="p">)</span>
+<span class="n">fake_classes</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">fake</span><span class="p">)[:,</span> <span class="mi">0</span><span class="p">]</span>
+<span class="n">fake_classes</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">noise</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">calculate_updated_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">)</span>
+<span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise</span><span class="p">)</span>
+<span class="n">fake_classes_new</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">fake</span><span class="p">)[:,</span> <span class="mi">0</span><span class="p">]</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">fake_classes_new</span> <span class="o">&gt;</span> <span class="n">fake_classes</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org84e0240">
+<h3 id="org84e0240">Generation</h3>
+<div class="outline-text-3" id="text-org84e0240">
+<p>Now, we can use the classifier along with stochastic gradient ascent to make noise that generates more of a certain feature. In the code given to us here, we can generate smiling faces. Feel free to change the target index and control some of the other features in the list! We will notice that some features are easier to detect and control than others.</p>
+<p>The list we have here are the features labeled in CelebA, which we used to train our classifier. If we wanted to control another feature, we would need to get data that is labeled with that feature and train a classifier on that feature.</p>
+<p>First generate a bunch of images with the generator.</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_images</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">fake_image_history</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">grad_steps</span> <span class="o">=</span> <span class="mi">10</span> <span class="c1"># Number of gradient steps to take</span>
+<span class="n">skip</span> <span class="o">=</span> <span class="mi">2</span> <span class="c1"># Number of gradient steps to skip in the visualization</span>
+
+<span class="n">feature_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"5oClockShadow"</span><span class="p">,</span> <span class="s2">"ArchedEyebrows"</span><span class="p">,</span> <span class="s2">"Attractive"</span><span class="p">,</span> <span class="s2">"BagsUnderEyes"</span><span class="p">,</span> <span class="s2">"Bald"</span><span class="p">,</span> <span class="s2">"Bangs"</span><span class="p">,</span>
+<span class="s2">"BigLips"</span><span class="p">,</span> <span class="s2">"BigNose"</span><span class="p">,</span> <span class="s2">"BlackHair"</span><span class="p">,</span> <span class="s2">"BlondHair"</span><span class="p">,</span> <span class="s2">"Blurry"</span><span class="p">,</span> <span class="s2">"BrownHair"</span><span class="p">,</span> <span class="s2">"BushyEyebrows"</span><span class="p">,</span> <span class="s2">"Chubby"</span><span class="p">,</span>
+<span class="s2">"DoubleChin"</span><span class="p">,</span> <span class="s2">"Eyeglasses"</span><span class="p">,</span> <span class="s2">"Goatee"</span><span class="p">,</span> <span class="s2">"GrayHair"</span><span class="p">,</span> <span class="s2">"HeavyMakeup"</span><span class="p">,</span> <span class="s2">"HighCheekbones"</span><span class="p">,</span> <span class="s2">"Male"</span><span class="p">,</span> 
+<span class="s2">"MouthSlightlyOpen"</span><span class="p">,</span> <span class="s2">"Mustache"</span><span class="p">,</span> <span class="s2">"NarrowEyes"</span><span class="p">,</span> <span class="s2">"NoBeard"</span><span class="p">,</span> <span class="s2">"OvalFace"</span><span class="p">,</span> <span class="s2">"PaleSkin"</span><span class="p">,</span> <span class="s2">"PointyNose"</span><span class="p">,</span> 
+<span class="s2">"RecedingHairline"</span><span class="p">,</span> <span class="s2">"RosyCheeks"</span><span class="p">,</span> <span class="s2">"Sideburn"</span><span class="p">,</span> <span class="s2">"Smiling"</span><span class="p">,</span> <span class="s2">"StraightHair"</span><span class="p">,</span> <span class="s2">"WavyHair"</span><span class="p">,</span> <span class="s2">"WearingEarrings"</span><span class="p">,</span> 
+<span class="s2">"WearingHat"</span><span class="p">,</span> <span class="s2">"WearingLipstick"</span><span class="p">,</span> <span class="s2">"WearingNecklace"</span><span class="p">,</span> <span class="s2">"WearingNecktie"</span><span class="p">,</span> <span class="s2">"Weng"</span><span class="p">]</span>
+
+<span class="c1">### Change me! ###</span>
+<span class="n">target_indices</span> <span class="o">=</span> <span class="n">feature_names</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">"Weng"</span><span class="p">)</span> <span class="c1"># Feel free to change this value to any string from feature_names!</span>
+
+<span class="n">noise</span> <span class="o">=</span> <span class="n">get_noise</span><span class="p">(</span><span class="n">n_images</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">grad_steps</span><span class="p">):</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise</span><span class="p">)</span>
+    <span class="n">fake_image_history</span> <span class="o">+=</span> <span class="p">[</span><span class="n">fake</span><span class="p">]</span>
+    <span class="n">fake_classes_score</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">fake</span><span class="p">)[:,</span> <span class="n">target_indices</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+    <span class="n">fake_classes_score</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">noise</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">calculate_updated_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">,</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">grad_steps</span><span class="p">)</span>
+
+<span class="n">pyplot</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s1">'figure.figsize'</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">n_images</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">grad_steps</span> <span class="o">*</span> <span class="mi">2</span><span class="p">]</span>
+<span class="n">save_tensor_images</span><span class="p">(</span><span class="n">image_tensor</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">(</span><span class="n">fake_image_history</span><span class="p">[::</span><span class="n">skip</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span> 
+<span class="n">filename</span><span class="o">=</span><span class="s2">"weng.png"</span><span class="p">,</span> <span class="n">folder</span><span class="o">=</span><span class="n">OUTPUT</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Weng"</span><span class="p">,</span>
+<span class="n">num_images</span><span class="o">=</span><span class="n">n_images</span><span class="p">,</span> <span class="n">nrow</span><span class="o">=</span><span class="n">n_images</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="weng.png" src="weng.png"></p>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org9eba848">
+<h3 id="org9eba848">Entanglement and Regularization</h3>
+<div class="outline-text-3" id="text-org9eba848">
+<p>We may also notice that sometimes more features than just the target feature change. This is because some features are entangled. To fix this, we can try to isolate the target feature more by holding the classes outside of the target class constant. One way we can implement this is by penalizing the differences from the original class with L2 regularization. This L2 regularization would apply a penalty for this difference using the L2 norm and this would just be an additional term on the loss function.</p>
+<p>Here, we'll have to implement the score function: the higher, the better. The score is calculated by adding the target score and a penalty – note that the penalty is meant to lower the score, so it should have a negative value.</p>
+<p>For every non-target class, take the difference between the current noise and the old noise. The greater this value is, the more features outside the target have changed. We will calculate the magnitude of the change, take the mean, and negate it. Finally, add this penalty to the target score. The target score is the mean of the target class in the current noise.</p>
+<ol class="org-ol">
+<li>The higher the score, the better!</li>
+<li>We want to calculate the loss per image, so we'll need to pass a dim argument to <a href="https://pytorch.org/docs/stable/generated/torch.norm.html"><code>torch.norm</code></a>.</li>
+<li>Calculating the magnitude of the change requires we to take the norm of the difference between the classifications, not the difference of the norms.</li>
+</ol>
+<p><b>Note:</b> <code>torch.norm</code> is deprecated, they want you to use <a href="https://pytorch.org/docs/stable/linalg.html#torch.linalg.norm">torch.linalg.norm</a> instead.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">get_score</span><span class="p">(</span><span class="n">current_classifications</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+              <span class="n">original_classifications</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+              <span class="n">target_indices</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+              <span class="n">other_indices</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+              <span class="n">penalty_weight</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""Score the current classifications, L2 Norm penalty</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       current_classifications: the classifications associated with the current noise</span>
+<span class="sd">       original_classifications: the classifications associated with the original noise</span>
+<span class="sd">       target_indices: the index of the target class</span>
+<span class="sd">       other_indices: the indices of the other classes</span>
+<span class="sd">       penalty_weight: the amount that the penalty should be weighted in the overall score</span>
+
+<span class="sd">    Returns: </span>
+<span class="sd">     the score of the current classification with L2 Norm penalty</span>
+<span class="sd">    """</span>
+    <span class="c1"># Steps: 1) Calculate the change between the original and current classifications (as a tensor)</span>
+    <span class="c1">#           by indexing into the other_indices we're trying to preserve, like in x[:, features].</span>
+    <span class="c1">#        2) Calculate the norm (magnitude) of changes per example.</span>
+    <span class="c1">#        3) Multiply the mean of the example norms by the penalty weight. </span>
+    <span class="c1">#           This will be our other_class_penalty.</span>
+    <span class="c1">#           Make sure to negate the value since it's a penalty!</span>
+    <span class="c1">#        4) Take the mean of the current classifications for the target feature over all the examples.</span>
+    <span class="c1">#           This mean will be our target_score.</span>
+    <span class="c1"># Calculate the norm (magnitude) of changes per example and multiply by penalty weight</span>
+    <span class="n">other_class_penalty</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">original_classifications</span><span class="p">[:,</span> <span class="n">other_indices</span><span class="p">]</span>
+                          <span class="o">-</span> <span class="n">current_classifications</span><span class="p">[:,</span> <span class="n">other_indices</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+                           <span class="o">*</span> <span class="n">penalty_weight</span><span class="p">)</span>
+    <span class="c1"># Take the mean of the current classifications for the target feature</span>
+    <span class="n">target_score</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">current_classifications</span><span class="p">[:,</span> <span class="n">target_indices</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">target_score</span> <span class="o">+</span> <span class="n">other_class_penalty</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org37f5a9d">
+<h4 id="org37f5a9d">UNIT TEST</h4>
+<div class="outline-text-4" id="text-org37f5a9d">
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span>
+    <span class="n">get_score</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="mf">0.2</span><span class="p">),</span> 
+    <span class="mi">1</span> <span class="o">-</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">2.</span><span class="p">))</span> <span class="o">*</span> <span class="mf">0.2</span>
+<span class="p">)</span>
+<span class="n">rows</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="n">current_class</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">])</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+<span class="n">original_class</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">])</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+
+<span class="c1"># Must be 3</span>
+<span class="k">assert</span> <span class="n">get_score</span><span class="p">(</span><span class="n">current_class</span><span class="p">,</span> <span class="n">original_class</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="mf">0.2</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">==</span> <span class="mi">3</span>
+
+<span class="n">current_class</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">])</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+<span class="n">original_class</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">rows</span><span class="p">])</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+
+<span class="c1"># Must be 3 - 0.2 * sqrt(10)</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">get_score</span><span class="p">(</span><span class="n">current_class</span><span class="p">,</span> <span class="n">original_class</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="mf">0.2</span><span class="p">),</span> 
+                     <span class="o">-</span><span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">10.0</span><span class="p">))</span> <span class="o">*</span> <span class="mf">0.2</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span>
+</pre></div>
+<p>In the following block of code, we will run the gradient ascent with this new score function. We might notice a few things after running it:</p>
+<ol class="org-ol">
+<li>It may fail more often at producing the target feature when compared to the original approach. This suggests that the model may not be able to generate an image that has the target feature without changing the other features. This makes sense! For example, it may not be able to generate a face that's smiling but whose mouth is NOT slightly open. This may also expose a limitation of the generator.</li>
+</ol>
+<p>Alternatively, even if the generator can produce an image with the intended features, it might require many intermediate changes to get there and may get stuck in a local minimum.</p>
+<ol class="org-ol">
+<li>This process may change features which the classifier was not trained to recognize since there is no way to penalize them with this method. Whether it's possible to train models to avoid changing unsupervised features is an open question.</li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="n">fake_image_history</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="c1">### Change me! ###</span>
+<span class="n">target_indices</span> <span class="o">=</span> <span class="n">feature_names</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">"Goatee"</span><span class="p">)</span> <span class="c1"># Feel free to change this value to any string from feature_names from earlier!</span>
+<span class="n">other_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">cur_idx</span> <span class="o">!=</span> <span class="n">target_indices</span> <span class="k">for</span> <span class="n">cur_idx</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">feature_names</span><span class="p">)]</span>
+<span class="n">noise</span> <span class="o">=</span> <span class="n">get_noise</span><span class="p">(</span><span class="n">n_images</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="n">original_classifications</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">gen</span><span class="p">(</span><span class="n">noise</span><span class="p">))</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">grad_steps</span><span class="p">):</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise</span><span class="p">)</span>
+    <span class="n">fake_image_history</span> <span class="o">+=</span> <span class="p">[</span><span class="n">fake</span><span class="p">]</span>
+    <span class="n">fake_score</span> <span class="o">=</span> <span class="n">get_score</span><span class="p">(</span>
+        <span class="n">classifier</span><span class="p">(</span><span class="n">fake</span><span class="p">),</span> 
+        <span class="n">original_classifications</span><span class="p">,</span>
+        <span class="n">target_indices</span><span class="p">,</span>
+        <span class="n">other_indices</span><span class="p">,</span>
+        <span class="n">penalty_weight</span><span class="o">=</span><span class="mf">0.1</span>
+    <span class="p">)</span>
+    <span class="n">fake_score</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">noise</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">calculate_updated_noise</span><span class="p">(</span><span class="n">noise</span><span class="p">,</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">grad_steps</span><span class="p">)</span>
+
+<span class="n">pyplot</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s1">'figure.figsize'</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">n_images</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">grad_steps</span> <span class="o">*</span> <span class="mi">2</span><span class="p">]</span>
+<span class="n">save_tensor_images</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">(</span><span class="n">fake_image_history</span><span class="p">[::</span><span class="n">skip</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span> <span class="n">num_images</span><span class="o">=</span><span class="n">n_images</span><span class="p">,</span> <span class="n">nrow</span><span class="o">=</span><span class="n">n_images</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="s2">"goatee.png"</span><span class="p">,</span> <span class="n">folder</span><span class="o">=</span><span class="n">OUTPUT</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Goatee"</span><span class="p">)</span>
+</pre></div>
+<div class="figure">
+<p><img alt="goatee.png" src="goatee.png"></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org4e217ec">
+<h2 id="org4e217ec">End</h2>
+<div class="outline-text-2" id="text-org4e217ec"></div>
+<div class="outline-3" id="outline-container-orgb055d32">
+<h3 id="orgb055d32">Sources</h3>
+<div class="outline-text-3" id="text-orgb055d32">
+<ul class="org-ul">
+<li>Liu, Z, Luo, P, Wang, X, Tang, X, Deep Learning Face Attributes in the Wild. In Proceedings of International Conference on Computer Vision (ICCV) 2015 .</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/gan/" rel="tag">gan</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../a-conditional-gan/" rel="prev" title="A Conditional GAN">Previous post</a></li>
+<li class="next"><a href="../evaluating-gans/" rel="next" title="Evaluating GANs">Next post</a></li>
+</ul>
+</nav>
+</aside>
+<script async id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" type="text/javascript"></script>
+<script type="text/x-mathjax-config">
+
+        MathJax.Hub.Config({tex2jax: {inlineMath: [['$latex ','$'], ['\\(','\\)']],},
+
+        });
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script>
+<script>
+
+    MathJax = {
+        tex: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            displayMath: [['$$','$$'], ['\\[','\\]']],
+            processEscapes: true,
+            processEnvironments: true,
+        }
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script></article>
+<!--End of body content-->
+<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:cloisteredmonkey.jmark@slmail.me">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element){var i=element.getElementsByTagName('img')[0];return i===undefined?'':i.alt;}});
+</script>
+</body>
+</html>

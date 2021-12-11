@@ -17,7 +17,7 @@
 <link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
 <link href="../../../site.webmanifest" rel="manifest">
 <meta content="Cloistered Monkey" name="author">
-<link href="../auto-complete-building-the-auto-complete-system/" rel="prev" title="Auto-Complete: Building the Auto-Complete System" type="text/html">
+<link href="../word-embeddings-with-the-cbow-model/" rel="prev" title="Word Embeddings with the CBOW Model" type="text/html">
 <link href="../introducing-the-cbow-model/" rel="next" title="Introducing the CBOW Model" type="text/html">
 <meta content="Neurotic Networking" property="og:site_name">
 <meta content="Word Embeddings: Data Preparation" property="og:title">
@@ -74,120 +74,159 @@
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#orge447365">Beginning</a></li>
-<li><a href="#orgd352bba">Middle</a>
+<li><a href="#org679dbe2">Data Preparation</a>
 <ul>
-<li><a href="#orgaa32aa4">Cleaning and tokenization</a></li>
-<li><a href="#orgd14421c">Tokenize</a></li>
-<li><a href="#orgcfa3bd8">More Processing</a></li>
-<li><a href="#orgf9923d3">Make It a Function</a></li>
-<li><a href="#orgd128294">Sliding Window of Words</a></li>
-<li><a href="#orgaf1cb7c">Transforming words into vectors for the training set</a>
-<ul>
-<li><a href="#org82d77bb">Mapping words to indices and indices to words</a></li>
-<li><a href="#org3fb9040">Getting one-hot word vectors</a></li>
-<li><a href="#orgd8a07d7">Getting context word vectors</a></li>
+<li><a href="#orgd60c204">Python Imports</a></li>
+<li><a href="#org79693e9">PyPi Imports</a></li>
 </ul>
 </li>
-<li><a href="#org5091701">Building the training set</a></li>
+<li><a href="#org80cd11a">And Now the Processing</a>
+<ul>
+<li><a href="#orga1a22ba">Our Corpus</a></li>
+<li><a href="#org55a617c">Cleaning and Tokenization</a>
+<ul>
+<li><a href="#org8e23d7b">Punctuation</a></li>
 </ul>
 </li>
+<li><a href="#orga6103c3">Tokenize</a></li>
+<li><a href="#org8707cee">Lower-Case And More Cleaning</a></li>
+<li><a href="#org8bd744e">Wrap It Together</a></li>
+<li><a href="#orgb39e68f">Sliding Window of Words</a></li>
+<li><a href="#org5c06140">Words To Vectors</a>
+<ul>
+<li><a href="#org8a766b8">Mapping words to indices and indices to words</a></li>
+<li><a href="#org689c9e6">One-Hot Word Vectors</a></li>
+<li><a href="#orga5e5867">Context Word Vectors</a></li>
+</ul>
+</li>
+<li><a href="#org54a4c58">Building the training set</a></li>
+</ul>
+</li>
+<li><a href="#org282beff">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orge447365">
-<h2 id="orge447365">Beginning</h2>
-<div class="outline-text-2" id="text-orge447365">
+<div class="outline-2" id="outline-container-org679dbe2">
+<h2 id="org679dbe2">Data Preparation</h2>
+<div class="outline-text-2" id="text-org679dbe2">
+<p>This is a look at the types of things we're going to need to do in order to convert our twitter data into a form that we can use for machine learning.</p>
+</div>
+<div class="outline-3" id="outline-container-orgd60c204">
+<h3 id="orgd60c204">Python Imports</h3>
+<div class="outline-text-3" id="text-orgd60c204">
+<p>This is pretty standard stuff. Only the <a href="https://docs.python.org/3/library/re.html#module-re">re</a> module for regular expressions is, strictly speaking, needed here.</p>
 <div class="highlight">
-<pre><span></span><span class="c1"># python</span>
-<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<pre><span></span><span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
 <span class="kn">from</span> <span class="nn">pprint</span> <span class="kn">import</span> <span class="n">pprint</span>
-<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Generator</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span>
 
-<span class="c1"># pypi</span>
-<span class="kn">import</span> <span class="nn">emoji</span>
+<span class="kn">import</span> <span class="nn">re</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org79693e9">
+<h3 id="org79693e9">PyPi Imports</h3>
+<div class="outline-text-3" id="text-org79693e9">
+<p>These are libraries installed via the Python Package Index (<a href="https://pypi.org/">pypi</a>).</p>
+<ul class="org-ul">
+<li><a href="https://github.com/carpedm20/emoji">emoji</a>: Convert emoji to text aliases and vice-versa</li>
+<li><a href="https://www.nltk.org/">nltk</a>: The Natural Language Toolkit</li>
+<li><a href="https://numpy.org/">numpy</a>: We'll use it for their arrays.</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="kn">import</span> <span class="nn">emoji</span>
 <span class="kn">import</span> <span class="nn">nltk</span>
 <span class="kn">import</span> <span class="nn">numpy</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgd352bba">
-<h2 id="orgd352bba">Middle</h2>
-<div class="outline-text-2" id="text-orgd352bba"></div>
-<div class="outline-3" id="outline-container-orgaa32aa4">
-<h3 id="orgaa32aa4">Cleaning and tokenization</h3>
-<div class="outline-text-3" id="text-orgaa32aa4">
-<p>To demonstrate the cleaning and tokenization process, consider a corpus that contains emojis and various punctuation signs. Let's define a corpus:</p>
+</div>
+<div class="outline-2" id="outline-container-org80cd11a">
+<h2 id="org80cd11a">And Now the Processing</h2>
+<div class="outline-text-2" id="text-org80cd11a">
+<p>The basic problem we have is that our data is made up of tweets (strings) with emojis, punctuation, and so on but we need to convert it to something numeric. The first step in that process is to standardize the strings and break them up into tokens.</p>
+</div>
+<div class="outline-3" id="outline-container-orga1a22ba">
+<h3 id="orga1a22ba">Our Corpus</h3>
+<div class="outline-text-3" id="text-orga1a22ba">
+<p>Here's a fake tweet that we can use to work our way through the steps.</p>
 <div class="highlight">
-<pre><span></span><span class="n">corpus</span> <span class="o">=</span> <span class="s1">'Who ❤️ "word embeddings" in 2020? I do!!!'</span>
+<pre><span></span><span class="n">corpus</span> <span class="o">=</span> <span class="n">emoji</span><span class="o">.</span><span class="n">emojize</span><span class="p">((</span>
+    <span class="s2">"My :ogre: :red_heart: :moyai:, but "</span>
+    <span class="s2">"my :goblin: must :poop:! Ho, :zany_face:. Human-animals $??"</span><span class="p">),</span>
+                       <span class="n">use_aliases</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">corpus</span><span class="p">)</span>
 </pre></div>
-<p>First, replace all interrupting punctuation signs — such as commas and exclamation marks — with periods.</p>
+<p>My 👹 ❤ 🗿, but my 👺 must 💩! Ho, 🤪. Human-animals $??</p>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org55a617c">
+<h3 id="org55a617c">Cleaning and Tokenization</h3>
+<div class="outline-text-3" id="text-org55a617c"></div>
+<div class="outline-4" id="outline-container-org8e23d7b">
+<h4 id="org8e23d7b">Punctuation</h4>
+<div class="outline-text-4" id="text-org8e23d7b">
+<p>The first thing we're going to do is replace the punctuation with periods (<code>.</code>) using <a href="https://docs.python.org/3/library/re.html#re.sub">re.sub</a> .</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Corpus:  </span><span class="si">{</span><span class="n">corpus</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
-
-<span class="c1"># Do the substitution</span>
-<span class="n">ONE_OR_MORE</span> <span class="o">=</span> <span class="s2">"+"</span>
+<pre><span></span><span class="n">ONE_OR_MORE</span> <span class="o">=</span> <span class="s2">"+"</span>
 <span class="n">PERIOD</span> <span class="o">=</span> <span class="s2">"."</span>
 <span class="n">PUNCTUATION</span> <span class="o">=</span> <span class="s2">",!?;-"</span>
-<span class="n">CHARACTERS</span> <span class="o">=</span> <span class="s2">"[</span><span class="si">{}</span><span class="s2">]"</span>
-<span class="n">EXPRESSION</span> <span class="o">=</span> <span class="n">CHARACTERS</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">PUNCTUATION</span><span class="p">)</span> <span class="o">+</span> <span class="n">ONE_OR_MORE</span>
+<span class="n">EXPRESSION</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"[</span><span class="si">{</span><span class="n">PUNCTUATION</span><span class="si">}</span><span class="s2">]"</span> <span class="o">+</span> <span class="n">ONE_OR_MORE</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">EXPRESSION</span><span class="p">,</span> <span class="n">PERIOD</span><span class="p">,</span> <span class="n">corpus</span><span class="p">)</span>
-<span class="c1"># Print cleaned corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"After cleaning punctuation:  '</span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-Corpus:  Who ❤️ "word embeddings" in 2020? I do!!!
-After cleaning punctuation:  'Who ❤️ "word embeddings" in 2020. I do.'
-</pre></div>
-</div>
-<div class="outline-3" id="outline-container-orgd14421c">
-<h3 id="orgd14421c">Tokenize</h3>
-<div class="outline-text-3" id="text-orgd14421c">
-<p>Next, use NLTK's tokenization engine to split the corpus into individual tokens.</p>
-<div class="highlight">
-<pre><span></span><span class="c1"># Print cleaned corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Initial string:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
 
-<span class="c1"># Tokenize the cleaned corpus</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"First cleaning:  '</span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
+</pre></div>
+<p>First cleaning: 'My 👹 ❤ 🗿. but my 👺 must 💩. Ho. 🤪. Human.animals $.'</p>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orga6103c3">
+<h3 id="orga6103c3">Tokenize</h3>
+<div class="outline-text-3" id="text-orga6103c3">
+<p>Next, use NLTK's <a href="https://www.nltk.org/api/nltk.tokenize.html#nltk.tokenize.punkt.PunktLanguageVars.word_tokenize">punkt word_tokenize</a> to break our corpus into tokens. <i>punkt</i> is German for "period" and is the name of a system created by Tibor Kiss and Jan Strunk. There's a link to the original paper ("Unsupervised Multilingual Sentence Boundary Detection") <a href="https://direct.mit.edu/coli/article/32/4/485/1923/Unsupervised-Multilingual-Sentence-Boundary">on this page</a>.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Before: </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="n">data</span> <span class="o">=</span> <span class="n">nltk</span><span class="o">.</span><span class="n">word_tokenize</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-
-<span class="c1"># Print the tokenized version of the corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'After tokenization:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - After tokenization:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-Initial string:  Who ❤️ "word embeddings" in 2020. I do.
-After tokenization:  ['Who', '❤️', '``', 'word', 'embeddings', "''", 'in', '2020', '.', 'I', 'do', '.']
-</pre></div>
+<ul class="org-ul">
+<li>Before: My 👹 ❤ 🗿. but my 👺 must 💩. Ho. 🤪. Human.animals $.</li>
+<li>After tokenization: ['My', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'Ho', '.', '🤪', '.', 'Human.animals', '$', '.']</li>
+</ul>
 </div>
-<div class="outline-3" id="outline-container-orgcfa3bd8">
-<h3 id="orgcfa3bd8">More Processing</h3>
-<div class="outline-text-3" id="text-orgcfa3bd8">
-<p>Finally, as you saw in the lecture, get rid of numbers and punctuation other than periods, and convert all the remaining tokens to lowercase.</p>
+</div>
+<div class="outline-3" id="outline-container-org8707cee">
+<h3 id="org8707cee">Lower-Case And More Cleaning</h3>
+<div class="outline-text-3" id="text-org8707cee">
+<p>Now we'll reduce the tokens a little more:</p>
+<ul class="org-ul">
+<li>lower-case everything</li>
+<li>filter out everything but letters, periods, and emoji</li>
+</ul>
+<p>We're going to use <a href="https://github.com/carpedm20/emoji/blob/70e7ba12dfaf3449a5d445b1e7de4ae2c6245d19/emoji/core.py#L112">get_emoji_regexp</a> which returns a regular expression object that matches emojis. Since it returns a compiled python Regular Expression object we can call its <a href="https://docs.python.org/3/library/re.html#re.Pattern.search">search</a> method to see if the token matches an emoji.</p>
 <div class="highlight">
-<pre><span></span><span class="c1"># Print the tokenized version of the corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Initial list of tokens:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Before:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
-<span class="c1"># Filter tokenized corpus using list comprehension</span>
-<span class="n">data</span> <span class="o">=</span> <span class="p">[</span> <span class="n">character</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">character</span> <span class="ow">in</span> <span class="n">data</span>
-         <span class="k">if</span> <span class="nb">any</span><span class="p">((</span><span class="n">character</span><span class="o">.</span><span class="n">isalpha</span><span class="p">(),</span>
-                 <span class="n">character</span><span class="o">==</span> <span class="s1">'.'</span><span class="p">,</span>
-                 <span class="n">emoji</span><span class="o">.</span><span class="n">get_emoji_regexp</span><span class="p">()</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">character</span><span class="p">)))</span>
+<span class="n">emoji_expression</span> <span class="o">=</span> <span class="n">emoji</span><span class="o">.</span><span class="n">get_emoji_regexp</span><span class="p">()</span>
+<span class="n">data</span> <span class="o">=</span> <span class="p">[</span> <span class="n">token</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">data</span>
+         <span class="k">if</span> <span class="nb">any</span><span class="p">((</span><span class="n">token</span><span class="o">.</span><span class="n">isalpha</span><span class="p">(),</span>
+                 <span class="n">token</span><span class="o">==</span> <span class="s1">'.'</span><span class="p">,</span>
+                 <span class="n">emoji_expression</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">token</span><span class="p">)))</span>
        <span class="p">]</span>
 
-<span class="c1"># Print the tokenized and filtered version of the corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"After cleaning:  '</span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - After:  </span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-Initial list of tokens:  ['Who', '❤️', '``', 'word', 'embeddings', "''", 'in', '2020', '.', 'I', 'do', '.']
-After cleaning:  '['who', '❤️', 'word', 'embeddings', 'in', '.', 'i', 'do', '.']'
-</pre>
-<p>Note that the heart emoji is considered a token just like any normal word.</p>
+<ul class="org-ul">
+<li>Before: ['My', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'Ho', '.', '🤪', '.', 'Human.animals', '$', '.']</li>
+<li>After: ['my', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'ho', '.', '🤪', '.', '.']</li>
+</ul>
+<p>One thing to notice is that it got rid of <i>Human.animals</i> so because of the way we're doing it, any hyphenated words are going to be eliminated.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgf9923d3">
-<h3 id="orgf9923d3">Make It a Function</h3>
-<div class="outline-text-3" id="text-orgf9923d3">
-<p>Now let's streamline the cleaning and tokenization process by wrapping the previous steps in a function.</p>
+<div class="outline-3" id="outline-container-org8bd744e">
+<h3 id="org8bd744e">Wrap It Together</h3>
+<div class="outline-text-3" id="text-org8bd744e">
+<p>While the steps were useful for illustrating things, it'll be more convenient to put it into a function for later.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">tokenize</span><span class="p">(</span><span class="n">corpus</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
     <span class="sd">"""clean and tokenize the corpus</span>
@@ -198,47 +237,74 @@ After cleaning:  '['who', '❤️', 'word', 'embeddings', 'in', '.', 'i', 'do', 
 <span class="sd">    Returns:</span>
 <span class="sd">     list of cleaned tokens from the corpus</span>
 <span class="sd">    """</span>
+    <span class="n">ONE_OR_MORE</span> <span class="o">=</span> <span class="s2">"+"</span>
+    <span class="n">PUNCTUATION</span> <span class="o">=</span> <span class="s2">",!?;-"</span>
+    <span class="n">EXPRESSION</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"[</span><span class="si">{</span><span class="n">PUNCTUATION</span><span class="si">}</span><span class="s2">]"</span> <span class="o">+</span> <span class="n">ONE_OR_MORE</span>
+    <span class="n">PERIOD</span> <span class="o">=</span> <span class="s2">"."</span>
+
     <span class="n">data</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">EXPRESSION</span><span class="p">,</span> <span class="n">PERIOD</span><span class="p">,</span> <span class="n">corpus</span><span class="p">)</span>
+    <span class="n">expression</span> <span class="o">=</span> <span class="n">emoji</span><span class="o">.</span><span class="n">get_emoji_regexp</span><span class="p">()</span>
     <span class="n">data</span> <span class="o">=</span> <span class="n">nltk</span><span class="o">.</span><span class="n">word_tokenize</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="p">[</span> <span class="n">character</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">character</span> <span class="ow">in</span> <span class="n">data</span>
-             <span class="k">if</span> <span class="nb">any</span><span class="p">((</span><span class="n">character</span><span class="o">.</span><span class="n">isalpha</span><span class="p">(),</span>
-                     <span class="n">character</span><span class="o">==</span> <span class="s1">'.'</span><span class="p">,</span>
-                     <span class="n">emoji</span><span class="o">.</span><span class="n">get_emoji_regexp</span><span class="p">()</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">character</span><span class="p">)))</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">[</span> <span class="n">token</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">data</span>
+             <span class="k">if</span> <span class="nb">any</span><span class="p">((</span><span class="n">token</span><span class="o">.</span><span class="n">isalpha</span><span class="p">(),</span>
+                     <span class="n">token</span><span class="o">==</span> <span class="s1">'.'</span><span class="p">,</span>
+                     <span class="n">expression</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">token</span><span class="p">)))</span>
        <span class="p">]</span>    
     <span class="k">return</span> <span class="n">data</span>
 </pre></div>
-<p>Apply this function to the corpus that you'll be working on in the rest of this notebook: "I am happy because I am learning"</p>
+<p>Now we can test it out.</p>
 <div class="highlight">
-<pre><span></span><span class="n">corpus</span> <span class="o">=</span> <span class="s1">'I am happy because I am learning'</span>
+<pre><span></span><span class="n">corpus</span> <span class="o">=</span> <span class="n">emoji</span><span class="o">.</span><span class="n">emojize</span><span class="p">(</span>
+    <span class="p">(</span><span class="s2">"Able was :clown_face:; ere :clown_face: saw :frog_face:! "</span>
+    <span class="s2">"Rejoice! :cigarette: for $9?"</span><span class="p">),</span> <span class="n">use_aliases</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="c1"># Print new corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Corpus:  </span><span class="si">{</span><span class="n">corpus</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Corpus:  </span><span class="si">{</span><span class="n">corpus</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="c1"># Save tokenized version of corpus into 'words' variable</span>
 <span class="n">words</span> <span class="o">=</span> <span class="n">tokenize</span><span class="p">(</span><span class="n">corpus</span><span class="p">)</span>
 
 <span class="c1"># Print the tokenized version of the corpus</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Words (tokens):  </span><span class="si">{</span><span class="n">words</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Words (tokens):  </span><span class="si">{</span><span class="n">words</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-Corpus:  I am happy because I am learning
-Words (tokens):  ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
-</pre>
-<p>An alternative sentence.</p>
+<ul class="org-ul">
+<li>Corpus: Able was 🤡; ere 🤡 saw :frog_face:! Rejoice! 🚬 for $9?</li>
+<li>Words (tokens): ['able', 'was', '🤡', '.', 'ere', '🤡', 'saw', '.', 'rejoice', '.', '🚬', 'for', '.']</li>
+</ul>
+<p>Check with an alternative sentence.</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">tokenize</span><span class="p">(</span><span class="s2">"I'm tired of being a token! Where's all the other cheese-sniffing Gnomish at? I bet theres' at least 2 of us out there, or maybe more..."</span><span class="p">))</span>
+<pre><span></span><span class="n">source</span> <span class="o">=</span> <span class="n">emoji</span><span class="o">.</span><span class="n">emojize</span><span class="p">(</span>
+    <span class="p">(</span><span class="s2">"I'm tired of being a token! Where's all the other "</span>
+     <span class="s2">":cheese_wedge:-sniffing"</span>
+     <span class="s2">" Gnomish at? I bet theres' at least 2 of us :gorilla: "</span>
+     <span class="s2">"out there, or maybe more..."</span><span class="p">),</span>
+    <span class="n">use_aliases</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Before: </span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - After: </span><span class="si">{</span><span class="n">tokenize</span><span class="p">(</span><span class="n">source</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-['i', 'tired', 'of', 'being', 'a', 'token', '.', 'where', 'all', 'the', 'other', 'gnomish', 'at', '.', 'i', 'bet', 'theres', 'at', 'least', 'of', 'us', 'out', 'there', '.', 'or', 'maybe', 'more']
-</pre></div>
+<ul class="org-ul">
+<li>Before: I'm tired of being a token! Where's all the other 🧀-sniffing Gnomish at? I bet theres' at least 2 of us 🦍 out there, or maybe more…</li>
+<li>After: ['i', 'tired', 'of', 'being', 'a', 'token', '.', 'where', 'all', 'the', 'other', '🧀.sniffing', 'gnomish', 'at', '.', 'i', 'bet', 'theres', 'at', 'least', 'of', 'us', '🦍', 'out', 'there', '.', 'or', 'maybe', 'more']</li>
+</ul>
+<p>Interestingly, it removes "am" (in the contraction "I'm") but not "a", I guess because it's language neutral it can't understand the contractions the way some english-specific tokenizers can.</p>
 </div>
-<div class="outline-3" id="outline-container-orgd128294">
-<h3 id="orgd128294">Sliding Window of Words</h3>
-<div class="outline-text-3" id="text-orgd128294">
-<p>Now that you have transformed the corpus into a list of clean tokens, you can slide a window of words across this list. For each window you can extract a center word and the context words.</p>
-<p>The <code>get_windows</code> function in the next cell was introduced in the lecture.</p>
+</div>
+<div class="outline-3" id="outline-container-orgb39e68f">
+<h3 id="orgb39e68f">Sliding Window of Words</h3>
+<div class="outline-text-3" id="text-orgb39e68f">
+<p>The idea behind word-embeddings is that we assume that the words around a word (the context) are what give us the meaning of the word so we create vectors whose distance to other vectors with similar contexts is closer than to those with more different contexts. So our data is made up of list of words around a word. If for example our sentence is:</p>
+<blockquote>
+<p>Fruit flies like a banana.</p>
+</blockquote>
+<p>And we get the context for the word "like" with a half-window (number of tokens on either side of the word) of 2, then our window will be:</p>
+<pre class="example">
+["fruit", "flies", "a", "banana"]
+</pre>
 <div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">half_window</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<pre><span></span><span class="n">GetWindowYield</span> <span class="o">=</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="nb">str</span><span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+                <span class="n">half_window</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">GetWindowYield</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
     <span class="sd">"""Generates windows of words</span>
 
 <span class="sd">    Args:</span>
@@ -255,59 +321,70 @@ Words (tokens):  ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
         <span class="k">yield</span> <span class="n">context_words</span><span class="p">,</span> <span class="n">center_word</span>
     <span class="k">return</span>
 </pre></div>
-<p>The first argument of this function is a list of words (or tokens). The second argument, <code>C</code>, is the context half-size. Recall that for a given center word, the context words are made of <code>C</code> words to the left and <code>C</code> words to the right of the center word.</p>
-<p>Here is how you can use this function to extract context words and center words from a list of tokens. These context and center words will make up the training set that you will use to train the CBOW model.</p>
+<p>The first argument of this function, <code>words</code>, is a list of words (or tokens). The second argument, <code>half_window</code>, is the context half-size. As I mentioned, for a given center word, the context words are made of <code>half_window</code> words to the left and <code>half_window</code> words to the right of the center word.</p>
+<p>Now let's try it on the <code>words</code> we defined earlier using a window of 2.</p>
 <div class="highlight">
-<pre><span></span><span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">([</span><span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'happy'</span><span class="p">,</span> <span class="s1">'because'</span><span class="p">,</span> <span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'learning'</span><span class="p">],</span> <span class="mi">2</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">x</span><span class="si">}</span><span class="se">\t</span><span class="si">{</span><span class="n">y</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<pre><span></span><span class="k">for</span> <span class="n">context</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="se">\t</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-['i', 'am', 'because', 'i']     happy
-['am', 'happy', 'i', 'am']      because
-['happy', 'because', 'am', 'learning']  i
-</pre>
-<p>The first example of the training set is made of:</p>
 <ul class="org-ul">
-<li>the context words "i", "am", "because", "i",</li>
-<li>and the center word to be predicted: "happy".</li>
+<li>['able', 'was', '.', 'ere'] 🤡</li>
+<li>['was', '🤡', 'ere', '🤡'] .</li>
+<li>['🤡', '.', '🤡', 'saw'] ere</li>
+<li>['.', 'ere', 'saw', '.'] 🤡</li>
+<li>['ere', '🤡', '.', 'rejoice'] saw</li>
+<li>['🤡', 'saw', 'rejoice', '.'] .</li>
+<li>['saw', '.', '.', '🚬'] rejoice</li>
+<li>['.', 'rejoice', '🚬', 'for'] .</li>
+<li>['rejoice', '.', 'for', '.'] 🚬</li>
 </ul>
-<p><b>Now try it out yourself. In the next cell, you can change both the sentence and the context half-size.</b></p>
+<p>The first example is made up of:</p>
+<ul class="org-ul">
+<li>the context words "able", "was", ".", "ere",</li>
+<li>and the center word to be predicted is a clown-face.</li>
+</ul>
+<p>Once more with feeling.</p>
 <div class="highlight">
-<pre><span></span><span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">tokenize</span><span class="p">(</span><span class="s2">"My baloney has a first name, it's Gerald."</span><span class="p">),</span> <span class="mi">2</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">x</span><span class="si">}</span><span class="se">\t</span><span class="si">{</span><span class="n">y</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+<pre><span></span><span class="k">for</span> <span class="n">context</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">tokenize</span><span class="p">(</span><span class="s2">"My baloney has a first name, it's Gerald."</span><span class="p">),</span> <span class="mi">2</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="se">\t</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example">
-['my', 'baloney', 'a', 'first'] has
-['baloney', 'has', 'first', 'name']     a
-['has', 'a', 'name', '.']       first
-['a', 'first', '.', 'it']       name
-['first', 'name', 'it', 'gerald']       .
-['name', '.', 'gerald', '.']    it
-</pre></div>
+<ul class="org-ul">
+<li>['my', 'baloney', 'a', 'first'] has</li>
+<li>['baloney', 'has', 'first', 'name'] a</li>
+<li>['has', 'a', 'name', '.'] first</li>
+<li>['a', 'first', '.', 'it'] name</li>
+<li>['first', 'name', 'it', 'gerald'] .</li>
+<li>['name', '.', 'gerald', '.'] it</li>
+</ul>
+<p>It's a little more obvious now that the way we wrote it the last two tokens (<code>Gerald</code> and <code>.</code>) don't get a context, so if we wanted to make sure that we did we'd probably have to pad the tokens or figure out some other scheme.</p>
 </div>
-<div class="outline-3" id="outline-container-orgaf1cb7c">
-<h3 id="orgaf1cb7c">Transforming words into vectors for the training set</h3>
-<div class="outline-text-3" id="text-orgaf1cb7c">
-<p>To finish preparing the training set, you need to transform the context words and center words into vectors.</p>
 </div>
-<div class="outline-4" id="outline-container-org82d77bb">
-<h4 id="org82d77bb">Mapping words to indices and indices to words</h4>
-<div class="outline-text-4" id="text-org82d77bb">
-<p>The center words will be represented as one-hot vectors, and the vectors that represent context words are also based on one-hot vectors.</p>
-<p>To create one-hot word vectors, you can start by mapping each unique word to a unique integer (or index). We have provided a helper function, <code>get_dict</code>, that creates a Python dictionary that maps words to integers and back.</p>
-<p>Get 'word2Ind' and 'Ind2word' dictionaries for the tokenized corpus.</p>
+<div class="outline-3" id="outline-container-org5c06140">
+<h3 id="org5c06140">Words To Vectors</h3>
+<div class="outline-text-3" id="text-org5c06140">
+<p>The next step is to convert the words to vectors using the contexts and words.</p>
+</div>
+<div class="outline-4" id="outline-container-org8a766b8">
+<h4 id="org8a766b8">Mapping words to indices and indices to words</h4>
+<div class="outline-text-4" id="text-org8a766b8">
+<p>The center words will be represented as <a href="https://www.wikiwand.com/en/One-hot#/Natural_language_processing">one-hot vectors</a> (vectors of all zeros except in the cell representing the word), and the vectors that represent context words are also based on one-hot vectors.</p>
+<p>To create one-hot word vectors, we can start by mapping each unique word to a unique integer (or index). We'll start with a function named <code>get_dict</code>, that creates a Python dictionary that maps words to integers and back.</p>
 <div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">get_dict</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<pre><span></span><span class="n">WordToIndex</span> <span class="o">=</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span>
+<span class="n">IndexToWord</span> <span class="o">=</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+<span class="n">GetDictOutput</span> <span class="o">=</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">WordToIndex</span><span class="p">,</span> <span class="n">IndexToWord</span><span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">get_dict</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">GetDictOutput</span><span class="p">:</span>
     <span class="sd">"""Creates index to word mappings</span>
 
-<span class="sd">    The index is based on sorted unique tokens in the data</span>
+<span class="sd">    The index is based on the sorted unique tokens in the data</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">       data: the data you want to pull from</span>
+<span class="sd">     data: the data you want to pull from</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">       word2Ind: returns dictionary mapping the word to its index</span>
-<span class="sd">       Ind2Word: returns dictionary mapping the index to its word</span>
+<span class="sd">     word_to_index: returns dictionary mapping the word to its index</span>
+<span class="sd">     index_to_word: returns dictionary mapping the index to its word</span>
 <span class="sd">    """</span>
     <span class="n">words</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">data</span><span class="p">)))</span>
 
@@ -315,85 +392,84 @@ Words (tokens):  ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
     <span class="n">index_to_word</span> <span class="o">=</span> <span class="p">{</span><span class="n">index</span><span class="p">:</span> <span class="n">word</span> <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">word</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">words</span><span class="p">)}</span>
     <span class="k">return</span> <span class="n">word_to_index</span><span class="p">,</span> <span class="n">index_to_word</span>
 </pre></div>
+<p>So, let's try it out with the corpus.</p>
 <div class="highlight">
-<pre><span></span><span class="n">word2Ind</span><span class="p">,</span> <span class="n">Ind2word</span> <span class="o">=</span> <span class="n">get_dict</span><span class="p">(</span><span class="n">words</span><span class="p">)</span>
-</pre></div>
-<div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">word2Ind</span><span class="p">)</span>
+<pre><span></span><span class="n">word_to_index</span><span class="p">,</span> <span class="n">index_to_word</span> <span class="o">=</span> <span class="n">get_dict</span><span class="p">(</span><span class="n">words</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">word_to_index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">index_to_word</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-{'am': 0, 'because': 1, 'happy': 2, 'i': 3, 'learning': 4}
+- {'.': 0, 'able': 1, 'ere': 2, 'for': 3, 'rejoice': 4, 'saw': 5, 'was': 6, '🚬': 7, '🤡': 8}
+- {0: '.', 1: 'able', 2: 'ere', 3: 'for', 4: 'rejoice', 5: 'saw', 6: 'was', 7: '🚬', 8: '🤡'}
 </pre>
-<p>You can use this dictionary to get the index of a word.</p>
+<p>If it isn't obvious, the purpose of the <code>word_to_index</code> dictionary is to convert a word to an integer.</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Index of the word 'i':  </span><span class="si">{</span><span class="n">word2Ind</span><span class="p">[</span><span class="s1">'i'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<pre><span></span><span class="n">token</span> <span class="o">=</span> <span class="s2">"ere"</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Index of the word '</span><span class="si">{</span><span class="n">token</span><span class="si">}</span><span class="s2">':  </span><span class="si">{</span><span class="n">word_to_index</span><span class="p">[</span><span class="n">token</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-Index of the word 'i':  3
+Index of the word 'ere':  2
 </pre>
-<p>And conversely, here's the dictionary that maps indices to words.</p>
+<p>And now in the other direction.</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">Ind2word</span><span class="p">)</span>
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Word which has index 2:  '</span><span class="si">{</span><span class="n">index_to_word</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-{0: 'am', 1: 'because', 2: 'happy', 3: 'i', 4: 'learning'}
+Word which has index 2:  'ere'
 </pre>
+<p>Finally, we need to know how many unique tokens are in our data set. The unique tokens make up our "vocabulary".</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Word which has index 2:  '</span><span class="si">{</span><span class="n">Ind2word</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
+<pre><span></span><span class="n">vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">word_to_index</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Size of vocabulary: </span><span class="si">{</span><span class="n">vocabulary_size</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-Word which has index 2:  'happy'
-</pre>
-<p>Finally, get the length of either of these dictionaries to get the size of the vocabulary of your corpus, in other words the number of different words making up the corpus.</p>
-<div class="highlight">
-<pre><span></span><span class="n">vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">word2Ind</span><span class="p">)</span>
-</pre></div>
-<div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Size of vocabulary: </span><span class="si">{</span><span class="n">vocabulary_size</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-Size of vocabulary: 5
+Size of vocabulary: 9
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org3fb9040">
-<h4 id="org3fb9040">Getting one-hot word vectors</h4>
-<div class="outline-text-4" id="text-org3fb9040">
-<p>Recall from the lecture that you can easily convert an integer, <i>n</i>, into a one-hot vector.</p>
-<p>Consider the word "happy". First, retrieve its numeric index.</p>
+<div class="outline-4" id="outline-container-org689c9e6">
+<h4 id="org689c9e6">One-Hot Word Vectors</h4>
+<div class="outline-text-4" id="text-org689c9e6">
+<p>Now let's look at creating one-hot vectors for the words. We'll start with one word - "rejoice".</p>
 <div class="highlight">
-<pre><span></span><span class="n">happy_index</span> <span class="o">=</span> <span class="n">word2Ind</span><span class="p">[</span><span class="s1">'happy'</span><span class="p">]</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">happy_index</span><span class="p">)</span>
+<pre><span></span><span class="n">word</span> <span class="o">=</span> <span class="s2">"rejoice"</span>
+<span class="n">word_index</span> <span class="o">=</span> <span class="n">word_to_index</span><span class="p">[</span><span class="n">word</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Index for '</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">': </span><span class="si">{</span><span class="n">word_index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-2
+Index for 'rejoice': 4
 </pre>
-<p>Now create a vector with the size of the vocabulary, and fill it with zeros. Create vector with the same length as the vocabulary, filled with zeros</p>
+<p>Now we'll create a vector that has as many cells as there are tokens in the vocabulary and populate it with zeros (using <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html">numpy.zeros</a>). This is why we needed the vocabulary size.</p>
 <div class="highlight">
 <pre><span></span><span class="n">center_word_vector</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">vocabulary_size</span><span class="p">)</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="n">center_word_vector</span><span class="p">)</span>
 <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">center_word_vector</span><span class="p">)</span> <span class="o">==</span> <span class="n">vocabulary_size</span>
+<span class="k">assert</span> <span class="n">center_word_vector</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">==</span> <span class="mf">0.0</span>
 </pre></div>
 <pre class="example">
-[0. 0. 0. 0. 0.]
+[0. 0. 0. 0. 0. 0. 0. 0. 0.]
 </pre>
-<p>Next, replace the 0 of the $n$-th element with a 1.</p>
-<p>Replace element number 'n' with a 1</p>
+<p>Now, to make the vector represent out word, we need to set the cell that represents the word to 1.</p>
 <div class="highlight">
-<pre><span></span><span class="n">center_word_vector</span><span class="p">[</span><span class="n">happy_index</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+<pre><span></span><span class="n">center_word_vector</span><span class="p">[</span><span class="n">word_index</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
 </pre></div>
-<p>And you have your one-hot word vector.</p>
+<p>And now we have our one-hot word vector.</p>
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">center_word_vector</span><span class="p">)</span>
+
+<span class="n">the_ones</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">center_word_vector</span><span class="o">==</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">the_ones</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">index_to_word</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">item</span><span class="p">)]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[0. 0. 1. 0. 0.]
+[0. 0. 0. 0. 1. 0. 0. 0. 0.]
+rejoice
 </pre>
-<p><b>You can now group all of these steps in a convenient function, which takes as parameters: a word to be encoded, a dictionary that maps words to indices, and the size of the vocabulary.</b></p>
+<p>So, like before, let's put everything into a function.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">word_to_one_hot_vector</span><span class="p">(</span><span class="n">word</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-                           <span class="n">word_to_index</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
-                           <span class="n">vocabulary_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+                           <span class="n">word_to_index</span><span class="p">:</span> <span class="n">WordToIndex</span><span class="o">=</span><span class="n">word_to_index</span><span class="p">,</span>
+                           <span class="n">vocabulary_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="n">vocabulary_size</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
     <span class="sd">"""Create a one-hot-vector with a 1 where the word is</span>
 
 
@@ -409,63 +485,65 @@ Size of vocabulary: 5
     <span class="n">one_hot_vector</span><span class="p">[</span><span class="n">word_to_index</span><span class="p">[</span><span class="n">word</span><span class="p">]]</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="k">return</span> <span class="n">one_hot_vector</span>
 </pre></div>
-<p>Check that it works as intended.</p>
+<p>Now we can check that it worked out.</p>
 <div class="highlight">
-<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="s1">'happy'</span><span class="p">,</span> <span class="n">word2Ind</span><span class="p">,</span> <span class="n">vocabulary_size</span><span class="p">))</span>
-</pre></div>
-<pre class="example">
-[0. 0. 1. 0. 0.]
-</pre>
-<p><b>What is the word vector for "learning"?</b></p>
-<div class="highlight">
-<pre><span></span><span class="n">actual</span> <span class="o">=</span> <span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="s1">'learning'</span><span class="p">,</span> <span class="n">word2Ind</span><span class="p">,</span> <span class="n">vocabulary_size</span><span class="p">)</span>
+<pre><span></span><span class="n">actual</span> <span class="o">=</span> <span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="n">word</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">actual</span><span class="p">)</span>
-
-<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">])</span>
-<span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">actual</span> <span class="o">==</span> <span class="n">expected</span><span class="p">)</span>
+<span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">actual</span> <span class="o">==</span> <span class="n">center_word_vector</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[0. 0. 0. 0. 1.]
+[0. 0. 0. 0. 1. 0. 0. 0. 0.]
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-orgd8a07d7">
-<h4 id="orgd8a07d7">Getting context word vectors</h4>
-<div class="outline-text-4" id="text-orgd8a07d7">
-<p>To create the vectors that represent context words, you will calculate the average of the one-hot vectors representing the individual words.</p>
-<p>Let's start with a list of context words.</p>
+<div class="outline-4" id="outline-container-orga5e5867">
+<h4 id="orga5e5867">Context Word Vectors</h4>
+<div class="outline-text-4" id="text-orga5e5867">
+<p>So, now we come to the context words. It may not be quite as obvious what this is, since we said we're going to use one-hot vectors, but each context is made up of multiple words. What we'll do is calculate the average of the one-hot vectors representing the individual words.</p>
+<p>As an illustration let's start with one set of context words.</p>
 <div class="highlight">
-<pre><span></span><span class="n">context_words</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'because'</span><span class="p">,</span> <span class="s1">'i'</span><span class="p">]</span>
+<pre><span></span><span class="n">contexts</span> <span class="o">=</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="n">context_words</span><span class="p">,</span> <span class="n">word</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">contexts</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Word: </span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - Context: </span><span class="si">{</span><span class="n">context_words</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<p>Using Python's list comprehension construct and the <code>word_to_one_hot_vector</code> function that you created in the previous section, you can create a list of one-hot vectors representing each of the context words.</p>
-<p>Create one-hot vectors for each context word using list comprehension</p>
+<ul class="org-ul">
+<li>Word: 🤡</li>
+<li>Context: ['able', 'was', '.', 'ere']</li>
+</ul>
+<p>To create the one-hot vector we're going to create a list of all the vectors for the words in the context.</p>
 <div class="highlight">
-<pre><span></span><span class="n">context_words_vectors</span> <span class="o">=</span> <span class="p">[</span><span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">word2Ind</span><span class="p">,</span> <span class="n">vocabulary_size</span><span class="p">)</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">context_words</span><span class="p">]</span>
+<pre><span></span><span class="n">context_words_vectors</span> <span class="o">=</span> <span class="p">[</span><span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="n">word</span><span class="p">)</span>
+                         <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">context_words</span><span class="p">]</span>
 <span class="n">pprint</span><span class="p">(</span><span class="n">context_words_vectors</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[array([0., 0., 0., 1., 0.]),
- array([1., 0., 0., 0., 0.]),
- array([0., 1., 0., 0., 0.]),
- array([0., 0., 0., 1., 0.])]
+[array([0., 1., 0., 0., 0., 0., 0., 0., 0.]),
+ array([0., 0., 0., 0., 0., 0., 1., 0., 0.]),
+ array([1., 0., 0., 0., 0., 0., 0., 0., 0.]),
+ array([0., 0., 1., 0., 0., 0., 0., 0., 0.])]
 </pre>
-<p>And you can now simply get the average of these vectors using numpy's <code>mean</code> function, to get the vector representation of the context words.</p>
+<p>And now we can get the average of these vectors using numpy's <a href="https://numpy.org/doc/stable/reference/generated/numpy.mean.html">mean</a> function, to get the vector representation of the context words.</p>
 <div class="highlight">
 <pre><span></span><span class="n">ROWS</span><span class="p">,</span> <span class="n">COLUMNS</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span>
 <span class="n">first</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">context_words_vectors</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="n">ROWS</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">first</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[0.25 0.25 0.   0.5  0.  ]
+[0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
 </pre>
-<p><b>Now create the <code>context_words_to_vector</code> function that takes in a list of context words, a word-to-index dictionary, and a vocabulary size, and outputs the vector representation of the context words.</b></p>
+<p>Once again, let's wrap those separate code blocks back into a single function.</p>
 <div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">context_words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
-                            <span class="n">word_to_index</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<pre><span></span><span class="k">def</span> <span class="nf">context_words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+                            <span class="n">word_to_index</span><span class="p">:</span> <span class="n">WordToIndex</span><span class="o">=</span><span class="n">word_to_index</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
     <span class="sd">"""Create vector with the mean of the one-hot-vectors</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">     context_words: words to covert to one-hot vectors</span>
 <span class="sd">     word_to_index: dict mapping word to index</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     array with the mean of the one-hot vectors for the context_words</span>
 <span class="sd">    """</span>
     <span class="n">vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">word_to_index</span><span class="p">)</span>
     <span class="n">context_words_vectors</span> <span class="o">=</span> <span class="p">[</span>
@@ -474,93 +552,126 @@ Size of vocabulary: 5
     <span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">context_words_vectors</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="n">ROWS</span><span class="p">)</span>
 </pre></div>
 <div class="highlight">
-<pre><span></span><span class="n">words_to_vector</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">context_words_to_vector</span><span class="p">,</span> <span class="n">word_to_index</span><span class="o">=</span><span class="n">word2Ind</span><span class="p">)</span>
-<span class="n">second</span> <span class="o">=</span> <span class="n">words_to_vector</span><span class="p">([</span><span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">,</span> <span class="s1">'because'</span><span class="p">,</span> <span class="s1">'i'</span><span class="p">])</span>
+<pre><span></span><span class="n">second</span> <span class="o">=</span> <span class="n">context_words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">second</span><span class="p">)</span>
 <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">first</span><span class="o">==</span><span class="n">second</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-[0.25 0.25 0.   0.5  0.  ]
+[0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
 </pre>
-<p><b>What is the vector representation of the context words "am happy i am"?</b></p>
-<div class="highlight">
-<pre><span></span><span class="n">actual</span> <span class="o">=</span> <span class="n">words_to_vector</span><span class="p">([</span><span class="s1">'am'</span><span class="p">,</span> <span class="s1">'happy'</span><span class="p">,</span> <span class="s1">'i'</span><span class="p">,</span> <span class="s1">'am'</span><span class="p">])</span>
-<span class="n">expected</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.5</span> <span class="p">,</span> <span class="mf">0.</span>  <span class="p">,</span> <span class="mf">0.25</span><span class="p">,</span> <span class="mf">0.25</span><span class="p">,</span> <span class="mf">0.</span>  <span class="p">])</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">actual</span><span class="p">)</span>
-
-<span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">actual</span> <span class="o">==</span> <span class="n">expected</span><span class="p">)</span>
-</pre></div>
-<pre class="example">
-[0.5  0.   0.25 0.25 0.  ]
-</pre></div>
+<p>So, there you go. It isn't really a one-hot vector but is just based on one.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org5091701">
-<h3 id="org5091701">Building the training set</h3>
-<div class="outline-text-3" id="text-org5091701">
-<p>You can now combine the functions that you created in the previous sections, to build a training set for the CBOW model, starting from the following tokenized corpus.</p>
+</div>
+<div class="outline-3" id="outline-container-org54a4c58">
+<h3 id="org54a4c58">Building the training set</h3>
+<div class="outline-text-3" id="text-org54a4c58">
+<p>Now we can put them all together and create a training data set for a Continuous Bag of Words model.</p>
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">words</span><span class="p">)</span>
 </pre></div>
 <pre class="example">
-['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
+['able', 'was', '🤡', '.', 'ere', '🤡', 'saw', '.', 'rejoice', '.', '🚬', 'for', '.']
 </pre>
-<p>To do this you need to use the sliding window function (<code>get_windows</code>) to extract the context words and center words, and you then convert these sets of words into a basic vector representation using <code>word_to_one_hot_vector</code> and <code>context_words_to_vector</code>.</p>
 <div class="highlight">
 <pre><span></span><span class="k">for</span> <span class="n">context_words</span><span class="p">,</span> <span class="n">center_word</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">,</span> <span class="n">half_window</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Context words:  </span><span class="si">{</span><span class="n">context_words</span><span class="si">}</span><span class="s1"> -&gt; </span><span class="si">{</span><span class="n">words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">)</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Context words:  </span><span class="si">{</span><span class="n">context_words</span><span class="si">}</span><span class="s1"> -&gt; </span><span class="si">{</span><span class="n">context_words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">)</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Center word:  </span><span class="si">{</span><span class="n">center_word</span><span class="si">}</span><span class="s2"> -&gt; "</span>
-          <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="n">center_word</span><span class="p">,</span> <span class="n">word2Ind</span><span class="p">,</span> <span class="n">vocabulary_size</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+          <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">word_to_one_hot_vector</span><span class="p">(</span><span class="n">center_word</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">()</span>
 </pre></div>
 <pre class="example">
-Context words:  ['i', 'am', 'because', 'i'] -&gt; [0.25 0.25 0.   0.5  0.  ]
-Center word:  happy -&gt; [0. 0. 1. 0. 0.]
+Context words:  ['able', 'was', '.', 'ere'] -&gt; [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
+Center word:  🤡 -&gt; [0. 0. 0. 0. 0. 0. 0. 0. 1.]
 
-Context words:  ['am', 'happy', 'i', 'am'] -&gt; [0.5  0.   0.25 0.25 0.  ]
-Center word:  because -&gt; [0. 1. 0. 0. 0.]
+Context words:  ['was', '🤡', 'ere', '🤡'] -&gt; [0.   0.   0.25 0.   0.   0.   0.25 0.   0.5 ]
+Center word:  . -&gt; [1. 0. 0. 0. 0. 0. 0. 0. 0.]
 
-Context words:  ['happy', 'because', 'am', 'learning'] -&gt; [0.25 0.25 0.25 0.   0.25]
-Center word:  i -&gt; [0. 0. 0. 1. 0.]
+Context words:  ['🤡', '.', '🤡', 'saw'] -&gt; [0.25 0.   0.   0.   0.   0.25 0.   0.   0.5 ]
+Center word:  ere -&gt; [0. 0. 1. 0. 0. 0. 0. 0. 0.]
 
+Context words:  ['.', 'ere', 'saw', '.'] -&gt; [0.5  0.   0.25 0.   0.   0.25 0.   0.   0.  ]
+Center word:  🤡 -&gt; [0. 0. 0. 0. 0. 0. 0. 0. 1.]
+
+Context words:  ['ere', '🤡', '.', 'rejoice'] -&gt; [0.25 0.   0.25 0.   0.25 0.   0.   0.   0.25]
+Center word:  saw -&gt; [0. 0. 0. 0. 0. 1. 0. 0. 0.]
+
+Context words:  ['🤡', 'saw', 'rejoice', '.'] -&gt; [0.25 0.   0.   0.   0.25 0.25 0.   0.   0.25]
+Center word:  . -&gt; [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['saw', '.', '.', '🚬'] -&gt; [0.5  0.   0.   0.   0.   0.25 0.   0.25 0.  ]
+Center word:  rejoice -&gt; [0. 0. 0. 0. 1. 0. 0. 0. 0.]
+
+Context words:  ['.', 'rejoice', '🚬', 'for'] -&gt; [0.25 0.   0.   0.25 0.25 0.   0.   0.25 0.  ]
+Center word:  . -&gt; [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['rejoice', '.', 'for', '.'] -&gt; [0.5  0.   0.   0.25 0.25 0.   0.   0.   0.  ]
+Center word:  🚬 -&gt; [0. 0. 0. 0. 0. 0. 0. 1. 0.]
 </pre>
-<p>In this practice notebook you'll be performing a single iteration of training using a single example, but in this week's assignment you'll train the CBOW model using several iterations and batches of example. Here is how you would use a Python generator function (remember the `yield` keyword from the lecture?) to make it easier to iterate over a set of examples.</p>
+<p>Next we'll create a generator that yields the context-vectors.</p>
 <div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">get_training_example</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">half_window</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">word_to_index</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<pre><span></span><span class="k">def</span> <span class="nf">get_training_example</span><span class="p">(</span>
+        <span class="n">words</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">half_window</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">word_to_index</span><span class="p">:</span> <span class="n">WordToIndex</span><span class="o">=</span><span class="n">word_to_index</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+                                                               <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
     <span class="sd">"""generates training examples</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">     words: source of words</span>
 <span class="sd">     half_window: half the window size</span>
 <span class="sd">     word_to_index: dict with word to index mapping</span>
+
+<span class="sd">    Yields:</span>
+<span class="sd">     array with the mean of the one-hot vectors for the context words</span>
 <span class="sd">    """</span>
     <span class="n">vocabulary_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">word_to_index</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">context_words</span><span class="p">,</span> <span class="n">center_word</span> <span class="ow">in</span> <span class="n">get_windows</span><span class="p">(</span><span class="n">words</span><span class="p">,</span> <span class="n">half_window</span><span class="p">):</span>
-        <span class="k">yield</span> <span class="n">words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">),</span> <span class="n">word_to_one_hot_vector</span><span class="p">(</span>
+        <span class="k">yield</span> <span class="n">context_words_to_vector</span><span class="p">(</span><span class="n">context_words</span><span class="p">),</span> <span class="n">word_to_one_hot_vector</span><span class="p">(</span>
             <span class="n">center_word</span><span class="p">,</span> <span class="n">word_to_index</span><span class="p">,</span>
             <span class="n">vocabulary_size</span><span class="p">)</span>
     <span class="k">return</span>
 </pre></div>
 <p>The output of this function can be iterated on to get successive context word vectors and center word vectors, as demonstrated in the next cell.</p>
 <div class="highlight">
-<pre><span></span><span class="k">for</span> <span class="n">context_words_vector</span><span class="p">,</span> <span class="n">center_word_vector</span> <span class="ow">in</span> <span class="n">get_training_example</span><span class="p">(</span><span class="n">words</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">word2Ind</span><span class="p">):</span>
+<pre><span></span><span class="k">for</span> <span class="n">context_words_vector</span><span class="p">,</span> <span class="n">center_word_vector</span> <span class="ow">in</span> <span class="n">get_training_example</span><span class="p">(</span><span class="n">words</span><span class="p">):</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Context words vector:  </span><span class="si">{</span><span class="n">context_words_vector</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'Center word vector:  </span><span class="si">{</span><span class="n">center_word_vector</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">()</span>
 </pre></div>
 <pre class="example">
-Context words vector:  [0.25 0.25 0.   0.5  0.  ]
-Center word vector:  [0. 0. 1. 0. 0.]
+Context words vector:  [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 0. 1.]
 
-Context words vector:  [0.5  0.   0.25 0.25 0.  ]
-Center word vector:  [0. 1. 0. 0. 0.]
+Context words vector:  [0.   0.   0.25 0.   0.   0.   0.25 0.   0.5 ]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
 
-Context words vector:  [0.25 0.25 0.25 0.   0.25]
-Center word vector:  [0. 0. 0. 1. 0.]
+Context words vector:  [0.25 0.   0.   0.   0.   0.25 0.   0.   0.5 ]
+Center word vector:  [0. 0. 1. 0. 0. 0. 0. 0. 0.]
 
-</pre>
-<p>Now that the training set is ready, we can move on to the CBOW model itself which will be covered in the <a href="../introducing-the-cbow-model/">next post</a>.</p>
+Context words vector:  [0.5  0.   0.25 0.   0.   0.25 0.   0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 0. 1.]
+
+Context words vector:  [0.25 0.   0.25 0.   0.25 0.   0.   0.   0.25]
+Center word vector:  [0. 0. 0. 0. 0. 1. 0. 0. 0.]
+
+Context words vector:  [0.25 0.   0.   0.   0.25 0.25 0.   0.   0.25]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words vector:  [0.5  0.   0.   0.   0.   0.25 0.   0.25 0.  ]
+Center word vector:  [0. 0. 0. 0. 1. 0. 0. 0. 0.]
+
+Context words vector:  [0.25 0.   0.   0.25 0.25 0.   0.   0.25 0.  ]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words vector:  [0.5  0.   0.   0.25 0.25 0.   0.   0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 1. 0.]
+</pre></div>
 </div>
+</div>
+<div class="outline-2" id="outline-container-org282beff">
+<h2 id="org282beff">End</h2>
+<div class="outline-text-2" id="text-org282beff">
+<p>Now that we know how to creat the training set, we can move on to the CBOW model itself which will be covered in the <a href="../introducing-the-cbow-model/">next post</a>. This is part of a series of posts looking at some preliminaries for creating word-embeddings. There is a table-of-contents post <a href="../word-embeddings-with-the-cbow-model/">here</a>.</p>
 </div>
 </div>
 </div>
@@ -572,14 +683,14 @@ Center word vector:  [0. 0. 0. 1. 0.]
 <li><a class="tag p-category" href="../../../categories/word-embeddings/" rel="tag">word embeddings</a></li>
 </ul>
 <ul class="pager hidden-print">
-<li class="previous"><a href="../auto-complete-building-the-auto-complete-system/" rel="prev" title="Auto-Complete: Building the Auto-Complete System">Previous post</a></li>
+<li class="previous"><a href="../word-embeddings-with-the-cbow-model/" rel="prev" title="Word Embeddings with the CBOW Model">Previous post</a></li>
 <li class="next"><a href="../introducing-the-cbow-model/" rel="next" title="Introducing the CBOW Model">Next post</a></li>
 </ul>
 </nav>
 </aside>
 </article>
 <!--End of body content-->
-<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:cloisteredmonkey.jmark@slmail.me">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
 </div>
 </div>
 <script src="../../../assets/js/all-nocdn.js"></script>

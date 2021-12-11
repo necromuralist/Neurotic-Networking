@@ -12,97 +12,110 @@
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
 
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ebfffc16-8de3-4fcf-b4ad-4258c731f687-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3da95882-6fc4-4167-bd23-e9641add83db-ssh.json
 
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-* Beginning
+* Data Preparation
+  This is a look at the types of things we're going to need to do in order to convert our twitter data into a form that we can use for machine learning.
+** Python Imports
+   This is pretty standard stuff. Only the [[https://docs.python.org/3/library/re.html#module-re][re]] module for regular expressions is, strictly speaking, needed here.
 #+begin_src python :results none
-# python
 from functools import partial
 from pprint import pprint
-import re
+from typing import Dict, Generator, List, Tuple
 
-# pypi
+import re
+#+end_src  
+** PyPi Imports
+   These are libraries installed via the Python Package Index ([[https://pypi.org/][pypi]]).
+
+   - [[https://github.com/carpedm20/emoji][emoji]]: Convert emoji to text aliases and vice-versa
+   - [[https://www.nltk.org/][nltk]]: The Natural Language Toolkit
+   - [[https://numpy.org/][numpy]]: We'll use it for their arrays.
+
+#+begin_src python :results none
 import emoji
 import nltk
 import numpy
-#+end_src  
-* Middle
-** Cleaning and tokenization
- To demonstrate the cleaning and tokenization process, consider a corpus that contains emojis and various punctuation signs.
-Let's define a corpus:
-#+begin_src python :results none
-corpus = 'Who ❤️ "word embeddings" in 2020? I do!!!'
+#+end_src
+* And Now the Processing
+   The basic problem we have is that our data is made up of tweets (strings) with emojis, punctuation, and so on but we need to convert it to something numeric. The first step in that process is to standardize the strings and break them up into tokens.
+** Our Corpus
+   Here's a fake tweet that we can use to work our way through the steps.
+
+#+begin_src python :results output :exports both
+corpus = emoji.emojize((
+    "My :ogre: :red_heart: :moyai:, but "
+    "my :goblin: must :poop:! Ho, :zany_face:. Human-animals $??"),
+                       use_aliases=True)
+print(corpus)
 #+end_src
 
-First, replace all interrupting punctuation signs — such as commas and exclamation marks — with periods.
-#+begin_src python :results output :exports both
-print(f'Corpus:  {corpus}')
 
-# Do the substitution
+#+RESULTS:
+My 👹 ❤ 🗿, but my 👺 must 💩! Ho, 🤪. Human-animals $??
+
+** Cleaning and Tokenization
+*** Punctuation
+The first thing we're going to do is replace the punctuation with periods (=.=) using [[https://docs.python.org/3/library/re.html#re.sub][re.sub]] .
+#+begin_src python :results output :exports both
 ONE_OR_MORE = "+"
 PERIOD = "."
 PUNCTUATION = ",!?;-"
-CHARACTERS = "[{}]"
-EXPRESSION = CHARACTERS.format(PUNCTUATION) + ONE_OR_MORE
+EXPRESSION = f"[{PUNCTUATION}]" + ONE_OR_MORE
 data = re.sub(EXPRESSION, PERIOD, corpus)
-# Print cleaned corpus
-print(f"After cleaning punctuation:  '{data}'")
+
+print(f"First cleaning:  '{data}'")
 #+end_src
 
 #+RESULTS:
-: Corpus:  Who ❤️ "word embeddings" in 2020? I do!!!
-: After cleaning punctuation:  'Who ❤️ "word embeddings" in 2020. I do.'
+First cleaning:  'My 👹 ❤ 🗿. but my 👺 must 💩. Ho. 🤪. Human.animals $.'
 
 ** Tokenize
-Next, use NLTK's tokenization engine to split the corpus into individual tokens.
+Next, use NLTK's [[https://www.nltk.org/api/nltk.tokenize.html#nltk.tokenize.punkt.PunktLanguageVars.word_tokenize][punkt word_tokenize]]  to break our corpus into tokens. /punkt/ is German for "period" and is the name of a system created by Tibor Kiss and Jan Strunk. There's a link to the original paper ("Unsupervised Multilingual Sentence Boundary Detection") [[https://direct.mit.edu/coli/article/32/4/485/1923/Unsupervised-Multilingual-Sentence-Boundary][on this page]].
 
 #+begin_src python :results output :exports both
-# Print cleaned corpus
-print(f'Initial string:  {data}')
-
-# Tokenize the cleaned corpus
+print(f" - Before: {data}")
 data = nltk.word_tokenize(data)
-
-# Print the tokenized version of the corpus
-print(f'After tokenization:  {data}')
+print(f" - After tokenization:  {data}")
 #+end_src
 
 #+RESULTS:
-: Initial string:  Who ❤️ "word embeddings" in 2020. I do.
-: After tokenization:  ['Who', '❤️', '``', 'word', 'embeddings', "''", 'in', '2020', '.', 'I', 'do', '.']
+ - Before: My 👹 ❤ 🗿. but my 👺 must 💩. Ho. 🤪. Human.animals $.
+ - After tokenization:  ['My', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'Ho', '.', '🤪', '.', 'Human.animals', '$', '.']
 
+** Lower-Case And More Cleaning
+Now we'll reduce the tokens a little more:
 
-** More Processing
-Finally, as you saw in the lecture, get rid of numbers and punctuation other than periods, and convert all the remaining tokens to lowercase.
+ - lower-case everything
+ - filter out everything but letters, periods, and emoji
+
+We're going to use [[https://github.com/carpedm20/emoji/blob/70e7ba12dfaf3449a5d445b1e7de4ae2c6245d19/emoji/core.py#L112][get_emoji_regexp]] which returns a regular expression object that matches emojis. Since it returns a compiled python Regular Expression object we can call its [[https://docs.python.org/3/library/re.html#re.Pattern.search][search]] method to see if the token matches an emoji.
 
 #+begin_src python :results output :exports both
-# Print the tokenized version of the corpus
-print(f'Initial list of tokens:  {data}')
+print(f" - Before:  {data}")
 
-# Filter tokenized corpus using list comprehension
-data = [ character.lower() for character in data
-         if any((character.isalpha(),
-                 character== '.',
-                 emoji.get_emoji_regexp().search(character)))
+emoji_expression = emoji.get_emoji_regexp()
+data = [ token.lower() for token in data
+         if any((token.isalpha(),
+                 token== '.',
+                 emoji_expression.search(token)))
        ]
 
-# Print the tokenized and filtered version of the corpus
-print(f"After cleaning:  '{data}'")
+print(f" - After:  {data}")
 #+end_src
 
 #+RESULTS:
-: Initial list of tokens:  ['Who', '❤️', '``', 'word', 'embeddings', "''", 'in', '2020', '.', 'I', 'do', '.']
-: After cleaning:  '['who', '❤️', 'word', 'embeddings', 'in', '.', 'i', 'do', '.']'
+ - Before:  ['My', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'Ho', '.', '🤪', '.', 'Human.animals', '$', '.']
+ - After:  ['my', '👹', '❤', '🗿', '.', 'but', 'my', '👺', 'must', '💩', '.', 'ho', '.', '🤪', '.', '.']
 
+One thing to notice is that it got rid of /Human.animals/ so because of the way we're doing it, any hyphenated words are going to be eliminated.
 
-Note that the heart emoji is considered a token just like any normal word.
-
-** Make It a Function
-Now let's streamline the cleaning and tokenization process by wrapping the previous steps in a function.
+** Wrap It Together
+   While the steps were useful for illustrating things, it'll be more convenient to put it into a function for later.
 
 #+begin_src python :results none
 def tokenize(corpus: str) -> list:
@@ -114,51 +127,82 @@ def tokenize(corpus: str) -> list:
     Returns:
      list of cleaned tokens from the corpus
     """
+    ONE_OR_MORE = "+"
+    PUNCTUATION = ",!?;-"
+    EXPRESSION = f"[{PUNCTUATION}]" + ONE_OR_MORE
+    PERIOD = "."
+
     data = re.sub(EXPRESSION, PERIOD, corpus)
+    expression = emoji.get_emoji_regexp()
     data = nltk.word_tokenize(data)
-    data = [ character.lower() for character in data
-             if any((character.isalpha(),
-                     character== '.',
-                     emoji.get_emoji_regexp().search(character)))
+    data = [ token.lower() for token in data
+             if any((token.isalpha(),
+                     token== '.',
+                     expression.search(token)))
        ]    
     return data
 #+end_src
 
-Apply this function to the corpus that you'll be working on in the rest of this notebook: "I am happy because I am learning"
+Now we can test it out.
 
 #+begin_src python :results output :exports both
-corpus = 'I am happy because I am learning'
+corpus = emoji.emojize(
+    ("Able was :clown_face:; ere :clown_face: saw :frog_face:! "
+    "Rejoice! :cigarette: for $9?"), use_aliases=True)
 
 # Print new corpus
-print(f'Corpus:  {corpus}')
+print(f" - Corpus:  {corpus}")
 
 # Save tokenized version of corpus into 'words' variable
 words = tokenize(corpus)
 
 # Print the tokenized version of the corpus
-print(f'Words (tokens):  {words}')
+print(f" - Words (tokens):  {words}")
 #+end_src
 
 #+RESULTS:
-: Corpus:  I am happy because I am learning
-: Words (tokens):  ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
+ - Corpus:  Able was 🤡; ere 🤡 saw :frog_face:! Rejoice! 🚬 for $9?
+ - Words (tokens):  ['able', 'was', '🤡', '.', 'ere', '🤡', 'saw', '.', 'rejoice', '.', '🚬', 'for', '.']
 
 
-An alternative sentence.
+Check with an alternative sentence.
+
 #+begin_src python :results output :exports both
-print(tokenize("I'm tired of being a token! Where's all the other cheese-sniffing Gnomish at? I bet theres' at least 2 of us out there, or maybe more..."))
+source = emoji.emojize(
+    ("I'm tired of being a token! Where's all the other "
+     ":cheese_wedge:-sniffing"
+     " Gnomish at? I bet theres' at least 2 of us :gorilla: "
+     "out there, or maybe more..."),
+    use_aliases=True)
+print(f" - Before: {source}")
+print(f" - After: {tokenize(source)}")
 #+end_src
 
 #+RESULTS:
-: ['i', 'tired', 'of', 'being', 'a', 'token', '.', 'where', 'all', 'the', 'other', 'gnomish', 'at', '.', 'i', 'bet', 'theres', 'at', 'least', 'of', 'us', 'out', 'there', '.', 'or', 'maybe', 'more']
+  - Before: I'm tired of being a token! Where's all the other 🧀-sniffing Gnomish at? I bet theres' at least 2 of us 🦍 out there, or maybe more...
+  - After: ['i', 'tired', 'of', 'being', 'a', 'token', '.', 'where', 'all', 'the', 'other', '🧀.sniffing', 'gnomish', 'at', '.', 'i', 'bet', 'theres', 'at', 'least', 'of', 'us', '🦍', 'out', 'there', '.', 'or', 'maybe', 'more']
+
+Interestingly, it removes "am" (in the contraction "I'm") but not "a", I guess because it's language neutral it can't understand the contractions the way some english-specific tokenizers can.
 
 ** Sliding Window of Words
-Now that you have transformed the corpus into a list of clean tokens, you can slide a window of words across this list. For each window you can extract a center word and the context words.
+   The idea behind word-embeddings is that we assume that the words around a word (the context) are what give us the meaning of the word so we create vectors whose distance to other vectors with similar contexts is closer than to those with more different contexts. So our data is made up of list of words around a word. If for example our sentence is:
 
- The =get_windows= function in the next cell was introduced in the lecture.
+#+begin_quote
+Fruit flies like a banana.
+#+end_quote
+
+And we get the context for the word "like" with a half-window (number of tokens on either side of the word) of 2, then our window will be:
+
+#+begin_example python
+["fruit", "flies", "a", "banana"]
+#+end_example
+
 
 #+begin_src python :results none
-def get_windows(words: list, half_window: int):
+GetWindowYield = Tuple[List[str], str]
+
+def get_windows(words: List[str],
+                half_window: int) -> Generator[GetWindowYield, None, None]:
     """Generates windows of words
     
     Args:
@@ -176,67 +220,76 @@ def get_windows(words: list, half_window: int):
     return
 #+end_src
 
- The first argument of this function is a list of words (or tokens). The second argument, =C=, is the context half-size. Recall that for a given center word, the context words are made of =C= words to the left and =C= words to the right of the center word.
+ The first argument of this function, =words=, is a list of words (or tokens). The second argument, =half_window=, is the context half-size. As I mentioned, for a given center word, the context words are made of =half_window= words to the left and =half_window= words to the right of the center word.
 
-Here is how you can use this function to extract context words and center words from a list of tokens. These context and center words will make up the training set that you will use to train the CBOW model.
+Now let's try it on the =words= we defined earlier using a window of 2.
 
 #+begin_src python :results output :exports both
-for x, y in get_windows(['i', 'am', 'happy', 'because', 'i', 'am', 'learning'], 2):
-    print(f'{x}\t{y}')
+for context, word in get_windows(words, 2):
+    print(f" - {context}\t{word}")
 #+end_src
 
 #+RESULTS:
-: ['i', 'am', 'because', 'i']	happy
-: ['am', 'happy', 'i', 'am']	because
-: ['happy', 'because', 'am', 'learning']	i
+  - ['able', 'was', '.', 'ere']	🤡
+  - ['was', '🤡', 'ere', '🤡']	.
+  - ['🤡', '.', '🤡', 'saw']	ere
+  - ['.', 'ere', 'saw', '.']	🤡
+  - ['ere', '🤡', '.', 'rejoice']	saw
+  - ['🤡', 'saw', 'rejoice', '.']	.
+  - ['saw', '.', '.', '🚬']	rejoice
+  - ['.', 'rejoice', '🚬', 'for']	.
+  - ['rejoice', '.', 'for', '.']	🚬
 
 
-The first example of the training set is made of:
+The first example is made up of:
 
- - the context words "i", "am", "because", "i",
- - and the center word to be predicted: "happy".
+ - the context words "able", "was", ".", "ere",
+ - and the center word to be predicted is a clown-face.
 
-**Now try it out yourself. In the next cell, you can change both the sentence and the context half-size.**
+
+Once more with feeling.
 
 #+begin_src python :results output :exports both
-for x, y in get_windows(tokenize("My baloney has a first name, it's Gerald."), 2):
-    print(f'{x}\t{y}')
+for context, word in get_windows(tokenize("My baloney has a first name, it's Gerald."), 2):
+    print(f" - {context}\t{word}")
 
 #+end_src
 
 #+RESULTS:
-: ['my', 'baloney', 'a', 'first']	has
-: ['baloney', 'has', 'first', 'name']	a
-: ['has', 'a', 'name', '.']	first
-: ['a', 'first', '.', 'it']	name
-: ['first', 'name', 'it', 'gerald']	.
-: ['name', '.', 'gerald', '.']	it
+  - ['my', 'baloney', 'a', 'first']	has
+  - ['baloney', 'has', 'first', 'name']	a
+  - ['has', 'a', 'name', '.']	first
+  - ['a', 'first', '.', 'it']	name
+  - ['first', 'name', 'it', 'gerald']	.
+  - ['name', '.', 'gerald', '.']	it
 
-** Transforming words into vectors for the training set
+It's a little more obvious now that the way we wrote it the last two tokens (=Gerald= and =.=) don't get a context, so if we wanted to make sure that we did we'd probably have to pad the tokens or figure out some other scheme.
+** Words To Vectors
 
-To finish preparing the training set, you need to transform the context words and center words into vectors.
+The next step is to convert the words to vectors using the contexts and words.
 
 *** Mapping words to indices and indices to words
 
-The center words will be represented as one-hot vectors, and the vectors that represent context words are also based on one-hot vectors.
+The center words will be represented as [[https://www.wikiwand.com/en/One-hot#/Natural_language_processing][one-hot vectors]] (vectors of all zeros except in the cell representing the word), and the vectors that represent context words are also based on one-hot vectors.
 
- To create one-hot word vectors, you can start by mapping each unique word to a unique integer (or index). We have provided a helper function, =get_dict=, that creates a Python dictionary that maps words to integers and back.
-
-
-Get 'word2Ind' and 'Ind2word' dictionaries for the tokenized corpus.
+ To create one-hot word vectors, we can start by mapping each unique word to a unique integer (or index). We'll start with a function named =get_dict=, that creates a Python dictionary that maps words to integers and back.
 
 #+begin_src python :results none
-def get_dict(data: list) -> tuple:
+WordToIndex = Dict[str, int]
+IndexToWord = Dict[int, str]
+GetDictOutput = Tuple[WordToIndex, IndexToWord]
+
+def get_dict(data: List[str]) -> GetDictOutput:
     """Creates index to word mappings
 
-    The index is based on sorted unique tokens in the data
+    The index is based on the sorted unique tokens in the data
 
     Args:
-        data: the data you want to pull from
+     data: the data you want to pull from
 
     Returns:
-        word2Ind: returns dictionary mapping the word to its index
-        Ind2Word: returns dictionary mapping the index to its word
+     word_to_index: returns dictionary mapping the word to its index
+     index_to_word: returns dictionary mapping the index to its word
     """
     words = sorted(list(set(data)))
 
@@ -245,107 +298,98 @@ def get_dict(data: list) -> tuple:
     return word_to_index, index_to_word
 #+end_src
 
-#+begin_src python :results none
-word2Ind, Ind2word = get_dict(words)
-#+end_src
+So, let's try it out with the corpus.
 
 #+begin_src python :results output :exports both
-print(word2Ind)
+word_to_index, index_to_word = get_dict(words)
+print(f" - {word_to_index}")
+print(f" - {index_to_word}")
 #+end_src
 
 #+RESULTS:
-: {'am': 0, 'because': 1, 'happy': 2, 'i': 3, 'learning': 4}
+:  - {'.': 0, 'able': 1, 'ere': 2, 'for': 3, 'rejoice': 4, 'saw': 5, 'was': 6, '🚬': 7, '🤡': 8}
+:  - {0: '.', 1: 'able', 2: 'ere', 3: 'for', 4: 'rejoice', 5: 'saw', 6: 'was', 7: '🚬', 8: '🤡'}
 
-You can use this dictionary to get the index of a word.
+If it isn't obvious, the purpose of the =word_to_index= dictionary is to convert a word to an integer.
 
 #+begin_src python :results output :exports both
-print(f"Index of the word 'i':  {word2Ind['i']}")
+token = "ere"
+print(f"Index of the word '{token}':  {word_to_index[token]}")
 #+end_src
 
 #+RESULTS:
-: Index of the word 'i':  3
+: Index of the word 'ere':  2
 
-And conversely, here's the dictionary that maps indices to words.
+And now in the other direction.
 
 #+begin_src python :results output :exports both
-print(Ind2word)
+print(f"Word which has index 2:  '{index_to_word[2]}'")
 #+end_src
 
 #+RESULTS:
-: {0: 'am', 1: 'because', 2: 'happy', 3: 'i', 4: 'learning'}
+: Word which has index 2:  'ere'
+
+
+Finally, we need to know how many unique tokens are in our data set. The unique tokens make up our "vocabulary".
 
 #+begin_src python :results output :exports both
-print(f"Word which has index 2:  '{Ind2word[2]}'")
-#+end_src
-
-#+RESULTS:
-: Word which has index 2:  'happy'
-
-
-Finally, get the length of either of these dictionaries to get the size of the vocabulary of your corpus, in other words the number of different words making up the corpus.
-
-#+begin_src python :results none
-vocabulary_size = len(word2Ind)
-#+end_src
-
-#+begin_src python :results output :exports both
+vocabulary_size = len(word_to_index)
 print(f"Size of vocabulary: {vocabulary_size}")
 #+end_src
 
 #+RESULTS:
-: Size of vocabulary: 5
-*** Getting one-hot word vectors
-
-Recall from the lecture that you can easily convert an integer, /n/, into a one-hot vector.
-
-Consider the word "happy". First, retrieve its numeric index.
+: Size of vocabulary: 9
+*** One-Hot Word Vectors
+    Now let's look at creating one-hot vectors for the words. We'll start with one word - "rejoice".
 
 #+begin_src python :results output :exports both
-happy_index = word2Ind['happy']
-print(happy_index)
-#+end_src
+word = "rejoice"
+word_index = word_to_index[word]
+print(f"Index for '{word}': {word_index}")
+#+end_src  
 
 #+RESULTS:
-: 2
+: Index for 'rejoice': 4
 
-Now create a vector with the size of the vocabulary, and fill it with zeros.
- Create vector with the same length as the vocabulary, filled with zeros
+Now we'll create a vector that has as many cells as there are tokens in the vocabulary and populate it with zeros (using [[https://numpy.org/doc/stable/reference/generated/numpy.zeros.html][numpy.zeros]]). This is why we needed the vocabulary size.
 
 #+begin_src python :results output :exports both
 center_word_vector = numpy.zeros(vocabulary_size)
 
 print(center_word_vector)
 assert len(center_word_vector) == vocabulary_size
+assert center_word_vector.sum() == 0.0
 #+end_src
 
 #+RESULTS:
-: [0. 0. 0. 0. 0.]
+: [0. 0. 0. 0. 0. 0. 0. 0. 0.]
 
-
-Next, replace the 0 of the $n$-th element with a 1.
-
- Replace element number 'n' with a 1
+Now, to make the vector represent out word, we need to set the cell that represents the word to 1.
 
 #+begin_src python :results none
-center_word_vector[happy_index] = 1
+center_word_vector[word_index] = 1
 #+end_src
 
-And you have your one-hot word vector.
+And now we have our one-hot word vector.
 
 #+begin_src python :results output :exports both
 print(center_word_vector)
+
+the_ones = numpy.where(center_word_vector==1)
+for item in the_ones:
+    print(f"{index_to_word[int(item)]}")
 #+end_src
 
 #+RESULTS:
-: [0. 0. 1. 0. 0.]
+: [0. 0. 0. 0. 1. 0. 0. 0. 0.]
+: rejoice
 
 
-**You can now group all of these steps in a convenient function, which takes as parameters: a word to be encoded, a dictionary that maps words to indices, and the size of the vocabulary.**
-
-#+begin_src python :results output :exports both
+So, like before, let's put everything into a function.
+#+begin_src python :results none
 def word_to_one_hot_vector(word: str,
-                           word_to_index: dict,
-                           vocabulary_size: int) -> numpy.ndarray:
+                           word_to_index: WordToIndex=word_to_index,
+                           vocabulary_size: int=vocabulary_size) -> numpy.ndarray:
     """Create a one-hot-vector with a 1 where the word is
 
 
@@ -362,56 +406,53 @@ def word_to_one_hot_vector(word: str,
     return one_hot_vector
 #+end_src
 
-Check that it works as intended.
+Now we can check that it worked out.
 
 #+begin_src python :results output :exports both
-print(word_to_one_hot_vector('happy', word2Ind, vocabulary_size))
-#+end_src
-
-#+RESULTS:
-: [0. 0. 1. 0. 0.]
-
-
-
-**What is the word vector for "learning"?**
-
-#+begin_src python :results output :exports both
-actual = word_to_one_hot_vector('learning', word2Ind, vocabulary_size)
+actual = word_to_one_hot_vector(word)
 print(actual)
-
-expected = numpy.array([0., 0., 0., 0., 1.])
-assert all(actual == expected)
+assert all(actual == center_word_vector)
 #+end_src
 
 #+RESULTS:
-: [0. 0. 0. 0. 1.]
-*** Getting context word vectors
+: [0. 0. 0. 0. 1. 0. 0. 0. 0.]
 
- To create the vectors that represent context words, you will calculate the average of the one-hot vectors representing the individual words.
+*** Context Word Vectors
 
- Let's start with a list of context words.
+So, now we come to the context words. It may not be quite as obvious what this is, since we said we're going to use one-hot vectors, but each context is made up of multiple words.
+What we'll do is calculate the average of the one-hot vectors representing the individual words.
 
-#+begin_src python :results none
-context_words = ['i', 'am', 'because', 'i']
-#+end_src
-
- Using Python's list comprehension construct and the =word_to_one_hot_vector= function that you created in the previous section, you can create a list of one-hot vectors representing each of the context words.
-
- Create one-hot vectors for each context word using list comprehension
+As an illustration let's start with one set of context words.
 
 #+begin_src python :results output :exports both
-context_words_vectors = [word_to_one_hot_vector(w, word2Ind, vocabulary_size) for w in context_words]
+contexts = get_windows(words, 2)
+
+context_words, word = next(contexts)
+print(f" - Word: {word}")
+print(f" - Context: {context_words}")
+#+end_src
+
+#+RESULTS:
+  - Word: 🤡
+  - Context: ['able', 'was', '.', 'ere']
+
+To create the one-hot vector we're going to create a list of all the vectors for the words in the context.
+
+#+begin_src python :results output :exports both
+context_words_vectors = [word_to_one_hot_vector(word)
+                         for word in context_words]
 pprint(context_words_vectors)
 #+end_src 
 
 #+RESULTS:
-: [array([0., 0., 0., 1., 0.]),
-:  array([1., 0., 0., 0., 0.]),
-:  array([0., 1., 0., 0., 0.]),
-:  array([0., 0., 0., 1., 0.])]
+: [array([0., 1., 0., 0., 0., 0., 0., 0., 0.]),
+:  array([0., 0., 0., 0., 0., 0., 1., 0., 0.]),
+:  array([1., 0., 0., 0., 0., 0., 0., 0., 0.]),
+:  array([0., 0., 1., 0., 0., 0., 0., 0., 0.])]
 
 
-And you can now simply get the average of these vectors using numpy's =mean= function, to get the vector representation of the context words.
+And now we can get the average of these vectors using numpy's [[https://numpy.org/doc/stable/reference/generated/numpy.mean.html][mean]] function, to get the vector representation of the context words.
+
 #+begin_src python :results output :exports both
 ROWS, COLUMNS = 0, 1
 first = numpy.mean(context_words_vectors, axis=ROWS)
@@ -419,19 +460,21 @@ print(first)
 #+end_src
 
 #+RESULTS:
-: [0.25 0.25 0.   0.5  0.  ]
+: [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
 
-
-**Now create the =context_words_to_vector= function that takes in a list of context words, a word-to-index dictionary, and a vocabulary size, and outputs the vector representation of the context words.**
+Once again, let's wrap those separate code blocks back into a single function.
 
 #+begin_src python :results none
-def context_words_to_vector(context_words: list,
-                            word_to_index: dict) -> numpy.ndarray:
+def context_words_to_vector(context_words: List[str],
+                            word_to_index: WordToIndex=word_to_index) -> numpy.ndarray:
     """Create vector with the mean of the one-hot-vectors
 
     Args:
      context_words: words to covert to one-hot vectors
      word_to_index: dict mapping word to index
+
+    Returns:
+     array with the mean of the one-hot vectors for the context_words
     """
     vocabulary_size = len(word_to_index)
     context_words_vectors = [
@@ -441,74 +484,86 @@ def context_words_to_vector(context_words: list,
 #+end_src
 
 #+begin_src python :results output :exports both
-words_to_vector = partial(context_words_to_vector, word_to_index=word2Ind)
-second = words_to_vector(['i', 'am', 'because', 'i'])
+second = context_words_to_vector(context_words)
 print(second)
 assert all(first==second)
 #+end_src
 
 #+RESULTS:
-: [0.25 0.25 0.   0.5  0.  ]
+: [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
 
-**What is the vector representation of the context words "am happy i am"?**
+So, there you go. It isn't really a one-hot vector but is just based on one.
 
-#+begin_src python :results output :exports both
-actual = words_to_vector(['am', 'happy', 'i', 'am'])
-expected = numpy.array([0.5 , 0.  , 0.25, 0.25, 0.  ])
-print(actual)
-
-assert all(actual == expected)
-#+end_src
-
-#+RESULTS:
-: [0.5  0.   0.25 0.25 0.  ]
 ** Building the training set
 
- You can now combine the functions that you created in the previous sections, to build a training set for the CBOW model, starting from the following tokenized corpus.
+Now we can put them all together and create a training data set for a Continuous Bag of Words model.
 
 #+begin_src python :results output :exports both
 print(words)
 #+end_src
 
 #+RESULTS:
-: ['i', 'am', 'happy', 'because', 'i', 'am', 'learning']
+: ['able', 'was', '🤡', '.', 'ere', '🤡', 'saw', '.', 'rejoice', '.', '🚬', 'for', '.']
 
-To do this you need to use the sliding window function (=get_windows=) to extract the context words and center words, and you then convert these sets of words into a basic vector representation using =word_to_one_hot_vector= and =context_words_to_vector=.
 
 #+begin_src python :results output :exports both
 for context_words, center_word in get_windows(words, half_window=2):
-    print(f'Context words:  {context_words} -> {words_to_vector(context_words)}')
+    print(f'Context words:  {context_words} -> {context_words_to_vector(context_words)}')
     print(f"Center word:  {center_word} -> "
-          f"{word_to_one_hot_vector(center_word, word2Ind, vocabulary_size)}")
+          f"{word_to_one_hot_vector(center_word)}")
     print()
 #+end_src
 
 #+RESULTS:
-: Context words:  ['i', 'am', 'because', 'i'] -> [0.25 0.25 0.   0.5  0.  ]
-: Center word:  happy -> [0. 0. 1. 0. 0.]
-: 
-: Context words:  ['am', 'happy', 'i', 'am'] -> [0.5  0.   0.25 0.25 0.  ]
-: Center word:  because -> [0. 1. 0. 0. 0.]
-: 
-: Context words:  ['happy', 'because', 'am', 'learning'] -> [0.25 0.25 0.25 0.   0.25]
-: Center word:  i -> [0. 0. 0. 1. 0.]
-: 
+#+begin_example
+Context words:  ['able', 'was', '.', 'ere'] -> [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
+Center word:  🤡 -> [0. 0. 0. 0. 0. 0. 0. 0. 1.]
 
- In this practice notebook you'll be performing a single iteration of training using a single example, but in this week's assignment you'll train the CBOW model using several iterations and batches of example.
- Here is how you would use a Python generator function (remember the `yield` keyword from the lecture?) to make it easier to iterate over a set of examples.
+Context words:  ['was', '🤡', 'ere', '🤡'] -> [0.   0.   0.25 0.   0.   0.   0.25 0.   0.5 ]
+Center word:  . -> [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['🤡', '.', '🤡', 'saw'] -> [0.25 0.   0.   0.   0.   0.25 0.   0.   0.5 ]
+Center word:  ere -> [0. 0. 1. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['.', 'ere', 'saw', '.'] -> [0.5  0.   0.25 0.   0.   0.25 0.   0.   0.  ]
+Center word:  🤡 -> [0. 0. 0. 0. 0. 0. 0. 0. 1.]
+
+Context words:  ['ere', '🤡', '.', 'rejoice'] -> [0.25 0.   0.25 0.   0.25 0.   0.   0.   0.25]
+Center word:  saw -> [0. 0. 0. 0. 0. 1. 0. 0. 0.]
+
+Context words:  ['🤡', 'saw', 'rejoice', '.'] -> [0.25 0.   0.   0.   0.25 0.25 0.   0.   0.25]
+Center word:  . -> [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['saw', '.', '.', '🚬'] -> [0.5  0.   0.   0.   0.   0.25 0.   0.25 0.  ]
+Center word:  rejoice -> [0. 0. 0. 0. 1. 0. 0. 0. 0.]
+
+Context words:  ['.', 'rejoice', '🚬', 'for'] -> [0.25 0.   0.   0.25 0.25 0.   0.   0.25 0.  ]
+Center word:  . -> [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words:  ['rejoice', '.', 'for', '.'] -> [0.5  0.   0.   0.25 0.25 0.   0.   0.   0.  ]
+Center word:  🚬 -> [0. 0. 0. 0. 0. 0. 0. 1. 0.]
+#+end_example
+
+Next we'll create a generator that yields the context-vectors.
 
 #+begin_src python :results none
-def get_training_example(words: list, half_window: int, word_to_index: dict):
+def get_training_example(
+        words: List[str], half_window: int=2,
+        word_to_index: WordToIndex=word_to_index) -> Generator[numpy.ndarray,
+                                                               None, None]:
     """generates training examples
 
     Args:
      words: source of words
      half_window: half the window size
      word_to_index: dict with word to index mapping
+
+    Yields:
+     array with the mean of the one-hot vectors for the context words
     """
     vocabulary_size = len(word_to_index)
     for context_words, center_word in get_windows(words, half_window):
-        yield words_to_vector(context_words), word_to_one_hot_vector(
+        yield context_words_to_vector(context_words), word_to_one_hot_vector(
             center_word, word_to_index,
             vocabulary_size)
     return
@@ -517,22 +572,42 @@ def get_training_example(words: list, half_window: int, word_to_index: dict):
  The output of this function can be iterated on to get successive context word vectors and center word vectors, as demonstrated in the next cell.
 
 #+begin_src python :results output :exports both
-for context_words_vector, center_word_vector in get_training_example(words, 2, word2Ind):
+for context_words_vector, center_word_vector in get_training_example(words):
     print(f'Context words vector:  {context_words_vector}')
     print(f'Center word vector:  {center_word_vector}')
     print()
 #+end_src
 
 #+RESULTS:
-: Context words vector:  [0.25 0.25 0.   0.5  0.  ]
-: Center word vector:  [0. 0. 1. 0. 0.]
-: 
-: Context words vector:  [0.5  0.   0.25 0.25 0.  ]
-: Center word vector:  [0. 1. 0. 0. 0.]
-: 
-: Context words vector:  [0.25 0.25 0.25 0.   0.25]
-: Center word vector:  [0. 0. 0. 1. 0.]
-: 
+#+begin_example
+Context words vector:  [0.25 0.25 0.25 0.   0.   0.   0.25 0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 0. 1.]
 
+Context words vector:  [0.   0.   0.25 0.   0.   0.   0.25 0.   0.5 ]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
 
-Now that the training set is ready, we can move on to the CBOW model itself which will be covered in the {{% lancelot title="next post" %}}introducing-the-cbow-model{{% /lancelot %}}.
+Context words vector:  [0.25 0.   0.   0.   0.   0.25 0.   0.   0.5 ]
+Center word vector:  [0. 0. 1. 0. 0. 0. 0. 0. 0.]
+
+Context words vector:  [0.5  0.   0.25 0.   0.   0.25 0.   0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 0. 1.]
+
+Context words vector:  [0.25 0.   0.25 0.   0.25 0.   0.   0.   0.25]
+Center word vector:  [0. 0. 0. 0. 0. 1. 0. 0. 0.]
+
+Context words vector:  [0.25 0.   0.   0.   0.25 0.25 0.   0.   0.25]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words vector:  [0.5  0.   0.   0.   0.   0.25 0.   0.25 0.  ]
+Center word vector:  [0. 0. 0. 0. 1. 0. 0. 0. 0.]
+
+Context words vector:  [0.25 0.   0.   0.25 0.25 0.   0.   0.25 0.  ]
+Center word vector:  [1. 0. 0. 0. 0. 0. 0. 0. 0.]
+
+Context words vector:  [0.5  0.   0.   0.25 0.25 0.   0.   0.   0.  ]
+Center word vector:  [0. 0. 0. 0. 0. 0. 0. 1. 0.]
+#+end_example
+
+* End
+  Now that we know how to creat the training set, we can move on to the CBOW model itself which will be covered in the {{% lancelot title="next post" %}}introducing-the-cbow-model{{% /lancelot %}}.
+  This is part of a series of posts looking at some preliminaries for creating word-embeddings. There is a table-of-contents post {{% lancelot title="here" %}}word-embeddings-with-the-cbow-model{{% /lancelot %}}.

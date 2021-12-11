@@ -51,366 +51,6 @@
 <div class="postindex">
 <article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
 <header>
-<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/siamese-networks-the-data-generator/">Siamese Networks: The Data Generator</a></h1>
-<div class="metadata">
-<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
-<p class="dateline"><a href="posts/nlp/siamese-networks-the-data-generator/" rel="bookmark"><time class="published dt-published" datetime="2021-01-25T19:35:05-08:00" itemprop="datePublished" title="2021-01-25 19:35">2021-01-25 19:35</time></a></p>
-</div>
-</header>
-<div class="e-content entry-content">
-<div id="table-of-contents">
-<h2>Table of Contents</h2>
-<div id="text-table-of-contents">
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org3f385a7">Beginning</a>
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#orgdb87694">Imports</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org78feeb1">Set Up</a>
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#orgaf4dd33">Our Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#orgf84a969">The Idiotic Names</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org177fd5d">Middle</a>
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org74e9ed7">Try It Out</a></li>
-</ul>
-</li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org8e14bc2">Bundling It Up</a>
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org2333e8f">Imports</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org0eb0cc1">The Data Generator</a>
-<ul>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#orgd86980e">The Generator Definition</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org7228b70">The Generator</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org127c426">The Iter Method</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org148ec3e">The Next Method</a></li>
-</ul>
-</li>
-<li><a href="posts/nlp/siamese-networks-the-data-generator/#org88941ad">Check It Out</a></li>
-</ul>
-</li>
-</ul>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org3f385a7">
-<h2 id="org3f385a7">Beginning</h2>
-<div class="outline-text-2" id="text-org3f385a7">
-<p>Most of the time in Natural Language Processing, and AI in general we use batches when training our data sets. If you were to use stochastic gradient descent with one example at a time, it would take you forever to build a model. In this example, we show you how you can build a data generator that takes in \(Q1\) and \(Q2\) and returns a batch of size <code>batch_size</code> in the following format \(([q1_1, q1_2, q1_3, ...]\), \([q2_1, q2_2,q2_3, ...])\). The tuple consists of two arrays and each array has <code>batch_size</code> questions. Again, \(q1_i\) and \(q2_i\) are duplicates, but they are not duplicates with any other elements in the batch.</p>
-<p>The iterator that we're going to create returns a pair of arrays of questions.</p>
-<p>We'll implement the data generator below. Here are some things we will need.</p>
-<ul class="org-ul">
-<li>While true loop.</li>
-<li>if <code>index &gt;</code> len_Q1=, set the <code>idx</code> to \(0\).</li>
-<li>The generator should return shuffled batches of data. To achieve this without modifying the actual question lists, a list containing the indexes of the questions is created. This list can be shuffled and used to get random batches everytime the index is reset.</li>
-<li>Append elements of \(Q1\) and \(Q2\) to <code>input1</code> and <code>input2</code> respectively.</li>
-<li>if <code>len(input1) =</code> batch_size=, determine <code>max_len</code> as the longest question in <code>input1</code> and <code>input2</code>. Ceil <code>max_len</code> to a power of \(2\) (for computation purposes) using the following command: <code>max_len = 2**int(np.ceil(np.log2(max_len)))</code>.</li>
-<li>Pad every question by <code>vocab['&lt;PAD&gt;']</code> until you get the length <code>max_len</code>.</li>
-<li>Use yield to return <code>input1, input2</code>.</li>
-<li>Don't forget to reset <code>input1, input2</code> to empty arrays at the end (data generator resumes from where it last left).</li>
-</ul>
-</div>
-<div class="outline-3" id="outline-container-orgdb87694">
-<h3 id="orgdb87694">Imports</h3>
-<div class="outline-text-3" id="text-orgdb87694">
-<div class="highlight">
-<pre><span></span><span class="c1"># python</span>
-<span class="kn">import</span> <span class="nn">random</span>
-
-<span class="c1"># pypi</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
-
-<span class="c1"># this project</span>
-<span class="kn">from</span> <span class="nn">neurotic.nlp.siamese_networks</span> <span class="kn">import</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">TOKENS</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-3" id="outline-container-org78feeb1">
-<h3 id="org78feeb1">Set Up</h3>
-<div class="outline-text-3" id="text-org78feeb1"></div>
-<div class="outline-4" id="outline-container-orgaf4dd33">
-<h4 id="orgaf4dd33">Our Data</h4>
-<div class="outline-text-4" id="text-orgaf4dd33">
-<div class="highlight">
-<pre><span></span><span class="n">loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">()</span>
-
-<span class="n">data</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">data</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-orgf84a969">
-<h4 id="orgf84a969">The Idiotic Names</h4>
-<div class="outline-text-4" id="text-orgf84a969">
-<div class="highlight">
-<pre><span></span><span class="n">np</span> <span class="o">=</span> <span class="n">numpy</span>
-<span class="n">rnd</span> <span class="o">=</span> <span class="n">random</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org177fd5d">
-<h2 id="org177fd5d">Middle</h2>
-<div class="outline-text-2" id="text-org177fd5d">
-<div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">data_generator</span><span class="p">(</span><span class="n">Q1</span><span class="p">:</span><span class="nb">list</span><span class="p">,</span> <span class="n">Q2</span><span class="p">:</span><span class="nb">list</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-                   <span class="n">pad</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">shuffle</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-    <span class="sd">"""Generator function that yields batches of data</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">       Q1 (list): List of transformed (to tensor) questions.</span>
-<span class="sd">       Q2 (list): List of transformed (to tensor) questions.</span>
-<span class="sd">       batch_size (int): Number of elements per batch.</span>
-<span class="sd">       pad (int, optional): Pad character from the vocab. Defaults to 1.</span>
-<span class="sd">       shuffle (bool, optional): If the batches should be randomnized or not. Defaults to True.</span>
-
-<span class="sd">    Yields:</span>
-<span class="sd">       tuple: Of the form (input1, input2) with types (numpy.ndarray, numpy.ndarray)</span>
-<span class="sd">       NOTE: input1: inputs to your model [q1a, q2a, q3a, ...] i.e. (q1a,q1b) are duplicates</span>
-<span class="sd">             input2: targets to your model [q1b, q2b,q3b, ...] i.e. (q1a,q2i) i!=a are not duplicates</span>
-<span class="sd">    """</span>
-
-    <span class="n">input1</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">input2</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">len_q</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">Q1</span><span class="p">)</span>
-    <span class="n">question_indexes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">len_q</span><span class="p">))</span>
-
-    <span class="k">if</span> <span class="n">shuffle</span><span class="p">:</span>
-        <span class="n">rnd</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">question_indexes</span><span class="p">)</span>
-    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">idx</span> <span class="o">&gt;=</span> <span class="n">len_q</span><span class="p">:</span>
-            <span class="c1"># if idx is greater than or equal to len_q, set idx accordingly </span>
-            <span class="c1"># (Hint: look at the instructions above)</span>
-            <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="c1"># shuffle to get random batches if shuffle is set to True</span>
-            <span class="k">if</span> <span class="n">shuffle</span><span class="p">:</span>
-                <span class="n">rnd</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">question_indexes</span><span class="p">)</span>
-
-        <span class="c1"># get questions at the `question_indexes[idx]` position in Q1 and Q2</span>
-        <span class="n">q1</span> <span class="o">=</span> <span class="n">Q1</span><span class="p">[</span><span class="n">question_indexes</span><span class="p">[</span><span class="n">idx</span><span class="p">]]</span>
-        <span class="n">q2</span> <span class="o">=</span> <span class="n">Q2</span><span class="p">[</span><span class="n">question_indexes</span><span class="p">[</span><span class="n">idx</span><span class="p">]]</span>
-
-        <span class="c1"># increment idx by 1</span>
-        <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="c1"># append q1</span>
-        <span class="n">input1</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">q1</span><span class="p">)</span>
-        <span class="c1"># append q2</span>
-        <span class="n">input2</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">q2</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">input1</span><span class="p">)</span> <span class="o">==</span> <span class="n">batch_size</span><span class="p">:</span>
-            <span class="c1"># determine max_len as the longest question in input1 & input 2</span>
-            <span class="c1"># Hint: use the `max` function. </span>
-            <span class="c1"># take max of input1 & input2 and then max out of the two of them.</span>
-            <span class="n">max_len</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">question</span><span class="p">)</span> <span class="k">for</span> <span class="n">question</span> <span class="ow">in</span> <span class="n">input1</span><span class="p">),</span>
-                          <span class="nb">max</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">question</span><span class="p">)</span> <span class="k">for</span> <span class="n">question</span> <span class="ow">in</span> <span class="n">input2</span><span class="p">))</span>
-            <span class="nb">print</span><span class="p">(</span><span class="n">max_len</span><span class="p">)</span>
-            <span class="c1"># pad to power-of-2 (Hint: look at the instructions above)</span>
-            <span class="n">max_len</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="n">max_len</span><span class="p">)))</span>
-            <span class="nb">print</span><span class="p">(</span><span class="n">max_len</span><span class="p">)</span>
-            <span class="n">b1</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="n">b2</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">q1</span><span class="p">,</span> <span class="n">q2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">input1</span><span class="p">,</span> <span class="n">input2</span><span class="p">):</span>
-                <span class="c1"># add [pad] to q1 until it reaches max_len</span>
-                <span class="n">q1</span> <span class="o">=</span> <span class="n">q1</span> <span class="o">+</span> <span class="p">((</span><span class="n">max_len</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">q1</span><span class="p">))</span> <span class="o">*</span> <span class="p">[</span><span class="n">pad</span><span class="p">])</span>
-                <span class="c1"># add [pad] to q2 until it reaches max_len</span>
-                <span class="n">q2</span> <span class="o">=</span> <span class="n">q2</span> <span class="o">+</span> <span class="p">((</span><span class="n">max_len</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">q2</span><span class="p">))</span> <span class="o">*</span> <span class="p">[</span><span class="n">pad</span><span class="p">])</span>
-                <span class="c1"># append q1</span>
-                <span class="n">b1</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">q1</span><span class="p">)</span>
-                <span class="c1"># append q2</span>
-                <span class="n">b2</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">q2</span><span class="p">)</span>
-            <span class="c1"># use b1 and b2</span>
-            <span class="k">yield</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">b1</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">b2</span><span class="p">)</span>
-            <span class="c1"># reset the batches</span>
-            <span class="n">input1</span><span class="p">,</span> <span class="n">input2</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>  <span class="c1"># reset the batches</span>
-</pre></div>
-</div>
-<div class="outline-3" id="outline-container-org74e9ed7">
-<h3 id="org74e9ed7">Try It Out</h3>
-<div class="outline-text-3" id="text-org74e9ed7">
-<div class="highlight">
-<pre><span></span><span class="n">rnd</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">34</span><span class="p">)</span>
-<span class="n">batch_size</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="n">generator</span> <span class="o">=</span> <span class="n">data_generator</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">question_one</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">question_two</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
-<span class="n">result_1</span><span class="p">,</span> <span class="n">result_2</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">generator</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"First questions  : </span><span class="se">\n</span><span class="si">{</span><span class="n">result_1</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Second questions : </span><span class="se">\n</span><span class="si">{</span><span class="n">result_2</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</pre></div>
-<pre class="example" id="orgb268414">
-11
-16
-First questions  : 
-[[  34   37   13   50  536 1303 6428   25  924  157   28    1    1    1
-     1    1]
- [  34   95  573 1444 2343   28    1    1    1    1    1    1    1    1
-     1    1]]
-
-Second questions : 
-[[  34   37   13  575 1303 6428   25  924  157   28    1    1    1    1
-     1    1]
- [   9  151   25  573 5642   28    1    1    1    1    1    1    1    1
-     1    1]]
-</pre></div>
-</div>
-</div>
-<div class="outline-2" id="outline-container-org8e14bc2">
-<h2 id="org8e14bc2">Bundling It Up</h2>
-<div class="outline-text-2" id="text-org8e14bc2"></div>
-<div class="outline-3" id="outline-container-org2333e8f">
-<h3 id="org2333e8f">Imports</h3>
-<div class="outline-text-3" id="text-org2333e8f">
-<div class="highlight">
-<pre><span></span><span class="c1"># python</span>
-<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
-
-<span class="kn">import</span> <span class="nn">random</span>
-
-<span class="c1"># pypi</span>
-<span class="kn">import</span> <span class="nn">attr</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
-
-<span class="c1"># this project</span>
-<span class="kn">from</span> <span class="nn">neurotic.nlp.siamese_networks</span> <span class="kn">import</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">TOKENS</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-3" id="outline-container-org0eb0cc1">
-<h3 id="org0eb0cc1">The Data Generator</h3>
-<div class="outline-text-3" id="text-org0eb0cc1">
-<div class="highlight">
-<pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">DataGenerator</span><span class="p">:</span>
-    <span class="sd">"""Batch Generator for Quora question dataset</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">     question_one: tensorized question 1</span>
-<span class="sd">     question_two: tensorized question 2</span>
-<span class="sd">     batch_size: size of generated batches</span>
-<span class="sd">     padding: token to use to pad the lists</span>
-<span class="sd">     shuffle: whether to shuffle the questions around</span>
-<span class="sd">    """</span>
-    <span class="n">question_one</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span>
-    <span class="n">question_two</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span>
-    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="n">TOKENS</span><span class="o">.</span><span class="n">padding</span>
-    <span class="n">shuffle</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">True</span>
-    <span class="n">_batch</span><span class="p">:</span> <span class="nb">iter</span><span class="o">=</span><span class="kc">None</span>
-</pre></div>
-</div>
-<div class="outline-4" id="outline-container-orgd86980e">
-<h4 id="orgd86980e">The Generator Definition</h4>
-<div class="outline-text-4" id="text-orgd86980e">
-<div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="nf">data_generator</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="sd">"""Generator function that yields batches of data</span>
-
-<span class="sd">    Yields:</span>
-<span class="sd">       tuple: (batch_question_1, batch_question_2)</span>
-<span class="sd">    """</span>
-    <span class="n">unpadded_1</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">unpadded_2</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">number_of_questions</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">question_one</span><span class="p">)</span>
-    <span class="n">question_indexes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">number_of_questions</span><span class="p">))</span>
-
-    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">shuffle</span><span class="p">:</span>
-        <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">question_indexes</span><span class="p">)</span>
-
-    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="n">number_of_questions</span><span class="p">:</span>
-            <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">shuffle</span><span class="p">:</span>
-                <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">question_indexes</span><span class="p">)</span>
-
-        <span class="n">unpadded_1</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">question_one</span><span class="p">[</span><span class="n">question_indexes</span><span class="p">[</span><span class="n">index</span><span class="p">]])</span>
-        <span class="n">unpadded_2</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">question_two</span><span class="p">[</span><span class="n">question_indexes</span><span class="p">[</span><span class="n">index</span><span class="p">]])</span>
-
-        <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
-
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unpadded_1</span><span class="p">)</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">:</span>
-            <span class="n">max_len</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">question</span><span class="p">)</span> <span class="k">for</span> <span class="n">question</span> <span class="ow">in</span> <span class="n">unpadded_1</span><span class="p">),</span>
-                          <span class="nb">max</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">question</span><span class="p">)</span> <span class="k">for</span> <span class="n">question</span> <span class="ow">in</span> <span class="n">unpadded_2</span><span class="p">))</span>
-            <span class="n">max_len</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="nb">int</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="n">max_len</span><span class="p">)))</span>
-            <span class="n">padded_1</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="n">padded_2</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">question_1</span><span class="p">,</span> <span class="n">question_2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">unpadded_1</span><span class="p">,</span> <span class="n">unpadded_2</span><span class="p">):</span>
-                <span class="n">padded_1</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">question_1</span> <span class="o">+</span> <span class="p">((</span><span class="n">max_len</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">question_1</span><span class="p">))</span> <span class="o">*</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">]))</span>
-                <span class="n">padded_2</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">question_2</span> <span class="o">+</span>  <span class="p">((</span><span class="n">max_len</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">question_2</span><span class="p">))</span> <span class="o">*</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">]))</span>
-            <span class="k">yield</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">padded_1</span><span class="p">),</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">padded_2</span><span class="p">)</span>
-            <span class="n">unpadded_1</span><span class="p">,</span> <span class="n">unpadded_2</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
-    <span class="k">return</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org7228b70">
-<h4 id="org7228b70">The Generator</h4>
-<div class="outline-text-4" id="text-org7228b70">
-<div class="highlight">
-<pre><span></span><span class="nd">@property</span>
-<span class="k">def</span> <span class="nf">batch</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="sd">"""The generator instance"""</span>
-    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_generator</span><span class="p">()</span>
-    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org127c426">
-<h4 id="org127c426">The Iter Method</h4>
-<div class="outline-text-4" id="text-org127c426">
-<div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="bp">self</span>
-</pre></div>
-</div>
-</div>
-<div class="outline-4" id="outline-container-org148ec3e">
-<h4 id="org148ec3e">The Next Method</h4>
-<div class="outline-text-4" id="text-org148ec3e">
-<div class="highlight">
-<pre><span></span><span class="k">def</span> <span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-<div class="outline-3" id="outline-container-org88941ad">
-<h3 id="org88941ad">Check It Out</h3>
-<div class="outline-text-3" id="text-org88941ad">
-<div class="highlight">
-<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.siamese_networks</span> <span class="kn">import</span> <span class="n">DataGenerator</span><span class="p">,</span> <span class="n">DataLoader</span>
-
-<span class="n">loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">()</span>
-<span class="n">data</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">data</span>
-<span class="n">generator</span> <span class="o">=</span> <span class="n">DataGenerator</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">question_one</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">question_two</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-</pre></div>
-<div class="highlight">
-<pre><span></span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">34</span><span class="p">)</span>
-<span class="n">batch_size</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="n">result_1</span><span class="p">,</span> <span class="n">result_2</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">generator</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"First questions  : </span><span class="se">\n</span><span class="si">{</span><span class="n">result_1</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Second questions : </span><span class="se">\n</span><span class="si">{</span><span class="n">result_2</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</pre></div>
-<pre class="example" id="orgae553b5">
-First questions  : 
-[[  34   37   13   50  536 1303 6428   25  924  157   28    1    1    1
-     1    1]
- [  34   95  573 1444 2343   28    1    1    1    1    1    1    1    1
-     1    1]]
-
-Second questions : 
-[[  34   37   13  575 1303 6428   25  924  157   28    1    1    1    1
-     1    1]
- [   9  151   25  573 5642   28    1    1    1    1    1    1    1    1
-     1    1]]
-</pre></div>
-</div>
-</div>
-</div>
-</article>
-<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
-<header>
 <h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/siamese-networks-the-data/">Siamese Networks: The Data</a></h1>
 <div class="metadata">
 <p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
@@ -422,80 +62,80 @@ Second questions :
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgb300316">Transforming the Data</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#org91950c6">Transforming the Data</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org56fb996">Imports</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgd14c8cd">Set Up</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#org06f77b5">Imports</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgf02afc0">Set Up</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org14fa6ae">The Timer</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org0d65c69">NLTK</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org93592ef">The Training Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org00404e8">The Timer</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org53481e3">NLTK</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgb708802">The Training Data</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org3a1ace5">Middle</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgb23cef9">Middle</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org9b2daa1">Inspecting the Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orga7e6479">Train Test Split</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgd1b87b9">Filtering Out Non-Duplicates</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org89874a5">Encoding the Words</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#org9ea112c">Inspecting the Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgde59fe0">Train Test Split</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org3cb82e0">Filtering Out Non-Duplicates</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org36573f0">Encoding the Words</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgafb1791">Build the Vocabulary</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org7fb825a">Build the Vocabulary</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org43706d1">Converting a question to a tensor</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org6375a94">Validation Set</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgc65f43c">Converting a question to a tensor</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orge835725">Validation Set</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org4ef1508">Bundling It Up</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#org632c8de">Bundling It Up</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org446dc32">Imports</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org967d9f1">NLTK Setup</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org9c327d3">Constants and Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgd5eddc0">The Data Tokenizer</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#org3322316">Imports</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org143fbd1">NLTK Setup</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org09297d8">Constants and Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org5587e6f">The Data Tokenizer</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org788d748">Question 1</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org4fae38f">Question 2</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org119483d">Question 1</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgd51df87">Question 2</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org1d8d325">The Data Tensorizer</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgb6986cb">The Data Tensorizer</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org2cd2533">Tensorized 1</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org0c47295">Tensorized 2</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org919341b">To Index</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org75f9634">Tensorized 1</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org600e455">Tensorized 2</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgf66e4b3">To Index</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org9cfdb4b">The Data Transformer</a>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgb398469">The Data Transformer</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-the-data/#org91cb349">Data Path</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org967866f">Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org00b454b">Training Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org86ae09e">Testing Data</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org06dfe4b">Duplicates</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org5396a59">Train Tokenizer</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org5417101">Test Tokenizer</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgfb6ae93">The Vocabulary</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org1958946">Tensorized Train</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgf021969">Tensorized Test</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#org16ab985">Test Labels</a></li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgb26247c">The Final Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org08149d8">Data Path</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org832b6b5">Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgd7f8a9f">Training Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org9ebd697">Testing Data</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org23baed3">Duplicates</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org8f2f83c">Train Tokenizer</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orge3d5823">Test Tokenizer</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgc8d969e">The Vocabulary</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgad36866">Tensorized Train</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org9284cf1">Tensorized Test</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org03f9b8f">Test Labels</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#orgb3bff7b">The Final Data</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-the-data/#orgc62cd45">Test It Out</a></li>
+<li><a href="posts/nlp/siamese-networks-the-data/#org5e6c85f">Test It Out</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgb300316">
-<h2 id="orgb300316">Transforming the Data</h2>
-<div class="outline-text-2" id="text-orgb300316">
+<div class="outline-2" id="outline-container-org91950c6">
+<h2 id="org91950c6">Transforming the Data</h2>
+<div class="outline-text-2" id="text-org91950c6">
 <p>We'll will be using the <a href="https://www.kaggle.com/c/quora-question-pairs/">Quora question answer</a> dataset to build a model that could identify similar questions. This is a useful task because you don't want to have several versions of the same question posted. Several times when teaching I end up responding to similar questions on piazza, or on other community forums. This data set has been labeled for you. Run the cell below to import some of the packages you will be using.</p>
 </div>
-<div class="outline-3" id="outline-container-org56fb996">
-<h3 id="org56fb996">Imports</h3>
-<div class="outline-text-3" id="text-org56fb996">
+<div class="outline-3" id="outline-container-org06f77b5">
+<h3 id="org06f77b5">Imports</h3>
+<div class="outline-text-3" id="text-org06f77b5">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
@@ -516,20 +156,20 @@ Second questions :
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd14c8cd">
-<h3 id="orgd14c8cd">Set Up</h3>
-<div class="outline-text-3" id="text-orgd14c8cd"></div>
-<div class="outline-4" id="outline-container-org14fa6ae">
-<h4 id="org14fa6ae">The Timer</h4>
-<div class="outline-text-4" id="text-org14fa6ae">
+<div class="outline-3" id="outline-container-orgf02afc0">
+<h3 id="orgf02afc0">Set Up</h3>
+<div class="outline-text-3" id="text-orgf02afc0"></div>
+<div class="outline-4" id="outline-container-org00404e8">
+<h4 id="org00404e8">The Timer</h4>
+<div class="outline-text-4" id="text-org00404e8">
 <div class="highlight">
 <pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org0d65c69">
-<h4 id="org0d65c69">NLTK</h4>
-<div class="outline-text-4" id="text-org0d65c69">
+<div class="outline-4" id="outline-container-org53481e3">
+<h4 id="org53481e3">NLTK</h4>
+<div class="outline-text-4" id="text-org53481e3">
 <p>We need to download the <code>punkt</code> data to be able to tokenize our sentences.</p>
 <div class="highlight">
 <pre><span></span><span class="n">nltk</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">"punkt"</span><span class="p">)</span>
@@ -540,9 +180,9 @@ Second questions :
 [nltk_data]   Package punkt is already up-to-date!
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org93592ef">
-<h4 id="org93592ef">The Training Data</h4>
-<div class="outline-text-4" id="text-org93592ef">
+<div class="outline-4" id="outline-container-orgb708802">
+<h4 id="orgb708802">The Training Data</h4>
+<div class="outline-text-4" id="text-orgb708802">
 <div class="highlight">
 <pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
 <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"QUORA_TRAIN"</span><span class="p">])</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
@@ -552,12 +192,12 @@ Second questions :
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org3a1ace5">
-<h2 id="org3a1ace5">Middle</h2>
-<div class="outline-text-2" id="text-org3a1ace5"></div>
-<div class="outline-3" id="outline-container-org9b2daa1">
-<h3 id="org9b2daa1">Inspecting the Data</h3>
-<div class="outline-text-3" id="text-org9b2daa1">
+<div class="outline-2" id="outline-container-orgb23cef9">
+<h2 id="orgb23cef9">Middle</h2>
+<div class="outline-text-2" id="text-orgb23cef9"></div>
+<div class="outline-3" id="outline-container-org9ea112c">
+<h3 id="org9ea112c">Inspecting the Data</h3>
+<div class="outline-text-3" id="text-org9ea112c">
 <div class="highlight">
 <pre><span></span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Rows: </span><span class="si">{</span><span class="n">rows</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> Columns: </span><span class="si">{</span><span class="n">columns</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -580,9 +220,9 @@ Name: 0, dtype: object
 <p>So, you can see that we have a row ID, followed by IDs for each of the questions, followed by the question-pair, and finally a label of whether the two questions are duplicates (1) or not (0).</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orga7e6479">
-<h3 id="orga7e6479">Train Test Split</h3>
-<div class="outline-text-3" id="text-orga7e6479">
+<div class="outline-3" id="outline-container-orgde59fe0">
+<h3 id="orgde59fe0">Train Test Split</h3>
+<div class="outline-text-3" id="text-orgde59fe0">
 <p>For the moment we're going to use a straight splitting of the dataset, rather than using a shuffled split. We're going for a roughly 75-25 split.</p>
 <div class="highlight">
 <pre><span></span><span class="n">training_size</span> <span class="o">=</span> <span class="mi">3</span> <span class="o">*</span> <span class="mi">10</span><span class="o">**</span><span class="mi">5</span>
@@ -597,9 +237,9 @@ Name: 0, dtype: object
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd1b87b9">
-<h3 id="orgd1b87b9">Filtering Out Non-Duplicates</h3>
-<div class="outline-text-3" id="text-orgd1b87b9">
+<div class="outline-3" id="outline-container-org3cb82e0">
+<h3 id="org3cb82e0">Filtering Out Non-Duplicates</h3>
+<div class="outline-text-3" id="text-org3cb82e0">
 <p>We are going to use only the question pairs that are duplicate to train the model.</p>
 <p>We build two batches as input for the Siamese network and we assume that question \(q1_i\) (question <i>i</i> in the first batch) is a duplicate of \(q2_i\) (question <i>i</i> in the second batch), but all other questions in the second batch are not duplicates of \(q1_i\).</p>
 <p>The test set uses the original pairs of questions and the status describing if the questions are duplicates.</p>
@@ -624,16 +264,16 @@ There are 111,473 duplicates for the training data.
 <p>We only took the duplicated questions for training our model because the data generator will produce batches \(([q1_1, q1_2, q1_3, ...]\), [q2_1, q2_2,q2_3, …])\) where \(q1_i\) and \(q2_k\) are duplicate if and only if \(i = k\).</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org89874a5">
-<h3 id="org89874a5">Encoding the Words</h3>
-<div class="outline-text-3" id="text-org89874a5">
+<div class="outline-3" id="outline-container-org36573f0">
+<h3 id="org36573f0">Encoding the Words</h3>
+<div class="outline-text-3" id="text-org36573f0">
 <p>Now we'll encode each word of the selected duplicate pairs with an index. Given a question, we can then just encode it as a list of numbers.</p>
 <p>First we'll tokenize the questions using <code>nltk.word_tokenize</code>.</p>
 <p>We'll also need a python default dictionary which later, during inference, assigns the value <i>0</i> to all Out Of Vocabulary (OOV) words.</p>
 </div>
-<div class="outline-4" id="outline-container-orgafb1791">
-<h4 id="orgafb1791">Build the Vocabulary</h4>
-<div class="outline-text-4" id="text-orgafb1791">
+<div class="outline-4" id="outline-container-org7fb825a">
+<h4 id="org7fb825a">Build the Vocabulary</h4>
+<div class="outline-text-4" id="text-org7fb825a">
 <p>We'll start by resetting the index. Pandas preserves the original index, but since we dropped the non-duplicates it's missing rows so resetting it will start it at 0 again. By default it normally keeps the original index as a column, but passing in <code>drop=True</code> prevents that.</p>
 <div class="highlight">
 <pre><span></span><span class="n">reindexed</span> <span class="o">=</span> <span class="n">duplicates</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -687,9 +327,9 @@ Elapsed: 0:00:19.063192
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org43706d1">
-<h3 id="org43706d1">Converting a question to a tensor</h3>
-<div class="outline-text-3" id="text-org43706d1">
+<div class="outline-3" id="outline-container-orgc65f43c">
+<h3 id="orgc65f43c">Converting a question to a tensor</h3>
+<div class="outline-text-3" id="text-orgc65f43c">
 <p>We'll now convert every question to a tensor, or an array of numbers, using the vocabulary we built above.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">words_to_index</span><span class="p">(</span><span class="n">words</span><span class="p">):</span>
@@ -722,9 +362,9 @@ encoded version:
 77,068
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org6375a94">
-<h3 id="org6375a94">Validation Set</h3>
-<div class="outline-text-3" id="text-org6375a94">
+<div class="outline-3" id="outline-container-orge835725">
+<h3 id="orge835725">Validation Set</h3>
+<div class="outline-text-3" id="text-orge835725">
 <p>You will now split your train set into a training/validation set so that you can use it to train and evaluate your Siamese model.</p>
 <div class="highlight">
 <pre><span></span><span class="n">TRAINING_FRACTION</span> <span class="o">=</span> <span class="mf">0.8</span>
@@ -742,12 +382,12 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org4ef1508">
-<h2 id="org4ef1508">Bundling It Up</h2>
-<div class="outline-text-2" id="text-org4ef1508"></div>
-<div class="outline-3" id="outline-container-org446dc32">
-<h3 id="org446dc32">Imports</h3>
-<div class="outline-text-3" id="text-org446dc32">
+<div class="outline-2" id="outline-container-org632c8de">
+<h2 id="org632c8de">Bundling It Up</h2>
+<div class="outline-text-2" id="text-org632c8de"></div>
+<div class="outline-3" id="outline-container-org3322316">
+<h3 id="org3322316">Imports</h3>
+<div class="outline-text-3" id="text-org3322316">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">namedtuple</span>
@@ -765,17 +405,17 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org967d9f1">
-<h3 id="org967d9f1">NLTK Setup</h3>
-<div class="outline-text-3" id="text-org967d9f1">
+<div class="outline-3" id="outline-container-org143fbd1">
+<h3 id="org143fbd1">NLTK Setup</h3>
+<div class="outline-text-3" id="text-org143fbd1">
 <div class="highlight">
 <pre><span></span><span class="n">nltk</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">"punkt"</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9c327d3">
-<h3 id="org9c327d3">Constants and Data</h3>
-<div class="outline-text-3" id="text-org9c327d3">
+<div class="outline-3" id="outline-container-org09297d8">
+<h3 id="org09297d8">Constants and Data</h3>
+<div class="outline-text-3" id="text-org09297d8">
 <div class="highlight">
 <pre><span></span><span class="n">Tokens</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">"Tokens"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="s2">"padding"</span><span class="p">,</span> <span class="s2">"padding_token"</span><span class="p">])</span>
 <span class="n">TOKENS</span> <span class="o">=</span> <span class="n">Tokens</span><span class="p">(</span><span class="n">unknown</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -787,9 +427,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgd5eddc0">
-<h3 id="orgd5eddc0">The Data Tokenizer</h3>
-<div class="outline-text-3" id="text-orgd5eddc0">
+<div class="outline-3" id="outline-container-org5587e6f">
+<h3 id="org5587e6f">The Data Tokenizer</h3>
+<div class="outline-text-3" id="text-org5587e6f">
 <div class="highlight">
 <pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">DataTokenizer</span><span class="p">:</span>
@@ -803,9 +443,9 @@ The length of the validation set is: 22,295
     <span class="n">_question_2</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="o">=</span><span class="kc">None</span>
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org788d748">
-<h4 id="org788d748">Question 1</h4>
-<div class="outline-text-4" id="text-org788d748">
+<div class="outline-4" id="outline-container-org119483d">
+<h4 id="org119483d">Question 1</h4>
+<div class="outline-text-4" id="text-org119483d">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">question_1</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -816,9 +456,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org4fae38f">
-<h4 id="org4fae38f">Question 2</h4>
-<div class="outline-text-4" id="text-org4fae38f">
+<div class="outline-4" id="outline-container-orgd51df87">
+<h4 id="orgd51df87">Question 2</h4>
+<div class="outline-text-4" id="text-orgd51df87">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">question_2</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -830,9 +470,9 @@ The length of the validation set is: 22,295
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org1d8d325">
-<h3 id="org1d8d325">The Data Tensorizer</h3>
-<div class="outline-text-3" id="text-org1d8d325">
+<div class="outline-3" id="outline-container-orgb6986cb">
+<h3 id="orgb6986cb">The Data Tensorizer</h3>
+<div class="outline-text-3" id="text-orgb6986cb">
 <div class="highlight">
 <pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">DataTensorizer</span><span class="p">:</span>
@@ -850,9 +490,9 @@ The length of the validation set is: 22,295
     <span class="n">_tensorized_2</span><span class="p">:</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="o">=</span><span class="kc">None</span>
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org2cd2533">
-<h4 id="org2cd2533">Tensorized 1</h4>
-<div class="outline-text-4" id="text-org2cd2533">
+<div class="outline-4" id="outline-container-org75f9634">
+<h4 id="org75f9634">Tensorized 1</h4>
+<div class="outline-text-4" id="text-org75f9634">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tensorized_1</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -863,9 +503,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org0c47295">
-<h4 id="org0c47295">Tensorized 2</h4>
-<div class="outline-text-4" id="text-org0c47295">
+<div class="outline-4" id="outline-container-org600e455">
+<h4 id="org600e455">Tensorized 2</h4>
+<div class="outline-text-4" id="text-org600e455">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tensorized_2</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -876,9 +516,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org919341b">
-<h4 id="org919341b">To Index</h4>
-<div class="outline-text-4" id="text-org919341b">
+<div class="outline-4" id="outline-container-orgf66e4b3">
+<h4 id="orgf66e4b3">To Index</h4>
+<div class="outline-text-4" id="text-orgf66e4b3">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">to_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">words</span><span class="p">:</span> <span class="nb">list</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
     <span class="sd">"""Convert list of words to list of integers"""</span>
@@ -887,9 +527,9 @@ The length of the validation set is: 22,295
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9cfdb4b">
-<h3 id="org9cfdb4b">The Data Transformer</h3>
-<div class="outline-text-3" id="text-org9cfdb4b">
+<div class="outline-3" id="outline-container-orgb398469">
+<h3 id="orgb398469">The Data Transformer</h3>
+<div class="outline-text-3" id="text-orgb398469">
 <div class="highlight">
 <pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">DataLoader</span><span class="p">:</span>
@@ -919,9 +559,9 @@ The length of the validation set is: 22,295
     <span class="n">_data</span><span class="p">:</span> <span class="n">namedtuple</span><span class="o">=</span><span class="kc">None</span>
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org91cb349">
-<h4 id="org91cb349">Data Path</h4>
-<div class="outline-text-4" id="text-org91cb349">
+<div class="outline-4" id="outline-container-org08149d8">
+<h4 id="org08149d8">Data Path</h4>
+<div class="outline-text-4" id="text-org08149d8">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">data_path</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
@@ -933,9 +573,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org967866f">
-<h4 id="org967866f">Data</h4>
-<div class="outline-text-4" id="text-org967866f">
+<div class="outline-4" id="outline-container-org832b6b5">
+<h4 id="org832b6b5">Data</h4>
+<div class="outline-text-4" id="text-org832b6b5">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">raw_data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
@@ -948,9 +588,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org00b454b">
-<h4 id="org00b454b">Training Data</h4>
-<div class="outline-text-4" id="text-org00b454b">
+<div class="outline-4" id="outline-container-orgd7f8a9f">
+<h4 id="orgd7f8a9f">Training Data</h4>
+<div class="outline-text-4" id="text-orgd7f8a9f">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">training_data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
@@ -961,9 +601,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org86ae09e">
-<h4 id="org86ae09e">Testing Data</h4>
-<div class="outline-text-4" id="text-org86ae09e">
+<div class="outline-4" id="outline-container-org9ebd697">
+<h4 id="org9ebd697">Testing Data</h4>
+<div class="outline-text-4" id="text-org9ebd697">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">testing_data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
@@ -974,9 +614,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org06dfe4b">
-<h4 id="org06dfe4b">Duplicates</h4>
-<div class="outline-text-4" id="text-org06dfe4b">
+<div class="outline-4" id="outline-container-org23baed3">
+<h4 id="org23baed3">Duplicates</h4>
+<div class="outline-text-4" id="text-org23baed3">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">duplicates</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
@@ -987,9 +627,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org5396a59">
-<h4 id="org5396a59">Train Tokenizer</h4>
-<div class="outline-text-4" id="text-org5396a59">
+<div class="outline-4" id="outline-container-org8f2f83c">
+<h4 id="org8f2f83c">Train Tokenizer</h4>
+<div class="outline-text-4" id="text-org8f2f83c">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tokenized_train</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataTokenizer</span><span class="p">:</span>
@@ -1001,9 +641,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org5417101">
-<h4 id="org5417101">Test Tokenizer</h4>
-<div class="outline-text-4" id="text-org5417101">
+<div class="outline-4" id="outline-container-orge3d5823">
+<h4 id="orge3d5823">Test Tokenizer</h4>
+<div class="outline-text-4" id="text-orge3d5823">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tokenized_test</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataTokenizer</span><span class="p">:</span>
@@ -1015,9 +655,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgfb6ae93">
-<h4 id="orgfb6ae93">The Vocabulary</h4>
-<div class="outline-text-4" id="text-orgfb6ae93">
+<div class="outline-4" id="outline-container-orgc8d969e">
+<h4 id="orgc8d969e">The Vocabulary</h4>
+<div class="outline-text-4" id="text-orgc8d969e">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">vocabulary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
@@ -1036,9 +676,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org1958946">
-<h4 id="org1958946">Tensorized Train</h4>
-<div class="outline-text-4" id="text-org1958946">
+<div class="outline-4" id="outline-container-orgad36866">
+<h4 id="orgad36866">Tensorized Train</h4>
+<div class="outline-text-4" id="text-orgad36866">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tensorized_train</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataTensorizer</span><span class="p">:</span>
@@ -1053,9 +693,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgf021969">
-<h4 id="orgf021969">Tensorized Test</h4>
-<div class="outline-text-4" id="text-orgf021969">
+<div class="outline-4" id="outline-container-org9284cf1">
+<h4 id="org9284cf1">Tensorized Test</h4>
+<div class="outline-text-4" id="text-org9284cf1">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">tensorized_test</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataTensorizer</span><span class="p">:</span>
@@ -1070,9 +710,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org16ab985">
-<h4 id="org16ab985">Test Labels</h4>
-<div class="outline-text-4" id="text-org16ab985">
+<div class="outline-4" id="outline-container-org03f9b8f">
+<h4 id="org03f9b8f">Test Labels</h4>
+<div class="outline-text-4" id="text-org03f9b8f">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">test_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
@@ -1087,9 +727,9 @@ The length of the validation set is: 22,295
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgb26247c">
-<h4 id="orgb26247c">The Final Data</h4>
-<div class="outline-text-4" id="text-orgb26247c">
+<div class="outline-4" id="outline-container-orgb3bff7b">
+<h4 id="orgb3bff7b">The Final Data</h4>
+<div class="outline-text-4" id="text-orgb3bff7b">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">namedtuple</span><span class="p">:</span>
@@ -1113,9 +753,9 @@ The length of the validation set is: 22,295
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgc62cd45">
-<h3 id="orgc62cd45">Test It Out</h3>
-<div class="outline-text-3" id="text-orgc62cd45">
+<div class="outline-3" id="outline-container-org5e6c85f">
+<h3 id="org5e6c85f">Test It Out</h3>
+<div class="outline-text-3" id="text-org5e6c85f">
 <div class="highlight">
 <pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.siamese_networks</span> <span class="kn">import</span> <span class="n">DataLoader</span>
 
@@ -1173,17 +813,17 @@ encoded version:
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/siamese-networks-duplicate-questions/#org9372b6c">Beginning</a>
+<li><a href="posts/nlp/siamese-networks-duplicate-questions/#orgc756d0c">Beginning</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-duplicate-questions/#org2bf9a56">The Posts</a></li>
+<li><a href="posts/nlp/siamese-networks-duplicate-questions/#org618d5d2">The Posts</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org9372b6c">
-<h2 id="org9372b6c">Beginning</h2>
-<div class="outline-text-2" id="text-org9372b6c">
+<div class="outline-2" id="outline-container-orgc756d0c">
+<h2 id="orgc756d0c">Beginning</h2>
+<div class="outline-text-2" id="text-orgc756d0c">
 <p>In this series of posts we will:</p>
 <ul class="org-ul">
 <li>Learn about Siamese networks</li>
@@ -1194,9 +834,9 @@ encoded version:
 <li>Make predictions using the own model</li>
 </ul>
 </div>
-<div class="outline-3" id="outline-container-org2bf9a56">
-<h3 id="org2bf9a56">The Posts</h3>
-<div class="outline-text-3" id="text-org2bf9a56">
+<div class="outline-3" id="outline-container-org618d5d2">
+<h3 id="org618d5d2">The Posts</h3>
+<div class="outline-text-3" id="text-org618d5d2">
 <ul class="org-ul">
 <li><a href="posts/nlp/siamese-networks-the-data/">The Data</a></li>
 <li><a href="posts/nlp/siamese-networks-the-data-generator/">The Data Generator</a></li>
@@ -1224,29 +864,29 @@ encoded version:
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#orgd6f4257">Beginning</a>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#org5d6f027">Beginning</a>
 <ul>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#org7c9a639">Imports</a></li>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#org7a44ecc">Set Up</a></li>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#orgb827caa">Imports</a></li>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#org45ccc4b">Set Up</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#org7f39a5e">Middle</a>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#org609f45d">Middle</a>
 <ul>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#orgd7df08d">Data</a></li>
-<li><a href="posts/nlp/evaluating-a-siamese-model/#orgb9d9902">Calculating the accuracy</a></li>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#org7e2b6fd">Data</a></li>
+<li><a href="posts/nlp/evaluating-a-siamese-model/#org9d876ef">Calculating the accuracy</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgd6f4257">
-<h2 id="orgd6f4257">Beginning</h2>
-<div class="outline-text-2" id="text-orgd6f4257">
+<div class="outline-2" id="outline-container-org5d6f027">
+<h2 id="org5d6f027">Beginning</h2>
+<div class="outline-text-2" id="text-org5d6f027">
 <p>We are going to learn how to evaluate a Siamese model using the accuracy metric.</p>
 </div>
-<div class="outline-3" id="outline-container-org7c9a639">
-<h3 id="org7c9a639">Imports</h3>
-<div class="outline-text-3" id="text-org7c9a639">
+<div class="outline-3" id="outline-container-orgb827caa">
+<h3 id="orgb827caa">Imports</h3>
+<div class="outline-text-3" id="text-orgb827caa">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
@@ -1259,9 +899,9 @@ encoded version:
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org7a44ecc">
-<h3 id="org7a44ecc">Set Up</h3>
-<div class="outline-text-3" id="text-org7a44ecc">
+<div class="outline-3" id="outline-container-org45ccc4b">
+<h3 id="org45ccc4b">Set Up</h3>
+<div class="outline-text-3" id="text-org45ccc4b">
 <div class="highlight">
 <pre><span></span><span class="n">load_dotenv</span><span class="p">(</span><span class="s2">"posts/nlp/.env"</span><span class="p">)</span>
 <span class="n">PREFIX</span> <span class="o">=</span> <span class="s2">"SIAMESE_"</span>
@@ -1274,12 +914,12 @@ encoded version:
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7f39a5e">
-<h2 id="org7f39a5e">Middle</h2>
-<div class="outline-text-2" id="text-org7f39a5e"></div>
-<div class="outline-3" id="outline-container-orgd7df08d">
-<h3 id="orgd7df08d">Data</h3>
-<div class="outline-text-3" id="text-orgd7df08d">
+<div class="outline-2" id="outline-container-org609f45d">
+<h2 id="org609f45d">Middle</h2>
+<div class="outline-text-2" id="text-org609f45d"></div>
+<div class="outline-3" id="outline-container-org7e2b6fd">
+<h3 id="org7e2b6fd">Data</h3>
+<div class="outline-text-3" id="text-org7e2b6fd">
 <p>We're going to use some pre-made data rather than start from scratch to (hopefully) make the actual evaluation clearer.</p>
 <p>These are the data structures:</p>
 <ul class="org-ul">
@@ -1295,7 +935,7 @@ encoded version:
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'q1 has shape: </span><span class="si">{</span><span class="n">q1</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s1"> </span><span class="se">\n\n</span><span class="s1">And it looks like this: </span><span class="se">\n\n</span><span class="s1"> </span><span class="si">{</span><span class="n">q1</span><span class="si">}</span><span class="se">\n\n</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org9af265f">
+<pre class="example">
 q1 has shape: (512, 64) 
 
 And it looks like this: 
@@ -1312,7 +952,7 @@ And it looks like this:
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'q2 has shape: </span><span class="si">{</span><span class="n">q2</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s1"> </span><span class="se">\n\n</span><span class="s1">And looks like this: </span><span class="se">\n\n</span><span class="s1"> </span><span class="si">{</span><span class="n">q2</span><span class="si">}</span><span class="se">\n\n</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org1263497">
+<pre class="example">
 q2 has shape: (512, 64) 
 
 And looks like this: 
@@ -1328,7 +968,7 @@ And looks like this:
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'y_test has shape: </span><span class="si">{</span><span class="n">y_test</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s1"> </span><span class="se">\n\n</span><span class="s1">And looks like this: </span><span class="se">\n\n</span><span class="s1"> </span><span class="si">{</span><span class="n">y_test</span><span class="si">}</span><span class="se">\n\n</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="orgbbfe81c">
+<pre class="example">
 y_test has shape: (512,) 
 
 And looks like this: 
@@ -1351,7 +991,7 @@ And looks like this:
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'v1 has shape: </span><span class="si">{</span><span class="n">v1</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s1"> </span><span class="se">\n\n</span><span class="s1">And looks like this: </span><span class="se">\n\n</span><span class="s1"> </span><span class="si">{</span><span class="n">v1</span><span class="si">}</span><span class="se">\n\n</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="orgcfe8cb4">
+<pre class="example">
 v1 has shape: (512, 128) 
 
 And looks like this: 
@@ -1373,7 +1013,7 @@ And looks like this:
 <div class="highlight">
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'v2 has shape: </span><span class="si">{</span><span class="n">v2</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s1"> </span><span class="se">\n\n</span><span class="s1">And looks like this: </span><span class="se">\n\n</span><span class="s1"> </span><span class="si">{</span><span class="n">v2</span><span class="si">}</span><span class="se">\n\n</span><span class="s1">'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org5c2c3a6">
+<pre class="example">
 v2 has shape: (512, 128) 
 
 And looks like this: 
@@ -1393,9 +1033,9 @@ And looks like this:
   -0.01318042]]
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-orgb9d9902">
-<h3 id="orgb9d9902">Calculating the accuracy</h3>
-<div class="outline-text-3" id="text-orgb9d9902">
+<div class="outline-3" id="outline-container-org9d876ef">
+<h3 id="org9d876ef">Calculating the accuracy</h3>
+<div class="outline-text-3" id="text-org9d876ef">
 <p>You will calculate the accuracy by iterating over the test set and checking if the model predicts right or wrong.</p>
 <p>You will also need the <code>batch size</code> and the <code>threshold</code> that will determine if two questions are the same or not.</p>
 <p><b>Note:</b> A higher threshold means that only very similar questions will be considered as the same question.</p>
@@ -1449,39 +1089,39 @@ The accuracy of the model is: 0.6621.
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#orgf17c7f5">Beginning</a>
+<li><a href="posts/nlp/modified-triplet-loss/#org8416764">Beginning</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#org29d0cab">Background</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org6dd7e63">Imports</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org3c110d2">Background</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org6a2b9b9">Imports</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/modified-triplet-loss/#org33440a3">Middle</a>
+<li><a href="posts/nlp/modified-triplet-loss/#org4aaf861">Middle</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#org49155be">Similarity Scores</a>
+<li><a href="posts/nlp/modified-triplet-loss/#orga3101e8">Similarity Scores</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#org30a1695">Two Vectors</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org2886d9f">Similarity score</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#orgb935d69">Two Vectors</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#orga4329d9">Similarity score</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/modified-triplet-loss/#org5181b5d">Two Batches of Vectors</a>
+<li><a href="posts/nlp/modified-triplet-loss/#org9e2547e">Two Batches of Vectors</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#orgf631329">Check</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org851f686">Check</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/modified-triplet-loss/#org0e4401b">Hard Negative Mining</a>
+<li><a href="posts/nlp/modified-triplet-loss/#org9485e63">Hard Negative Mining</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#org48bee2e">Mean Negative</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org4471ad6">Closest Negative</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org768b26f">Positives</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#orga5a35a8">Negatives</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org83428ac">Mean negative</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#org5738902">Closest negative</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org63dd487">Mean Negative</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#orgd237b1b">Closest Negative</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org4dd6d99">Positives</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org9f7a8ba">Negatives</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org0fb94f2">Mean negative</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org30f5443">Closest negative</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/modified-triplet-loss/#orga3a17f6">The Loss Functions</a>
+<li><a href="posts/nlp/modified-triplet-loss/#orgc2725e9">The Loss Functions</a>
 <ul>
-<li><a href="posts/nlp/modified-triplet-loss/#org5182a70">Modified triplet loss</a></li>
-<li><a href="posts/nlp/modified-triplet-loss/#orgde756c8">Cost</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#orgc983579">Modified triplet loss</a></li>
+<li><a href="posts/nlp/modified-triplet-loss/#org28542bc">Cost</a></li>
 </ul>
 </li>
 </ul>
@@ -1489,22 +1129,22 @@ The accuracy of the model is: 0.6621.
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgf17c7f5">
-<h2 id="orgf17c7f5">Beginning</h2>
-<div class="outline-text-2" id="text-orgf17c7f5">
+<div class="outline-2" id="outline-container-org8416764">
+<h2 id="org8416764">Beginning</h2>
+<div class="outline-text-2" id="text-org8416764">
 <p>We'll be looking at how to calculate the full triplet loss as well as a matrix of similarity scores.</p>
 </div>
-<div class="outline-3" id="outline-container-org29d0cab">
-<h3 id="org29d0cab">Background</h3>
-<div class="outline-text-3" id="text-org29d0cab">
+<div class="outline-3" id="outline-container-org3c110d2">
+<h3 id="org3c110d2">Background</h3>
+<div class="outline-text-3" id="text-org3c110d2">
 <p>This is the original triplet loss function:</p>
 <p>\[ \mathcal{L_\mathrm{Original}} = \max{(\mathrm{s}(A,N) -\mathrm{s}(A,P) +\alpha, 0)} \]</p>
 <p>It can be improved by including the mean negative and the closest negative, to create a new full loss function. The inputs are the Anchor \(\mathrm{A}\), Positive \(\mathrm{P}\) and Negative \(\mathrm{N}\).</p>
 \begin{align} \mathcal{L_\mathrm{1}} &amp;= \max{(mean\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \mathcal{L_\mathrm{2}} &amp;= \max{(closest\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \mathcal{L_\mathrm{Full}} &amp;= \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}\\ \end{align}</div>
 </div>
-<div class="outline-3" id="outline-container-org6dd7e63">
-<h3 id="org6dd7e63">Imports</h3>
-<div class="outline-text-3" id="text-org6dd7e63">
+<div class="outline-3" id="outline-container-org6a2b9b9">
+<h3 id="org6a2b9b9">Imports</h3>
+<div class="outline-text-3" id="text-org6a2b9b9">
 <div class="highlight">
 <pre><span></span><span class="c1"># from pypi</span>
 <span class="kn">import</span> <span class="nn">numpy</span>
@@ -1512,24 +1152,24 @@ The accuracy of the model is: 0.6621.
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org33440a3">
-<h2 id="org33440a3">Middle</h2>
-<div class="outline-text-2" id="text-org33440a3"></div>
-<div class="outline-3" id="outline-container-org49155be">
-<h3 id="org49155be">Similarity Scores</h3>
-<div class="outline-text-3" id="text-org49155be">
+<div class="outline-2" id="outline-container-org4aaf861">
+<h2 id="org4aaf861">Middle</h2>
+<div class="outline-text-2" id="text-org4aaf861"></div>
+<div class="outline-3" id="outline-container-orga3101e8">
+<h3 id="orga3101e8">Similarity Scores</h3>
+<div class="outline-text-3" id="text-orga3101e8">
 <p>The first step is to calculate the matrix of similarity scores using cosine similarity so that you can look up \(\mathrm{s}(A,P)\), \(\mathrm{s}(A,N)\) as needed for the loss formulas.</p>
 </div>
-<div class="outline-4" id="outline-container-org30a1695">
-<h4 id="org30a1695">Two Vectors</h4>
-<div class="outline-text-4" id="text-org30a1695">
+<div class="outline-4" id="outline-container-orgb935d69">
+<h4 id="orgb935d69">Two Vectors</h4>
+<div class="outline-text-4" id="text-orgb935d69">
 <p>First, this is how to calculate the similarity score, using cosine similarity, for 2 vectors.</p>
 <p>\[ \mathrm{s}(v_1,v_2) = \mathrm{cosine \ similarity}(v_1,v_2) = \frac{v_1 \cdot v_2}{||v_1||~||v_2||} \]</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org2886d9f">
-<h4 id="org2886d9f">Similarity score</h4>
-<div class="outline-text-4" id="text-org2886d9f">
+<div class="outline-4" id="outline-container-orga4329d9">
+<h4 id="orga4329d9">Similarity score</h4>
+<div class="outline-text-4" id="text-orga4329d9">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">cosine_similarity</span><span class="p">(</span><span class="n">v1</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">v2</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
     <span class="sd">"""Calculates the cosine similarity between two vectors</span>
@@ -1547,8 +1187,8 @@ The accuracy of the model is: 0.6621.
 </pre></div>
 </div>
 <ul class="org-ul">
-<li><a id="org3365c6d"></a>Similar vectors<br>
-<div class="outline-text-5" id="text-org3365c6d">
+<li><a id="orga06aad4"></a>Similar vectors<br>
+<div class="outline-text-5" id="text-orga06aad4">
 <div class="highlight">
 <pre><span></span><span class="n">v1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
 <span class="n">v2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mf">3.5</span><span class="p">])</span>
@@ -1559,8 +1199,8 @@ The accuracy of the model is: 0.6621.
 cosine similarity : 0.9974
 </pre></div>
 </li>
-<li><a id="orgdbbc14f"></a>Identical Vectors<br>
-<div class="outline-text-5" id="text-orgdbbc14f">
+<li><a id="org9c90c46"></a>Identical Vectors<br>
+<div class="outline-text-5" id="text-org9c90c46">
 <div class="highlight">
 <pre><span></span><span class="n">v2</span> <span class="o">=</span> <span class="n">v1</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cosine similarity : </span><span class="si">{</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">)</span><span class="si">:</span><span class="s2">0.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -1569,8 +1209,8 @@ cosine similarity : 0.9974
 cosine similarity : 1.0000
 </pre></div>
 </li>
-<li><a id="orgb414440"></a>Opposite Vectors<br>
-<div class="outline-text-5" id="text-orgb414440">
+<li><a id="org278b68b"></a>Opposite Vectors<br>
+<div class="outline-text-5" id="text-org278b68b">
 <div class="highlight">
 <pre><span></span><span class="n">v2</span> <span class="o">=</span> <span class="o">-</span><span class="n">v1</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cosine similarity : </span><span class="si">{</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">)</span><span class="si">:</span><span class="s2">0.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -1579,8 +1219,8 @@ cosine similarity : 1.0000
 cosine similarity : -1.0000
 </pre></div>
 </li>
-<li><a id="org05896e8"></a>Dissimilar Vectors<br>
-<div class="outline-text-5" id="text-org05896e8">
+<li><a id="orgcc21009"></a>Dissimilar Vectors<br>
+<div class="outline-text-5" id="text-orgcc21009">
 <div class="highlight">
 <pre><span></span><span class="n">v2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span><span class="o">-</span><span class="mi">42</span><span class="p">,</span><span class="mi">1</span><span class="p">])</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cosine similarity : </span><span class="si">{</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">v1</span><span class="p">,</span> <span class="n">v2</span><span class="p">)</span><span class="si">:</span><span class="s2">0.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -1592,9 +1232,9 @@ cosine similarity : -0.5153
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org5181b5d">
-<h3 id="org5181b5d">Two Batches of Vectors</h3>
-<div class="outline-text-3" id="text-org5181b5d">
+<div class="outline-3" id="outline-container-org9e2547e">
+<h3 id="org9e2547e">Two Batches of Vectors</h3>
+<div class="outline-text-3" id="text-org9e2547e">
 <p>Now let's look at how to calculate the similarity scores, using cosine similarity, for 2 batches of vectors. These are rows of individual vectors, just like in the example above, but stacked vertically into a matrix. They would look like the image below for a batch size (row count) of 4 and embedding size (column count) of 5.</p>
 <p>The data is setup so that \(v_{1\_1}\) and \(v_{2\_1}\) represent duplicate inputs, but they are not duplicates with any other rows in the batch. This means \(v_{1\_1}\) and \(v_{2\_1}\) (green and green) have more similar vectors than say \(v_{1\_1}\) and \(v_{2\_2}\) (green and magenta).</p>
 <p>We'll use two different methods for calculating the matrix of similarities from 2 batches of vectors.</p>
@@ -1615,7 +1255,7 @@ cosine similarity : -0.5153
 <span class="nb">print</span><span class="p">(</span><span class="s2">"v2 :"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">v2</span><span class="p">,</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org10f0d2e">
+<pre class="example">
 v1 :
 [[ 1  2  3]
  [ 9  8  7]
@@ -1635,8 +1275,8 @@ v2 :
 <p>Now let's look at the similarity scores.</p>
 </div>
 <ul class="org-ul">
-<li><a id="orgeddfe9c"></a>Option 1 : nested loops and the cosine similarity function<br>
-<div class="outline-text-5" id="text-orgeddfe9c">
+<li><a id="org0aafab3"></a>Option 1 : nested loops and the cosine similarity function<br>
+<div class="outline-text-5" id="text-org0aafab3">
 <div class="highlight">
 <pre><span></span><span class="n">batch_size</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="n">v1</span><span class="o">.</span><span class="n">shape</span>
 <span class="n">scores_1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">])</span>
@@ -1658,8 +1298,8 @@ Option 1 : Loop
  [-0.31943701 -0.23354642  0.49063636  0.96181686]]
 </pre></div>
 </li>
-<li><a id="orgd48f534"></a>Option 2 : Vector Normalization and the Dot Product<br>
-<div class="outline-text-5" id="text-orgd48f534">
+<li><a id="org1caa567"></a>Option 2 : Vector Normalization and the Dot Product<br>
+<div class="outline-text-5" id="text-org1caa567">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">norm</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
     <span class="sd">"""Normalize x"""</span>
@@ -1681,9 +1321,9 @@ Option 2 : Vector Norm & dot product
 </pre></div>
 </li>
 </ul>
-<div class="outline-4" id="outline-container-orgf631329">
-<h4 id="orgf631329">Check</h4>
-<div class="outline-text-4" id="text-orgf631329">
+<div class="outline-4" id="outline-container-org851f686">
+<h4 id="org851f686">Check</h4>
+<div class="outline-text-4" id="text-org851f686">
 <p>Let's make sure we get the same answer in both cases.</p>
 <div class="highlight">
 <pre><span></span><span class="k">assert</span> <span class="n">numpy</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">scores_1</span><span class="p">,</span> <span class="n">scores_2</span><span class="p">)</span>
@@ -1691,22 +1331,22 @@ Option 2 : Vector Norm & dot product
 </div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org0e4401b">
-<h3 id="org0e4401b">Hard Negative Mining</h3>
-<div class="outline-text-3" id="text-org0e4401b">
+<div class="outline-3" id="outline-container-org9485e63">
+<h3 id="org9485e63">Hard Negative Mining</h3>
+<div class="outline-text-3" id="text-org9485e63">
 <p>Now we'll calculate the mean negative \(mean\_neg\) and the closest negative \(close\_neg\) used in calculating \(\mathcal{L_\mathrm{1}}\) and \(\mathcal{L_\mathrm{2}}\).</p>
 \begin{align} \mathcal{L_\mathrm{1}} &amp;= \max{(mean\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \mathcal{L_\mathrm{2}} &amp;= \max{(closest\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \end{align}
 <p>We'll do this using the matrix of similarity scores for a batch size of 4. The diagonal of the matrix contains all the \(\mathrm{s}(A,P)\) values, similarities from duplicate question pairs (aka Positives). This is an important attribute for the calculations to follow.</p>
 </div>
-<div class="outline-4" id="outline-container-org48bee2e">
-<h4 id="org48bee2e">Mean Negative</h4>
-<div class="outline-text-4" id="text-org48bee2e">
+<div class="outline-4" id="outline-container-org63dd487">
+<h4 id="org63dd487">Mean Negative</h4>
+<div class="outline-text-4" id="text-org63dd487">
 <p><i>mean_neg</i> is the average of the off diagonals, the \(\mathrm{s}(A,N)\) values, for each row.</p>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org4471ad6">
-<h4 id="org4471ad6">Closest Negative</h4>
-<div class="outline-text-4" id="text-org4471ad6">
+<div class="outline-4" id="outline-container-orgd237b1b">
+<h4 id="orgd237b1b">Closest Negative</h4>
+<div class="outline-text-4" id="text-orgd237b1b">
 <p><i>closest_neg</i> is the largest off diagonal value, \(\mathrm{s}(A,N)\), that is smaller than the diagonal \(\mathrm{s}(A,P)\) for each row.</p>
 <p>We'll start with some hand-made similarity scores.</p>
 <div class="highlight">
@@ -1721,9 +1361,9 @@ Option 2 : Vector Norm & dot product
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org768b26f">
-<h4 id="org768b26f">Positives</h4>
-<div class="outline-text-4" id="text-org768b26f">
+<div class="outline-4" id="outline-container-org4dd6d99">
+<h4 id="org4dd6d99">Positives</h4>
+<div class="outline-text-4" id="text-org4dd6d99">
 <p>All the <i>s(A,P)</i> values are similarities from duplicate question pairs (aka Positives). These are along the diagonal.</p>
 <div class="highlight">
 <pre><span></span><span class="n">sim_ap</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">similarity_scores</span><span class="p">)</span>
@@ -1739,9 +1379,9 @@ s(A, P) :
  [ 0.   0.   0.   0.5]]
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-orga5a35a8">
-<h4 id="orga5a35a8">Negatives</h4>
-<div class="outline-text-4" id="text-orga5a35a8">
+<div class="outline-4" id="outline-container-org9f7a8ba">
+<h4 id="org9f7a8ba">Negatives</h4>
+<div class="outline-text-4" id="text-org9f7a8ba">
 <p>All the <i>s(A,N)</i> values are similarities of the non duplicate question pairs (aka Negatives). These are in the cells not on the diagonal.</p>
 <div class="highlight">
 <pre><span></span><span class="n">sim_an</span> <span class="o">=</span> <span class="n">similarity_scores</span> <span class="o">-</span> <span class="n">numpy</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">sim_ap</span><span class="p">)</span>
@@ -1757,9 +1397,9 @@ s(A, N) :
  [-0.5 -0.2 -0.7  0. ]]
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org83428ac">
-<h4 id="org83428ac">Mean negative</h4>
-<div class="outline-text-4" id="text-org83428ac">
+<div class="outline-4" id="outline-container-org0fb94f2">
+<h4 id="org0fb94f2">Mean negative</h4>
+<div class="outline-text-4" id="text-org0fb94f2">
 <p>This is the average of the <i>s(A,N)</i> values for each row.</p>
 <div class="highlight">
 <pre><span></span><span class="n">batch_size</span> <span class="o">=</span> <span class="n">similarity_scores</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
@@ -1776,9 +1416,9 @@ mean_neg :
  [-0.46666667]]
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org5738902">
-<h4 id="org5738902">Closest negative</h4>
-<div class="outline-text-4" id="text-org5738902">
+<div class="outline-4" id="outline-container-org30f5443">
+<h4 id="org30f5443">Closest negative</h4>
+<div class="outline-text-4" id="text-org30f5443">
 <p>These are the Max <i>s(A,N)</i> that is &lt;= s(A,P) for each row.</p>
 <div class="highlight">
 <pre><span></span><span class="n">mask_1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">identity</span><span class="p">(</span><span class="n">batch_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>            <span class="c1"># mask to exclude the diagonal</span>
@@ -1801,9 +1441,9 @@ Closest Negative :
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orga3a17f6">
-<h3 id="orga3a17f6">The Loss Functions</h3>
-<div class="outline-text-3" id="text-orga3a17f6">
+<div class="outline-3" id="outline-container-orgc2725e9">
+<h3 id="orgc2725e9">The Loss Functions</h3>
+<div class="outline-text-3" id="text-orgc2725e9">
 <p>The last step is to calculate the loss functions.</p>
 \begin{align} \mathcal{L_\mathrm{1}} &amp;= \max{(mean\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \mathcal{L_\mathrm{2}} &amp;= \max{(closest\_neg -\mathrm{s}(A,P) +\alpha, 0)}\\ \mathcal{L_\mathrm{Full}} &amp;= \mathcal{L_\mathrm{1}} + \mathcal{L_\mathrm{2}}\\ \end{align}
 <p>The Alpha margin.</p>
@@ -1811,9 +1451,9 @@ Closest Negative :
 <pre><span></span><span class="n">alpha</span> <span class="o">=</span> <span class="mf">0.25</span>
 </pre></div>
 </div>
-<div class="outline-4" id="outline-container-org5182a70">
-<h4 id="org5182a70">Modified triplet loss</h4>
-<div class="outline-text-4" id="text-org5182a70">
+<div class="outline-4" id="outline-container-orgc983579">
+<h4 id="orgc983579">Modified triplet loss</h4>
+<div class="outline-text-4" id="text-orgc983579">
 <div class="highlight">
 <pre><span></span><span class="n">loss_1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">mean_neg</span> <span class="o">-</span> <span class="n">sim_ap</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">alpha</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <span class="n">loss_2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">closest_neg</span> <span class="o">-</span> <span class="n">sim_ap</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">alpha</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
@@ -1821,9 +1461,9 @@ Closest Negative :
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-orgde756c8">
-<h4 id="orgde756c8">Cost</h4>
-<div class="outline-text-4" id="text-orgde756c8">
+<div class="outline-4" id="outline-container-org28542bc">
+<h4 id="org28542bc">Cost</h4>
+<div class="outline-text-4" id="text-org28542bc">
 <div class="highlight">
 <pre><span></span><span class="n">cost</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">loss_full</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Loss Full :</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
@@ -1858,27 +1498,27 @@ cost : 0.517
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/siamese-networks-with-trax/#org9bafb8a">Beginning</a>
+<li><a href="posts/nlp/siamese-networks-with-trax/#orged82c06">Beginning</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-with-trax/#org18513e4">Imports</a></li>
+<li><a href="posts/nlp/siamese-networks-with-trax/#orgff89f9d">Imports</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-with-trax/#org7bca7da">Middle</a>
+<li><a href="posts/nlp/siamese-networks-with-trax/#orgd4bcb0f">Middle</a>
 <ul>
-<li><a href="posts/nlp/siamese-networks-with-trax/#orgac20276">L2 Normalization</a></li>
-<li><a href="posts/nlp/siamese-networks-with-trax/#org7448131">The Siamese Model</a></li>
+<li><a href="posts/nlp/siamese-networks-with-trax/#orgc93339b">L2 Normalization</a></li>
+<li><a href="posts/nlp/siamese-networks-with-trax/#orgd721075">The Siamese Model</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/siamese-networks-with-trax/#org7f9d4fb">End</a></li>
+<li><a href="posts/nlp/siamese-networks-with-trax/#org861f2ac">End</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org9bafb8a">
-<h2 id="org9bafb8a">Beginning</h2>
-<div class="outline-text-2" id="text-org9bafb8a"></div>
-<div class="outline-3" id="outline-container-org18513e4">
-<h3 id="org18513e4">Imports</h3>
-<div class="outline-text-3" id="text-org18513e4">
+<div class="outline-2" id="outline-container-orged82c06">
+<h2 id="orged82c06">Beginning</h2>
+<div class="outline-text-2" id="text-orged82c06"></div>
+<div class="outline-3" id="outline-container-orgff89f9d">
+<h3 id="orgff89f9d">Imports</h3>
+<div class="outline-text-3" id="text-orgff89f9d">
 <div class="highlight">
 <pre><span></span><span class="c1"># pypi</span>
 <span class="kn">from</span> <span class="nn">jax.interpreters.xla</span> <span class="kn">import</span> <span class="n">_DeviceArray</span> <span class="k">as</span> <span class="n">DeviceArray</span>
@@ -1891,12 +1531,12 @@ cost : 0.517
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7bca7da">
-<h2 id="org7bca7da">Middle</h2>
-<div class="outline-text-2" id="text-org7bca7da"></div>
-<div class="outline-3" id="outline-container-orgac20276">
-<h3 id="orgac20276">L2 Normalization</h3>
-<div class="outline-text-3" id="text-orgac20276">
+<div class="outline-2" id="outline-container-orgd4bcb0f">
+<h2 id="orgd4bcb0f">Middle</h2>
+<div class="outline-text-2" id="text-orgd4bcb0f"></div>
+<div class="outline-3" id="outline-container-orgc93339b">
+<h3 id="orgc93339b">L2 Normalization</h3>
+<div class="outline-text-3" id="text-orgc93339b">
 <p>Before building the model you will need to define a function that applies L2 normalization to a tensor. Luckily this is pretty straightforward.</p>
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">normalize</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DeviceArray</span><span class="p">:</span>
@@ -1938,9 +1578,9 @@ And looks like this:
 <p>Notice that the initial tensor was converted from a numpy array to a jax array in the process.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org7448131">
-<h3 id="org7448131">The Siamese Model</h3>
-<div class="outline-text-3" id="text-org7448131">
+<div class="outline-3" id="outline-container-orgd721075">
+<h3 id="orgd721075">The Siamese Model</h3>
+<div class="outline-text-3" id="text-orgd721075">
 <p>To create a <code>Siamese</code> model you will first need to create a LSTM model using the <code>Serial</code> combinator layer and then use another combinator layer called <code>Parallel</code> to create the Siamese model. You should be familiar with the following layers:</p>
 <ul class="org-ul">
 <li><a href="https://trax-ml.readthedocs.io/en/latest/trax.layers.html#trax.layers.combinators.Serial"><code>Serial</code></a> : A combinator layer that allows to stack layers serially using functioncomposition.</li>
@@ -1980,7 +1620,7 @@ And looks like this:
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="s1">'Siamese model:</span><span class="se">\n</span><span class="s1">'</span><span class="p">)</span>
 <span class="n">show_layers</span><span class="p">(</span><span class="n">Siamese</span><span class="p">,</span> <span class="s1">'Parallel.sublayers'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org9900660">
+<pre class="example">
 Siamese model:
 
 Total layers: 2
@@ -2005,7 +1645,7 @@ Parallel.sublayers_1: Serial[
 <pre><span></span><span class="nb">print</span><span class="p">(</span><span class="s1">'Detail of LSTM models:</span><span class="se">\n</span><span class="s1">'</span><span class="p">)</span>
 <span class="n">show_layers</span><span class="p">(</span><span class="n">LSTM</span><span class="p">,</span> <span class="s1">'Serial.sublayers'</span><span class="p">)</span>
 </pre></div>
-<pre class="example" id="org9a388ad">
+<pre class="example">
 Detail of LSTM models:
 
 Total layers: 4
@@ -2024,8 +1664,8 @@ Serial.sublayers_3: Normalize
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org7f9d4fb">
-<h2 id="org7f9d4fb">End</h2>
+<div class="outline-2" id="outline-container-org861f2ac">
+<h2 id="org861f2ac">End</h2>
 </div>
 </div>
 </article>
@@ -2042,18 +1682,18 @@ Serial.sublayers_3: Normalize
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/ner-testing-the-model/#org6d8464b">Testing New Sentences</a>
+<li><a href="posts/nlp/ner-testing-the-model/#orgb15ae72">Testing New Sentences</a>
 <ul>
-<li><a href="posts/nlp/ner-testing-the-model/#org22bb55c">Set Up the Model and Maps</a></li>
+<li><a href="posts/nlp/ner-testing-the-model/#orgaccf689">Set Up the Model and Maps</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/ner-testing-the-model/#org8b8f62d">Middle</a></li>
+<li><a href="posts/nlp/ner-testing-the-model/#org3f54bee">Middle</a></li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org6d8464b">
-<h2 id="org6d8464b">Testing New Sentences</h2>
-<div class="outline-text-2" id="text-org6d8464b">
+<div class="outline-2" id="outline-container-orgb15ae72">
+<h2 id="orgb15ae72">Testing New Sentences</h2>
+<div class="outline-text-2" id="text-orgb15ae72">
 <ul class="org-ul">
 <li><a href="posts/nlp/named-entity-recognition/">The First Post</a></li>
 <li><a href="posts/nlp/ner-evaluating-the-model/">The Previous Post</a></li>
@@ -2073,9 +1713,9 @@ Serial.sublayers_3: Normalize
                                                    <span class="n">TOKEN</span><span class="p">)</span>
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org22bb55c">
-<h3 id="org22bb55c">Set Up the Model and Maps</h3>
-<div class="outline-text-3" id="text-org22bb55c">
+<div class="outline-3" id="outline-container-orgaccf689">
+<h3 id="orgaccf689">Set Up the Model and Maps</h3>
+<div class="outline-text-3" id="text-orgaccf689">
 <div class="highlight">
 <pre><span></span><span class="n">data</span> <span class="o">=</span> <span class="n">NERData</span><span class="p">()</span><span class="o">.</span><span class="n">data</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">NER</span><span class="p">(</span><span class="n">vocabulary_size</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">vocabulary</span><span class="p">),</span>
@@ -2093,9 +1733,9 @@ Serial[
 </pre></div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org8b8f62d">
-<h2 id="org8b8f62d">Middle</h2>
-<div class="outline-text-2" id="text-org8b8f62d">
+<div class="outline-2" id="outline-container-org3f54bee">
+<h2 id="org3f54bee">Middle</h2>
+<div class="outline-text-2" id="text-org3f54bee">
 <div class="highlight">
 <pre><span></span><span class="k">def</span> <span class="nf">predict</span><span class="p">(</span><span class="n">sentence</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
             <span class="n">model</span><span class="p">:</span> <span class="n">layers</span><span class="o">.</span><span class="n">Serial</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
@@ -2185,29 +1825,29 @@ booty - B-per
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/ner-evaluating-the-model/#org8e31355">Beginning</a>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org3220cbb">Beginning</a>
 <ul>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orgb86554c">Imports</a></li>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orgea68462">Set Up</a>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org870b45e">Imports</a></li>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org924fc3a">Set Up</a>
 <ul>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orga08c96c">Plotting</a></li>
-<li><a href="posts/nlp/ner-evaluating-the-model/#org02751a6">The Previous Code</a></li>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org62a7a89">Plotting</a></li>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org1f1fec8">The Previous Code</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orgb45c35e">Middle</a>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org9a1c57c">Middle</a>
 <ul>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orga1468a3">A Test Input</a></li>
-<li><a href="posts/nlp/ner-evaluating-the-model/#orgbdb0e59">Plotting</a></li>
+<li><a href="posts/nlp/ner-evaluating-the-model/#org9ec60b4">A Test Input</a></li>
+<li><a href="posts/nlp/ner-evaluating-the-model/#orge2547f7">Plotting</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org8e31355">
-<h2 id="org8e31355">Beginning</h2>
-<div class="outline-text-2" id="text-org8e31355">
+<div class="outline-2" id="outline-container-org3220cbb">
+<h2 id="org3220cbb">Beginning</h2>
+<div class="outline-text-2" id="text-org3220cbb">
 <ul class="org-ul">
 <li><a href="posts/nlp/named-entity-recognition/">The First Post</a></li>
 <li><a href="posts/nlp/ner-training-the-model/">The Previous Post</a></li>
@@ -2221,9 +1861,9 @@ booty - B-per
 <li><b>Step 4</b>: Compute the accuracy metric by comparing the outputs against the test labels. Take the sum of that and divide by the total number of <b>unpadded</b> tokens. Use the mask value to mask the padded tokens.</li>
 </ul>
 </div>
-<div class="outline-3" id="outline-container-orgb86554c">
-<h3 id="orgb86554c">Imports</h3>
-<div class="outline-text-3" id="text-orgb86554c">
+<div class="outline-3" id="outline-container-org870b45e">
+<h3 id="org870b45e">Imports</h3>
+<div class="outline-text-3" id="text-org870b45e">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
@@ -2247,12 +1887,12 @@ booty - B-per
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgea68462">
-<h3 id="orgea68462">Set Up</h3>
-<div class="outline-text-3" id="text-orgea68462"></div>
-<div class="outline-4" id="outline-container-orga08c96c">
-<h4 id="orga08c96c">Plotting</h4>
-<div class="outline-text-4" id="text-orga08c96c">
+<div class="outline-3" id="outline-container-org924fc3a">
+<h3 id="org924fc3a">Set Up</h3>
+<div class="outline-text-3" id="text-org924fc3a"></div>
+<div class="outline-4" id="outline-container-org62a7a89">
+<h4 id="org62a7a89">Plotting</h4>
+<div class="outline-text-4" id="text-org62a7a89">
 <div class="highlight">
 <pre><span></span><span class="n">slug</span> <span class="o">=</span> <span class="s2">"ner-evaluating-the-model"</span>
 <span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/nlp/</span><span class="si">{</span><span class="n">slug</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -2269,9 +1909,9 @@ booty - B-per
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org02751a6">
-<h4 id="org02751a6">The Previous Code</h4>
-<div class="outline-text-4" id="text-org02751a6">
+<div class="outline-4" id="outline-container-org1f1fec8">
+<h4 id="org1f1fec8">The Previous Code</h4>
+<div class="outline-text-4" id="text-org1f1fec8">
 <div class="highlight">
 <pre><span></span><span class="n">data</span> <span class="o">=</span> <span class="n">NERData</span><span class="p">()</span><span class="o">.</span><span class="n">data</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">NER</span><span class="p">(</span><span class="n">vocabulary_size</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">vocabulary</span><span class="p">),</span>
@@ -2303,9 +1943,9 @@ Serial[
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgb45c35e">
-<h2 id="orgb45c35e">Middle</h2>
-<div class="outline-text-2" id="text-orgb45c35e">
+<div class="outline-2" id="outline-container-org9a1c57c">
+<h2 id="org9a1c57c">Middle</h2>
+<div class="outline-text-2" id="text-org9a1c57c">
 <p>As a reminder, here's what happens when you apply a boolean comparison to a numpy array.</p>
 <div class="highlight">
 <pre><span></span><span class="n">a</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
@@ -2314,9 +1954,9 @@ Serial[
 <pre class="example">
 [False  True False False]
 </pre></div>
-<div class="outline-3" id="outline-container-orga1468a3">
-<h3 id="orga1468a3">A Test Input</h3>
-<div class="outline-text-3" id="text-orga1468a3">
+<div class="outline-3" id="outline-container-org9ec60b4">
+<h3 id="org9ec60b4">A Test Input</h3>
+<div class="outline-text-3" id="text-org9ec60b4">
 <div class="highlight">
 <pre><span></span><span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">test_generator</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"x's shape: </span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> y's shape: </span><span class="si">{</span><span class="n">y</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -2365,9 +2005,9 @@ accuracy:  0.9636752
 <p>Hmm, does pretty good.</p>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgbdb0e59">
-<h3 id="orgbdb0e59">Plotting</h3>
-<div class="outline-text-3" id="text-orgbdb0e59">
+<div class="outline-3" id="outline-container-orge2547f7">
+<h3 id="orge2547f7">Plotting</h3>
+<div class="outline-text-3" id="text-orge2547f7">
 <p>Let's look at running more batches. It occurred to me that you could also just do the whole set at once, I don't know what's special about using the batches.</p>
 <div class="highlight">
 <pre><span></span><span class="n">repetitions</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span>
@@ -2408,25 +2048,25 @@ accuracy:  0.9636752
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/ner-training-the-model/#orgfc4468c">Training the Model</a>
+<li><a href="posts/nlp/ner-training-the-model/#org5222f9e">Training the Model</a>
 <ul>
-<li><a href="posts/nlp/ner-training-the-model/#org7cbfddd">Imports</a></li>
-<li><a href="posts/nlp/ner-training-the-model/#orgdac62a7">Set Up</a>
+<li><a href="posts/nlp/ner-training-the-model/#org7ef4eeb">Imports</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#orgce52ab4">Set Up</a>
 <ul>
-<li><a href="posts/nlp/ner-training-the-model/#orge740fc7">Plotting</a></li>
-<li><a href="posts/nlp/ner-training-the-model/#org45b51ff">Data</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#orgbbdbe43">Plotting</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#org844737c">Data</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a href="posts/nlp/ner-training-the-model/#org4d45347">Middle</a>
+<li><a href="posts/nlp/ner-training-the-model/#orgfc6a626">Middle</a>
 <ul>
-<li><a href="posts/nlp/ner-training-the-model/#org95ed55b">The Data Generators</a></li>
-<li><a href="posts/nlp/ner-training-the-model/#org5548208">Training The Model</a></li>
-<li><a href="posts/nlp/ner-training-the-model/#orgfe22b00">Plotting the Metrics</a>
+<li><a href="posts/nlp/ner-training-the-model/#org91b86fd">The Data Generators</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#org6a409a9">Training The Model</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#org3f69f47">Plotting the Metrics</a>
 <ul>
-<li><a href="posts/nlp/ner-training-the-model/#orgc02a7a6">Accuracy</a></li>
-<li><a href="posts/nlp/ner-training-the-model/#org25b278e">Plotting Loss</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#orgd5480bd">Accuracy</a></li>
+<li><a href="posts/nlp/ner-training-the-model/#org5737906">Plotting Loss</a></li>
 </ul>
 </li>
 </ul>
@@ -2434,18 +2074,18 @@ accuracy:  0.9636752
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-orgfc4468c">
-<h2 id="orgfc4468c">Training the Model</h2>
-<div class="outline-text-2" id="text-orgfc4468c">
+<div class="outline-2" id="outline-container-org5222f9e">
+<h2 id="org5222f9e">Training the Model</h2>
+<div class="outline-text-2" id="text-org5222f9e">
 <ul class="org-ul">
 <li><a href="posts/nlp/named-entity-recognition/">The First Post</a></li>
 <li><a href="posts/nlp/ner-building-the-model/">The Previous Post</a></li>
 <li><a href="posts/nlp/ner-evaluating-the-model/">The Next Post</a></li>
 </ul>
 </div>
-<div class="outline-3" id="outline-container-org7cbfddd">
-<h3 id="org7cbfddd">Imports</h3>
-<div class="outline-text-3" id="text-org7cbfddd">
+<div class="outline-3" id="outline-container-org7ef4eeb">
+<h3 id="org7ef4eeb">Imports</h3>
+<div class="outline-text-3" id="text-org7ef4eeb">
 <div class="highlight">
 <pre><span></span><span class="c1"># from python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
@@ -2475,12 +2115,12 @@ accuracy:  0.9636752
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-orgdac62a7">
-<h3 id="orgdac62a7">Set Up</h3>
-<div class="outline-text-3" id="text-orgdac62a7"></div>
-<div class="outline-4" id="outline-container-orge740fc7">
-<h4 id="orge740fc7">Plotting</h4>
-<div class="outline-text-4" id="text-orge740fc7">
+<div class="outline-3" id="outline-container-orgce52ab4">
+<h3 id="orgce52ab4">Set Up</h3>
+<div class="outline-text-3" id="text-orgce52ab4"></div>
+<div class="outline-4" id="outline-container-orgbbdbe43">
+<h4 id="orgbbdbe43">Plotting</h4>
+<div class="outline-text-4" id="text-orgbbdbe43">
 <div class="highlight">
 <pre><span></span><span class="n">slug</span> <span class="o">=</span> <span class="s2">"ner-training-the-model"</span>
 <span class="n">Embed</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">EmbedHoloviews</span><span class="p">,</span> <span class="n">folder_path</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/nlp/</span><span class="si">{</span><span class="n">slug</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -2497,9 +2137,9 @@ accuracy:  0.9636752
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org45b51ff">
-<h4 id="org45b51ff">Data</h4>
-<div class="outline-text-4" id="text-org45b51ff">
+<div class="outline-4" id="outline-container-org844737c">
+<h4 id="org844737c">Data</h4>
+<div class="outline-text-4" id="text-org844737c">
 <div class="highlight">
 <pre><span></span><span class="n">ner</span> <span class="o">=</span> <span class="n">NERData</span><span class="p">()</span>
 
@@ -2525,12 +2165,12 @@ accuracy:  0.9636752
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org4d45347">
-<h2 id="org4d45347">Middle</h2>
-<div class="outline-text-2" id="text-org4d45347"></div>
-<div class="outline-3" id="outline-container-org95ed55b">
-<h3 id="org95ed55b">The Data Generators</h3>
-<div class="outline-text-3" id="text-org95ed55b">
+<div class="outline-2" id="outline-container-orgfc6a626">
+<h2 id="orgfc6a626">Middle</h2>
+<div class="outline-text-2" id="text-orgfc6a626"></div>
+<div class="outline-3" id="outline-container-org91b86fd">
+<h3 id="org91b86fd">The Data Generators</h3>
+<div class="outline-text-3" id="text-org91b86fd">
 <p>Before we start, we need to create the data generators for training and validation data. It is important that you mask padding in the loss weights of your data, which can be done using the <code>id_to_mask</code> argument of <code>trax.supervised.inputs.add_loss_weights</code>.</p>
 <div class="highlight">
 <pre><span></span><span class="n">train_generator</span> <span class="o">=</span> <span class="n">trax</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">inputs</span><span class="o">.</span><span class="n">add_loss_weights</span><span class="p">(</span>
@@ -2543,9 +2183,9 @@ accuracy:  0.9636752
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org5548208">
-<h3 id="org5548208">Training The Model</h3>
-<div class="outline-text-3" id="text-org5548208">
+<div class="outline-3" id="outline-container-org6a409a9">
+<h3 id="org6a409a9">Training The Model</h3>
+<div class="outline-text-3" id="text-org6a409a9">
 <p>You will now write a function that takes in your model and trains it.</p>
 <p>As you've seen in the previous assignments, you will first create the <a href="https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.TrainTask">TrainTask</a> and <a href="https://trax-ml.readthedocs.io/en/stable/trax.supervised.html#trax.supervised.training.EvalTask">EvalTask</a> using your data generator. Then you will use the <code>training.Loop</code> to train your model.</p>
 <p><b>Instructions:</b> Implement the <code>train_model</code> program below to train the neural network above. Here is a list of things you should do:</p>
@@ -2636,12 +2276,12 @@ accuracy:  0.9636752
 0:03:51.538599
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-orgfe22b00">
-<h3 id="orgfe22b00">Plotting the Metrics</h3>
-<div class="outline-text-3" id="text-orgfe22b00"></div>
-<div class="outline-4" id="outline-container-orgc02a7a6">
-<h4 id="orgc02a7a6">Accuracy</h4>
-<div class="outline-text-4" id="text-orgc02a7a6">
+<div class="outline-3" id="outline-container-org3f69f47">
+<h3 id="org3f69f47">Plotting the Metrics</h3>
+<div class="outline-text-3" id="text-org3f69f47"></div>
+<div class="outline-4" id="outline-container-orgd5480bd">
+<h4 id="orgd5480bd">Accuracy</h4>
+<div class="outline-text-4" id="text-orgd5480bd">
 <div class="highlight">
 <pre><span></span><span class="n">history</span> <span class="o">=</span> <span class="n">training_loop</span><span class="o">.</span><span class="n">history</span>
 <span class="n">frame</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">history</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"eval"</span><span class="p">,</span> <span class="s2">"metrics/Accuracy"</span><span class="p">),</span>
@@ -2666,9 +2306,9 @@ accuracy:  0.9636752
 <p>Figure Missing</p>
 </object></div>
 </div>
-<div class="outline-4" id="outline-container-org25b278e">
-<h4 id="org25b278e">Plotting Loss</h4>
-<div class="outline-text-4" id="text-org25b278e">
+<div class="outline-4" id="outline-container-org5737906">
+<h4 id="org5737906">Plotting Loss</h4>
+<div class="outline-text-4" id="text-org5737906">
 <div class="highlight">
 <pre><span></span><span class="n">frame</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">history</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"eval"</span><span class="p">,</span>
                                      <span class="s2">"metrics/WeightedCategoryCrossEntropy"</span><span class="p">),</span>
@@ -2710,31 +2350,31 @@ accuracy:  0.9636752
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="posts/nlp/ner-building-the-model/#org59a7022">Beginning</a>
+<li><a href="posts/nlp/ner-building-the-model/#orgceedf92">Beginning</a>
 <ul>
-<li><a href="posts/nlp/ner-building-the-model/#org4bcf27f">Imports</a></li>
-<li><a href="posts/nlp/ner-building-the-model/#org9e3b38d">Set Up</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org9e36cbd">Imports</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org3246e6c">Set Up</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/ner-building-the-model/#org2ce09c6">Middle</a>
+<li><a href="posts/nlp/ner-building-the-model/#org9c907b8">Middle</a>
 <ul>
-<li><a href="posts/nlp/ner-building-the-model/#org828536b">Inspecting the Model</a></li>
-<li><a href="posts/nlp/ner-building-the-model/#org89b98ff">Pack It Up for Later</a>
+<li><a href="posts/nlp/ner-building-the-model/#orgdf4b2e4">Inspecting the Model</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#orgfaada42">Pack It Up for Later</a>
 <ul>
-<li><a href="posts/nlp/ner-building-the-model/#orgceb8e1c">Imports</a></li>
-<li><a href="posts/nlp/ner-building-the-model/#org89ba5df">Constants</a></li>
-<li><a href="posts/nlp/ner-building-the-model/#org1833c06">The Model</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org88967f5">Imports</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org512fc11">Constants</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org6835270">The Model</a></li>
 </ul>
 </li>
-<li><a href="posts/nlp/ner-building-the-model/#org4f21014">Sanity Check</a></li>
+<li><a href="posts/nlp/ner-building-the-model/#org4509dc8">Sanity Check</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org59a7022">
-<h2 id="org59a7022">Beginning</h2>
-<div class="outline-text-2" id="text-org59a7022">
+<div class="outline-2" id="outline-container-orgceedf92">
+<h2 id="orgceedf92">Beginning</h2>
+<div class="outline-text-2" id="text-orgceedf92">
 <ul class="org-ul">
 <li><a href="posts/nlp/named-entity-recognition/">The First Post</a></li>
 <li><a href="posts/nlp/ner-data/">The Previous Post</a></li>
@@ -2748,9 +2388,9 @@ accuracy:  0.9636752
 <li>Run the result through a log softmax layer to get the predicted class for each word.</li>
 </ul>
 </div>
-<div class="outline-3" id="outline-container-org4bcf27f">
-<h3 id="org4bcf27f">Imports</h3>
-<div class="outline-text-3" id="text-org4bcf27f">
+<div class="outline-3" id="outline-container-org9e36cbd">
+<h3 id="org9e36cbd">Imports</h3>
+<div class="outline-text-3" id="text-org9e36cbd">
 <div class="highlight">
 <pre><span></span><span class="c1"># pypi</span>
 <span class="kn">from</span> <span class="nn">trax</span> <span class="kn">import</span> <span class="n">layers</span>
@@ -2760,9 +2400,9 @@ accuracy:  0.9636752
 </pre></div>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org9e3b38d">
-<h3 id="org9e3b38d">Set Up</h3>
-<div class="outline-text-3" id="text-org9e3b38d">
+<div class="outline-3" id="outline-container-org3246e6c">
+<h3 id="org3246e6c">Set Up</h3>
+<div class="outline-text-3" id="text-org3246e6c">
 <div class="highlight">
 <pre><span></span><span class="n">ner</span> <span class="o">=</span> <span class="n">NERData</span><span class="p">()</span>
 
@@ -2772,9 +2412,9 @@ accuracy:  0.9636752
 </div>
 </div>
 </div>
-<div class="outline-2" id="outline-container-org2ce09c6">
-<h2 id="org2ce09c6">Middle</h2>
-<div class="outline-text-2" id="text-org2ce09c6">
+<div class="outline-2" id="outline-container-org9c907b8">
+<h2 id="org9c907b8">Middle</h2>
+<div class="outline-text-2" id="text-org9c907b8">
 <p>These are the Trax components we'll use (the links are to the implementations on Github).</p>
 <ul class="org-ul">
 <li><a href="https://github.com/google/trax/blob/1372b903bb66b0daccee19fd0b1fdf44f659330b/trax/layers/combinators.py#L26">tl.Serial</a>: Combinator that applies layers serially (by function composition).</li>
@@ -2828,9 +2468,9 @@ accuracy:  0.9636752
     <span class="k">return</span> <span class="n">model</span>
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org828536b">
-<h3 id="org828536b">Inspecting the Model</h3>
-<div class="outline-text-3" id="text-org828536b">
+<div class="outline-3" id="outline-container-orgdf4b2e4">
+<h3 id="orgdf4b2e4">Inspecting the Model</h3>
+<div class="outline-text-3" id="text-orgdf4b2e4">
 <div class="highlight">
 <pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">NER</span><span class="p">()</span>
 <span class="c1"># display your model</span>
@@ -2845,12 +2485,12 @@ Serial[
 ]
 </pre></div>
 </div>
-<div class="outline-3" id="outline-container-org89b98ff">
-<h3 id="org89b98ff">Pack It Up for Later</h3>
-<div class="outline-text-3" id="text-org89b98ff"></div>
-<div class="outline-4" id="outline-container-orgceb8e1c">
-<h4 id="orgceb8e1c">Imports</h4>
-<div class="outline-text-4" id="text-orgceb8e1c">
+<div class="outline-3" id="outline-container-orgfaada42">
+<h3 id="orgfaada42">Pack It Up for Later</h3>
+<div class="outline-text-3" id="text-orgfaada42"></div>
+<div class="outline-4" id="outline-container-org88967f5">
+<h4 id="org88967f5">Imports</h4>
+<div class="outline-text-4" id="text-org88967f5">
 <div class="highlight">
 <pre><span></span><span class="c1"># python</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
@@ -2862,18 +2502,18 @@ Serial[
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org89ba5df">
-<h4 id="org89ba5df">Constants</h4>
-<div class="outline-text-4" id="text-org89ba5df">
+<div class="outline-4" id="outline-container-org512fc11">
+<h4 id="org512fc11">Constants</h4>
+<div class="outline-text-4" id="text-org512fc11">
 <div class="highlight">
 <pre><span></span><span class="n">Settings</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">"Settings"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"embeddings_size"</span><span class="p">])</span>
 <span class="n">SETTINGS</span> <span class="o">=</span> <span class="n">Settings</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
-<div class="outline-4" id="outline-container-org1833c06">
-<h4 id="org1833c06">The Model</h4>
-<div class="outline-text-4" id="text-org1833c06">
+<div class="outline-4" id="outline-container-org6835270">
+<h4 id="org6835270">The Model</h4>
+<div class="outline-text-4" id="text-org6835270">
 <div class="highlight">
 <pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">NER</span><span class="p">:</span>
@@ -2891,8 +2531,8 @@ Serial[
 </pre></div>
 </div>
 <ul class="org-ul">
-<li><a id="org71605e2"></a>The Actual Model<br>
-<div class="outline-text-5" id="text-org71605e2">
+<li><a id="orgbeb9cab"></a>The Actual Model<br>
+<div class="outline-text-5" id="text-orgbeb9cab">
 <div class="highlight">
 <pre><span></span><span class="nd">@property</span>
 <span class="k">def</span> <span class="nf">model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">layers</span><span class="o">.</span><span class="n">Serial</span><span class="p">:</span>
@@ -2912,9 +2552,9 @@ Serial[
 </ul>
 </div>
 </div>
-<div class="outline-3" id="outline-container-org4f21014">
-<h3 id="org4f21014">Sanity Check</h3>
-<div class="outline-text-3" id="text-org4f21014">
+<div class="outline-3" id="outline-container-org4509dc8">
+<h3 id="org4509dc8">Sanity Check</h3>
+<div class="outline-text-3" id="text-org4509dc8">
 <div class="highlight">
 <pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.named_entity_recognition</span> <span class="kn">import</span> <span class="n">NER</span>
 
@@ -2929,6 +2569,465 @@ Serial[
   Dense_666
   LogSoftmax
 ]
+</pre></div>
+</div>
+</div>
+</div>
+</article>
+<article class="h-entry post-text" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title"><a class="u-url" href="posts/nlp/ner-data/">NER: Data</a></h1>
+<div class="metadata">
+<p class="byline author vcard"><span class="byline-name fn" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="posts/nlp/ner-data/" rel="bookmark"><time class="published dt-published" datetime="2021-01-13T15:00:14-08:00" itemprop="datePublished" title="2021-01-13 15:00">2021-01-13 15:00</time></a></p>
+</div>
+</header>
+<div class="e-content entry-content">
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="posts/nlp/ner-data/#org1fdaf6b">The Data</a>
+<ul>
+<li><a href="posts/nlp/ner-data/#orge7dd235">Imports</a></li>
+<li><a href="posts/nlp/ner-data/#orgeaa942d">Set Up</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/ner-data/#org5859726">Middle</a>
+<ul>
+<li><a href="posts/nlp/ner-data/#orga7ac77b">Reviewing The Dataset</a></li>
+<li><a href="posts/nlp/ner-data/#orgcee3e6d">A Data Generator</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/ner-data/#org3a55c95">Bundle It Up</a>
+<ul>
+<li><a href="posts/nlp/ner-data/#org8038dc5">Imports</a></li>
+<li><a href="posts/nlp/ner-data/#org67aad69">Some Types</a></li>
+<li><a href="posts/nlp/ner-data/#orgb1ab250">The Data Generator</a>
+<ul>
+<li><a href="posts/nlp/ner-data/#org22bb6f0">The Batch Generator</a></li>
+<li><a href="posts/nlp/ner-data/#org8361017">The Generator Method</a></li>
+<li><a href="posts/nlp/ner-data/#org7164f61">The Iterator Method</a></li>
+<li><a href="posts/nlp/ner-data/#orgcffa650">The Next Method</a></li>
+</ul>
+</li>
+<li><a href="posts/nlp/ner-data/#org1b7ee3a">Test It</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org1fdaf6b">
+<h2 id="org1fdaf6b">The Data</h2>
+<div class="outline-text-2" id="text-org1fdaf6b">
+<ul class="org-ul">
+<li><a href="posts/nlp/named-entity-recognition/">The First Post</a></li>
+<li><a href="posts/nlp/ner-pre-processing-the-data/">The Previous Post</a></li>
+<li><a href="posts/nlp/ner-building-the-model/">The Next Post</a></li>
+</ul>
+</div>
+<div class="outline-3" id="outline-container-orge7dd235">
+<h3 id="orge7dd235">Imports</h3>
+<div class="outline-text-3" id="text-orge7dd235">
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="c1"># this project</span>
+<span class="kn">from</span> <span class="nn">neurotic.nlp.named_entity_recognition</span> <span class="kn">import</span> <span class="n">NERData</span><span class="p">,</span> <span class="n">TOKEN</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgeaa942d">
+<h3 id="orgeaa942d">Set Up</h3>
+<div class="outline-text-3" id="text-orgeaa942d">
+<div class="highlight">
+<pre><span></span><span class="n">ner</span> <span class="o">=</span> <span class="n">NERData</span><span class="p">()</span>
+
+<span class="c1"># to make the functions pass we need to use their names (initially)</span>
+<span class="n">vocab</span> <span class="o">=</span> <span class="n">vocabulary</span> <span class="o">=</span> <span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">vocabulary</span>
+<span class="n">tag_map</span> <span class="o">=</span> <span class="n">tags</span> <span class="o">=</span> <span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">tags</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org5859726">
+<h2 id="org5859726">Middle</h2>
+<div class="outline-text-2" id="text-org5859726"></div>
+<div class="outline-3" id="outline-container-orga7ac77b">
+<h3 id="orga7ac77b">Reviewing The Dataset</h3>
+<div class="outline-text-3" id="text-orga7ac77b">
+<p>As a review we can look at what's in the vocabulary.</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">[</span><span class="s2">"the"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">[</span><span class="n">TOKEN</span><span class="o">.</span><span class="n">pad</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">vocabulary</span><span class="p">[</span><span class="s2">"The"</span><span class="p">])</span>
+</pre></div>
+<pre class="example">
+9
+35178
+61
+</pre>
+<p>The vocabulary maps words in our vocabulary to unique integers. As you can see, we made it case-sensitive.</p>
+<p>We also made a map for tags.</p>
+<div class="highlight">
+<pre><span></span><span class="k">for</span> <span class="n">tag</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">tags</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" - </span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+- O: 0
+- B-geo: 1
+- B-gpe: 2
+- B-per: 3
+- I-geo: 4
+- B-org: 5
+- I-org: 6
+- B-tim: 7
+- B-art: 8
+- I-art: 9
+- I-per: 10
+- I-gpe: 11
+- I-tim: 12
+- B-nat: 13
+- B-eve: 14
+- I-eve: 15
+- I-nat: 16
+- UNK: 17
+</pre>
+<table border="2" cellpadding="6" cellspacing="0" frame="hsides" rules="groups">
+<colgroup>
+<col class="org-left">
+<col class="org-left"></colgroup>
+<thead>
+<tr>
+<th class="org-left" scope="col">Prefix</th>
+<th class="org-left" scope="col">Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">B</td>
+<td class="org-left">Token Begins an entity</td>
+</tr>
+<tr>
+<td class="org-left">I</td>
+<td class="org-left">Token is Inside an entity</td>
+</tr>
+</tbody>
+</table>
+<p>This is to help when you have multi-token entities. So if you had the name "Burt Reynolds", "Burt" would be tagged <code>B-per</code> and "Reynolds" would be tagged "I-per".</p>
+<div class="highlight">
+<pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"The number of tags is </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">tag_map</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"The vocabulary size is </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vocab</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"The training size is </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">x_train</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"The validation size is </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">x_validate</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"The first training sentence is "</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"'</span><span class="si">{</span><span class="s1">' '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">raw_data_sets</span><span class="o">.</span><span class="n">x_train</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Its corresponding label is"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" '</span><span class="si">{</span><span class="s1">' '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">raw_data_sets</span><span class="o">.</span><span class="n">y_train</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">'"</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"The first training encoded sentence is "</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">x_train</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Its corresponding encoded label is"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">y_train</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+<pre class="example">
+The number of tags is 18
+The vocabulary size is 35,180
+The training size is 33,570
+The validation size is 7,194
+The first training sentence is 
+'Opposition leader Michael Howard said he hopes the government in coming weeks will try to uncover possible security flaws exploited in the attacks .'
+Its corresponding label is
+ 'O O B-per I-per O O O O O O O O O O O O O O O O O O O O'
+The first training encoded sentence is 
+[7848, 538, 5951, 6187, 172, 502, 2453, 9, 293, 11, 5306, 822, 141, 1962, 7, 26689, 1176, 686, 11905, 14806, 11, 9, 292, 21]
+Its corresponding encoded label is
+[0, 0, 3, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+</pre></div>
+</div>
+<div class="outline-3" id="outline-container-orgcee3e6d">
+<h3 id="orgcee3e6d">A Data Generator</h3>
+<div class="outline-text-3" id="text-orgcee3e6d">
+<p>The generator will have a main outer loop:</p>
+<pre class="example">
+while True:  
+    yield((X,Y))  
+</pre>
+<p>runs continuously in the fashion of generators, pausing when yielding the next values. We will generate a batch_size output on each pass of this loop.</p>
+<p>It has two inner loops.</p>
+<ol class="org-ol">
+<li>The first stores in temporal lists the data samples to be included in the next batch, and finds the maximum length of the sentences contained in it. By adjusting the length to include only the size of the longest sentence in each batch, overall computation is reduced.</li>
+<li>The second loop moves those inputs from the temporal list into NumPy arrays pre-filled with pad values.</li>
+</ol>
+<p>There are three slightly out of the ordinary features.</p>
+<ol class="org-ol">
+<li>The first is the use of the NumPy <code>full</code> function to fill the NumPy arrays with a pad value. See <a href="https://numpy.org/doc/1.18/reference/generated/numpy.full.html"><code>full</code> function documentation</a>.</li>
+<li>The second is tracking the current location in the incoming lists of sentences. Generators variables hold their values between invocations, so we create an <code>index</code> variable, initialize to zero, and increment by one for each sample included in a batch. However, we do not use the <code>index</code> to access the positions of the list of sentences directly. Instead, we use it to select one index from a list of indexes. In this way, we can change the order in which we traverse our original list, keeping untouched our original list.</li>
+<li>The third also relates to wrapping. Because <code>batch_size</code> and the length of the input lists are not aligned, gathering a batch_size group of inputs may involve wrapping back to the beginning of the input loop. In our approach, it is just enough to reset the <code>index</code> to 0. We can re-shuffle the list of indexes to produce different batches each time.</li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">data_generator</span><span class="p">(</span><span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">pad</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                   <span class="n">shuffle</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">"""Generate batches of data for training</span>
+
+<span class="sd">    Args: </span>
+<span class="sd">      batch_size - size of each batch generated</span>
+<span class="sd">      x - sentences where words are represented as integers</span>
+<span class="sd">      y - tags associated with the sentences</span>
+<span class="sd">      pad - number to use as the padding character</span>
+<span class="sd">      shuffle - Whether to shuffle the data</span>
+<span class="sd">      verbose - Whether to print information to stdout</span>
+
+<span class="sd">    Yields:</span>
+<span class="sd">     a tuple containing 2 elements:</span>
+<span class="sd">       X - np.ndarray of dim (batch_size, max_len) of padded sentences</span>
+<span class="sd">       Y - np.ndarray of dim (batch_size, max_len) of tags associated with the sentences in X</span>
+<span class="sd">    """</span>    
+    <span class="c1"># count the number of lines in data_lines</span>
+    <span class="n">num_lines</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+    <span class="c1"># create an array with the indexes of data_lines that can be shuffled</span>
+    <span class="n">lines_index</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">num_lines</span><span class="p">))</span>
+
+    <span class="c1"># shuffle the indexes if shuffle is set to True</span>
+    <span class="k">if</span> <span class="n">shuffle</span><span class="p">:</span>
+        <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">lines_index</span><span class="p">)</span>
+
+    <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span> <span class="c1"># tracks current location in x, y</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">buffer_x</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">batch_size</span>
+        <span class="n">buffer_y</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">batch_size</span>
+        <span class="n">max_len</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">batch_size</span><span class="p">):</span>
+             <span class="c1"># if the index is greater than or equal to the number of lines in x</span>
+            <span class="k">if</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="n">num_lines</span><span class="p">:</span>
+                <span class="c1"># then reset the index to 0</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="c1"># re-shuffle the indexes if shuffle is set to True</span>
+                <span class="k">if</span> <span class="n">shuffle</span><span class="p">:</span>
+                    <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">lines_index</span><span class="p">)</span>
+
+            <span class="c1"># The current position is obtained using `lines_index[index]`</span>
+            <span class="c1"># Store the x value at the current position into the buffer_x</span>
+            <span class="n">buffer_x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">lines_index</span><span class="p">[</span><span class="n">index</span><span class="p">]]</span>
+
+            <span class="c1"># Store the y value at the current position into the buffer_y</span>
+            <span class="n">buffer_y</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">lines_index</span><span class="p">[</span><span class="n">index</span><span class="p">]]</span>
+
+            <span class="n">lenx</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">buffer_x</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>    <span class="c1">#length of current x[]</span>
+            <span class="k">if</span> <span class="n">lenx</span> <span class="o">&gt;</span> <span class="n">max_len</span><span class="p">:</span>
+                <span class="n">max_len</span> <span class="o">=</span> <span class="n">lenx</span>                   <span class="c1">#max_len tracks longest x[]</span>
+
+            <span class="c1"># increment index by one</span>
+            <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+
+
+        <span class="c1"># create X,Y, NumPy arrays of size (batch_size, max_len) 'full' of pad value</span>
+        <span class="n">X</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">max_len</span><span class="p">),</span> <span class="n">pad</span><span class="p">)</span>
+        <span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">max_len</span><span class="p">),</span> <span class="n">pad</span><span class="p">)</span>
+
+        <span class="c1"># copy values from lists to NumPy arrays. Use the buffered values</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">batch_size</span><span class="p">):</span>
+            <span class="c1"># get the example (sentence as a tensor)</span>
+            <span class="c1"># in `buffer_x` at the `i` index</span>
+            <span class="n">x_i</span> <span class="o">=</span> <span class="n">buffer_x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+            <span class="c1"># similarly, get the example's labels</span>
+            <span class="c1"># in `buffer_y` at the `i` index</span>
+            <span class="n">y_i</span> <span class="o">=</span> <span class="n">buffer_y</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+            <span class="c1"># Walk through each word in x_i</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_i</span><span class="p">)):</span>
+                <span class="c1"># store the word in x_i at position j into X</span>
+                <span class="n">X</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">x_i</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+
+                <span class="c1"># store the label in y_i at position j into Y</span>
+                <span class="n">Y</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_i</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="s2">"index="</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
+        <span class="k">yield</span><span class="p">((</span><span class="n">X</span><span class="p">,</span><span class="n">Y</span><span class="p">))</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">batch_size</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">mini_sentences</span> <span class="o">=</span> <span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">x_train</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span> <span class="mi">8</span><span class="p">]</span>
+<span class="n">mini_labels</span> <span class="o">=</span> <span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">y_train</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span> <span class="mi">8</span><span class="p">]</span>
+<span class="n">dg</span> <span class="o">=</span> <span class="n">data_generator</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">mini_sentences</span><span class="p">,</span> <span class="n">mini_labels</span><span class="p">,</span> <span class="n">vocab</span><span class="p">[</span><span class="s2">"&lt;PAD&gt;"</span><span class="p">],</span> <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">X1</span><span class="p">,</span> <span class="n">Y1</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">dg</span><span class="p">)</span>
+<span class="n">X2</span><span class="p">,</span> <span class="n">Y2</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">dg</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">Y1</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X1</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">Y2</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X2</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">X1</span><span class="p">[</span><span class="mi">0</span><span class="p">][:],</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="n">Y1</span><span class="p">[</span><span class="mi">0</span><span class="p">][:])</span>
+</pre></div>
+<pre class="example">
+index= 5
+index= 2
+(5, 27) (5, 27) (5, 24) (5, 24)
+[ 7848   538  5951  6187   172   502  2453     9   293    11  5306   822
+   141  1962     7 26689  1176   686 11905 14806    11     9   292    21
+ 35178 35178 35178] 
+ [    0     0     3    10     0     0     0     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+ 35178 35178 35178]
+</pre></div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org3a55c95">
+<h2 id="org3a55c95">Bundle It Up</h2>
+<div class="outline-text-2" id="text-org3a55c95"></div>
+<div class="outline-3" id="outline-container-org8038dc5">
+<h3 id="org8038dc5">Imports</h3>
+<div class="outline-text-3" id="text-org8038dc5">
+<div class="highlight">
+<pre><span></span><span class="c1"># from python</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span>
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="c1"># from pypi</span>
+<span class="kn">import</span> <span class="nn">attr</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org67aad69">
+<h3 id="org67aad69">Some Types</h3>
+<div class="outline-text-3" id="text-org67aad69">
+<div class="highlight">
+<pre><span></span><span class="n">Vectors</span> <span class="o">=</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span>
+<span class="n">Batch</span> <span class="o">=</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgb1ab250">
+<h3 id="orgb1ab250">The Data Generator</h3>
+<div class="outline-text-3" id="text-orgb1ab250">
+<div class="highlight">
+<pre><span></span><span class="nd">@attr</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">auto_attribs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">DataGenerator</span><span class="p">:</span>
+    <span class="sd">"""A generator of data to train the NER Model</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     batch_size: how many lines to generate at once</span>
+<span class="sd">     x: the encoded sentences</span>
+<span class="sd">     y: the encoded labels </span>
+<span class="sd">     padding: encoding to use for padding lines</span>
+<span class="sd">     shuffle: whether to shuffle the data</span>
+<span class="sd">     verbose: whether to print messages to stdout</span>
+<span class="sd">    """</span>
+    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">Vectors</span>
+    <span class="n">y</span><span class="p">:</span> <span class="n">Vectors</span>
+    <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">shuffle</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span>
+    <span class="n">_batch</span><span class="p">:</span> <span class="nb">iter</span><span class="o">=</span><span class="kc">None</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org22bb6f0">
+<h4 id="org22bb6f0">The Batch Generator</h4>
+<div class="outline-text-4" id="text-org22bb6f0">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">batch_generator</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">"""Generates batches"""</span>
+    <span class="n">line_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">line_indices</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">line_count</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">shuffle</span><span class="p">:</span>
+        <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">line_indices</span><span class="p">)</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="n">x_batch</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span>
+        <span class="n">y_batch</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span>
+        <span class="n">longest</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">batch_index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="n">line_count</span><span class="p">:</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">shuffle</span><span class="p">:</span>
+                    <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">line_indices</span><span class="p">)</span>
+
+            <span class="n">x_batch</span><span class="p">[</span><span class="n">batch_index</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">line_indices</span><span class="p">[</span><span class="n">index</span><span class="p">]]</span>
+            <span class="n">y_batch</span><span class="p">[</span><span class="n">batch_index</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">y</span><span class="p">[</span><span class="n">line_indices</span><span class="p">[</span><span class="n">index</span><span class="p">]]</span>
+
+            <span class="n">longest</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">longest</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x_batch</span><span class="p">[</span><span class="n">batch_index</span><span class="p">]))</span>
+            <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="n">X</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">longest</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">)</span>
+        <span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">longest</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">batch_index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">):</span> 
+            <span class="n">line</span> <span class="o">=</span> <span class="n">x_batch</span><span class="p">[</span><span class="n">batch_index</span><span class="p">]</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">y_batch</span><span class="p">[</span><span class="n">batch_index</span><span class="p">]</span>
+
+            <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)):</span>
+                <span class="n">X</span><span class="p">[</span><span class="n">batch_index</span><span class="p">,</span> <span class="n">word</span><span class="p">]</span> <span class="o">=</span> <span class="n">line</span><span class="p">[</span><span class="n">word</span><span class="p">]</span>
+                <span class="n">Y</span><span class="p">[</span><span class="n">batch_index</span><span class="p">,</span> <span class="n">word</span><span class="p">]</span> <span class="o">=</span> <span class="n">label</span><span class="p">[</span><span class="n">word</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">"index="</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">X</span><span class="p">,</span><span class="n">Y</span><span class="p">)</span>
+    <span class="k">return</span>    
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org8361017">
+<h4 id="org8361017">The Generator Method</h4>
+<div class="outline-text-4" id="text-org8361017">
+<div class="highlight">
+<pre><span></span><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">batch</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">"""The instance of the generator"""</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_generator</span><span class="p">()</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_batch</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org7164f61">
+<h4 id="org7164f61">The Iterator Method</h4>
+<div class="outline-text-4" id="text-org7164f61">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgcffa650">
+<h4 id="orgcffa650">The Next Method</h4>
+<div class="outline-text-4" id="text-orgcffa650">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Batch</span><span class="p">:</span>
+    <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org1b7ee3a">
+<h3 id="org1b7ee3a">Test It</h3>
+<div class="outline-text-3" id="text-org1b7ee3a">
+<div class="highlight">
+<pre><span></span><span class="kn">from</span> <span class="nn">neurotic.nlp.named_entity_recognition</span> <span class="kn">import</span> <span class="n">DataGenerator</span>
+
+<span class="n">generator</span> <span class="o">=</span> <span class="n">DataGenerator</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">x_train</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">8</span><span class="p">],</span>
+                          <span class="n">y</span><span class="o">=</span><span class="n">ner</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data_sets</span><span class="o">.</span><span class="n">y_train</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span> <span class="mi">8</span><span class="p">],</span>
+                          <span class="n">batch_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+                          <span class="n">padding</span><span class="o">=</span><span class="n">vocabulary</span><span class="p">[</span><span class="n">TOKEN</span><span class="o">.</span><span class="n">pad</span><span class="p">])</span>
+
+<span class="n">X1</span><span class="p">,</span> <span class="n">Y1</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">generator</span><span class="p">)</span>
+<span class="n">X2</span><span class="p">,</span> <span class="n">Y2</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">generator</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">Y1</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X1</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">Y2</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">X2</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">X1</span><span class="p">[</span><span class="mi">0</span><span class="p">][:],</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="n">Y1</span><span class="p">[</span><span class="mi">0</span><span class="p">][:])</span>
+</pre></div>
+<pre class="example">
+(5, 27) (5, 27) (5, 24) (5, 24)
+[ 7848   538  5951  6187   172   502  2453     9   293    11  5306   822
+   141  1962     7 26689  1176   686 11905 14806    11     9   292    21
+ 35178 35178 35178] 
+ [    0     0     3    10     0     0     0     0     0     0     0     0
+     0     0     0     0     0     0     0     0     0     0     0     0
+ 35178 35178 35178]
 </pre></div>
 </div>
 </div>
@@ -2961,7 +3060,7 @@ Serial[
 </script>
 <link href="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/pseudocode@latest/build/pseudocode.min.js"></script><!--End of body content-->
-<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:necromuralist@protonmail.com">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:cloisteredmonkey.jmark@slmail.me">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
 </div>
 </div>
 <script src="assets/js/all-nocdn.js"></script>

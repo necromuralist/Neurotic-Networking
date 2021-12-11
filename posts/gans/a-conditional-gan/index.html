@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+<meta charset="utf-8">
+<meta content="A first look at creating a conditional GAN." name="description">
+<meta content="width=device-width, initial-scale=1" name="viewport">
+<title>A Conditional GAN | Neurotic Networking</title>
+<link href="../../../assets/css/all-nocdn.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/ipython.min.css" rel="stylesheet" type="text/css">
+<link href="../../../assets/css/nikola_ipython.css" rel="stylesheet" type="text/css">
+<meta content="#5670d4" name="theme-color">
+<meta content="Nikola (getnikola.com)" name="generator">
+<link href="../../../rss.xml" hreflang="en" rel="alternate" title="RSS" type="application/rss+xml">
+<link href="https://necromuralist.github.io/Neurotic-Networking/posts/gans/a-conditional-gan/" rel="canonical"><!--[if lt IE 9]><script src="../../../assets/js/html5.js"></script><![endif]-->
+<link href="../../../apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180">
+<link href="../../../favicon-32x32.png" rel="icon" sizes="32x32" type="image/png">
+<link href="../../../favicon-16x16.png" rel="icon" sizes="16x16" type="image/png">
+<link href="../../../site.webmanifest" rel="manifest">
+<meta content="Cloistered Monkey" name="author">
+<link href="../wasserstein-gan-with-gradient-penalty/" rel="prev" title="Wasserstein GAN With Gradient Penalty" type="text/html">
+<link href="../controllable-generation/" rel="next" title="Controllable Generation" type="text/html">
+<meta content="Neurotic Networking" property="og:site_name">
+<meta content="A Conditional GAN" property="og:title">
+<meta content="https://necromuralist.github.io/Neurotic-Networking/posts/gans/a-conditional-gan/" property="og:url">
+<meta content="A first look at creating a conditional GAN." property="og:description">
+<meta content="article" property="og:type">
+<meta content="2021-04-24T14:34:07-07:00" property="article:published_time">
+<meta content="gan" property="article:tag">
+</head>
+<body>
+<a class="sr-only sr-only-focusable" href="#content">Skip to main content</a> <!-- Menubar -->
+<nav class="navbar navbar-expand-md static-top mb-4 navbar-light bg-light">
+<div class="container"><!-- This keeps the margins nice -->
+ <a class="navbar-brand" href="../../../"><span id="blog-title">Neurotic Networking</span></a> <button aria-controls="bs-navbar" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-target="#bs-navbar" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<div class="collapse navbar-collapse" id="bs-navbar">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item"><a class="nav-link" href="../../../archive.html">Archive</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../categories/">Tags</a></li>
+<li class="nav-item"><a class="nav-link" href="../../../rss.xml">RSS feed</a></li>
+<li class="nav-item"><a class="nav-link" href="https://necromuralist.github.io/">Cloistered Monkey</a></li>
+</ul>
+<!-- Google custom search -->
+<form action="https://www.google.com/search" class="navbar-form navbar-right" method="get" role="search">
+<div class="form-group"><input class="form-control" name="q" placeholder="Search" type="text"></div>
+<!-- 
+<button type="submit" class="btn btn-primary">
+        <span class="glyphicon glyphicon-search"></span>
+</button>
+-->
+<input name="sitesearch" type="hidden" value="https://necromuralist.github.io/Neurotic-Networking/"></form>
+<!-- End of custom search -->
+<ul class="navbar-nav navbar-right">
+<li class="nav-item"><a class="nav-link" href="index.org" id="sourcelink">Source</a></li>
+</ul>
+</div>
+<!-- /.navbar-collapse --></div>
+<!-- /.container --></nav>
+<!-- End of Menubar -->
+<div class="container" id="content" role="main">
+<div class="body-content"><!--Body content-->
+<article class="post-text h-entry hentry postpage" itemscope="itemscope" itemtype="http://schema.org/Article">
+<header>
+<h1 class="p-name entry-title" itemprop="headline name"><a class="u-url" href=".">A Conditional GAN</a></h1>
+<div class="metadata">
+<p class="byline author vcard p-author h-card"><span class="byline-name fn p-name" itemprop="author">Cloistered Monkey</span></p>
+<p class="dateline"><a href="." rel="bookmark"><time class="published dt-published" datetime="2021-04-24T14:34:07-07:00" itemprop="datePublished" title="2021-04-24 14:34">2021-04-24 14:34</time></a></p>
+<p class="sourceline"><a class="sourcelink" href="index.org">Source</a></p>
+</div>
+</header>
+<div class="e-content entry-content" itemprop="articleBody text">
+<div class="outline-2" id="outline-container-org5b32c2d">
+<h2 id="org5b32c2d">Build You a Conditional GAN For a Great Good</h2>
+<div class="outline-text-2" id="text-org5b32c2d"></div>
+<div class="outline-3" id="outline-container-orgf3b0466">
+<h3 id="orgf3b0466">Imports</h3>
+<div class="outline-text-3" id="text-orgf3b0466">
+<div class="highlight">
+<pre><span></span><span class="c1"># python standard library</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span> <span class="nn">math</span>
+
+<span class="c1"># pypi</span>
+<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">torch.utils.data</span> <span class="kn">import</span> <span class="n">DataLoader</span>
+<span class="kn">from</span> <span class="nn">torchvision</span> <span class="kn">import</span> <span class="n">transforms</span>
+<span class="kn">from</span> <span class="nn">torchvision.datasets</span> <span class="kn">import</span> <span class="n">MNIST</span>
+<span class="kn">from</span> <span class="nn">torchvision.utils</span> <span class="kn">import</span> <span class="n">make_grid</span>
+
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pyplot</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
+
+<span class="c1"># my stuff</span>
+<span class="kn">from</span> <span class="nn">graeae</span> <span class="kn">import</span> <span class="n">Timer</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgc1b397e">
+<h3 id="orgc1b397e">Set Up</h3>
+<div class="outline-text-3" id="text-orgc1b397e"></div>
+<div class="outline-4" id="outline-container-org9992622">
+<h4 id="org9992622">The Timer</h4>
+<div class="outline-text-4" id="text-org9992622">
+<div class="highlight">
+<pre><span></span><span class="n">TIMER</span> <span class="o">=</span> <span class="n">Timer</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgcee8f52">
+<h4 id="orgcee8f52">The Manual Seed</h4>
+<div class="outline-text-4" id="text-orgcee8f52">
+<div class="highlight">
+<pre><span></span><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org803ae63">
+<h4 id="org803ae63">Plotting</h4>
+<div class="outline-text-4" id="text-org803ae63">
+<div class="highlight">
+<pre><span></span><span class="n">SLUG</span> <span class="o">=</span> <span class="s2">"a-conditional-gan"</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org7c7f248">
+<h3 id="org7c7f248">Helpers</h3>
+<div class="outline-text-3" id="text-org7c7f248">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">save_tensor_images</span><span class="p">(</span><span class="n">image_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+                       <span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> 
+                       <span class="n">title</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                       <span class="n">folder</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="sa">f</span><span class="s2">"files/posts/gans</span><span class="si">{</span><span class="n">SLUG</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                       <span class="n">num_images</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="nb">tuple</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">)):</span>
+    <span class="sd">"""Plot an Image Tensor</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     image_tensor: tensor with the values for the image to plot</span>
+<span class="sd">     filename: name to save the file under</span>
+<span class="sd">     folder: path to put the file in</span>
+<span class="sd">     title: title for the image</span>
+<span class="sd">     num_images: how many images from the tensor to use</span>
+<span class="sd">     size: the dimensions for each image</span>
+<span class="sd">    """</span>
+    <span class="n">image_tensor</span> <span class="o">=</span> <span class="p">(</span><span class="n">image_tensor</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+    <span class="n">image_unflat</span> <span class="o">=</span> <span class="n">image_tensor</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+    <span class="n">image_grid</span> <span class="o">=</span> <span class="n">make_grid</span><span class="p">(</span><span class="n">image_unflat</span><span class="p">[:</span><span class="n">num_images</span><span class="p">],</span> <span class="n">nrow</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">image_grid</span><span class="o">.</span><span class="n">permute</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">())</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">tick_params</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">top</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelbottom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                       <span class="n">right</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">left</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">labelleft</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="n">pyplot</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">folder</span> <span class="o">+</span> <span class="n">filename</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[[file:</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">]]"</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org54ae9dd">
+<h4 id="org54ae9dd">Noise</h4>
+<div class="outline-text-4" id="text-org54ae9dd">
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">make_some_noise</span><span class="p">(</span><span class="n">n_samples</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="o">=</span><span class="s1">'cpu'</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""Alias for torch.randn</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">      n_samples: the number of samples to generate</span>
+<span class="sd">      z_dim: the dimension of the noise vector</span>
+<span class="sd">      device: the device type</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     tensor with random numbers from the normal distribution.</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_samples</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org313aa3b">
+<h2 id="org313aa3b">Middle</h2>
+<div class="outline-text-2" id="text-org313aa3b"></div>
+<div class="outline-3" id="outline-container-org0dbb8da">
+<h3 id="org0dbb8da">The Generator</h3>
+<div class="outline-text-3" id="text-org0dbb8da">
+<p>The Generator and Discriminator are the same ones we used before except the <code>z_dim</code> attribute has been renamed <code>input_dim</code> to reflect the fact that the data is going to be augmented with the classification information.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Generator</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""The DCGAN Generator</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       input_dim: the dimension of the input vector</span>
+<span class="sd">       im_chan: the number of channels in the images, fitted for the dataset used</span>
+<span class="sd">             (MNIST is black-and-white, so 1 channel is your default)</span>
+<span class="sd">       hidden_dim: the inner dimension,</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_dim</span> <span class="o">=</span> <span class="n">input_dim</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">input_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_gen_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_gen_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                       <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                       <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Creates a block for the generator (sub sequence)</span>
+
+<span class="sd">       The parts</span>
+<span class="sd">        - a transposed convolution</span>
+<span class="sd">        - a batchnorm (except for in the last layer)</span>
+<span class="sd">        - an activation.</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">           input_channels: how many channels the input feature representation has</span>
+<span class="sd">           output_channels: how many channels the output feature representation should have</span>
+<span class="sd">           kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">           stride: the stride of the convolution</span>
+<span class="sd">           final_layer: a boolean, true if it is the final layer and false otherwise </span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        the sub-sequence of layers</span>
+<span class="sd">       """</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(</span><span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Tanh</span><span class="p">(),</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""complete a forward pass of the generator: Given a noise tensor, </span>
+
+<span class="sd">       Args:</span>
+<span class="sd">        noise: a noise tensor with dimensions (n_samples, z_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        generated images.</span>
+<span class="sd">       """</span>
+        <span class="c1"># unsqueeze the noise</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">noise</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">noise</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_dim</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-orgfba8244">
+<h3 id="orgfba8244">Discriminator</h3>
+<div class="outline-text-3" id="text-orgfba8244">
+<p>This differs a little from the DCGAN Discriminator in that the initial hidden dimension output goes up to 64 nodes from 16 in the original.</p>
+<div class="highlight">
+<pre><span></span><span class="k">class</span> <span class="nc">Discriminator</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""The DCGAN Discriminator</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     im_chan: the number of channels in the images, fitted for the dataset used</span>
+<span class="sd">             (MNIST is black-and-white, so 1 channel is the default)</span>
+<span class="sd">     hidden_dim: the inner dimension,</span>
+<span class="sd">    """</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_chan</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Discriminator</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">disc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">im_chan</span><span class="p">,</span> <span class="n">hidden_dim</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">hidden_dim</span><span class="p">,</span> <span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">make_disc_block</span><span class="p">(</span><span class="n">hidden_dim</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">final_layer</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">make_disc_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+                        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                        <span class="n">final_layer</span><span class="p">:</span> <span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+        <span class="sd">"""Make a sub-block of layers for the discriminator</span>
+
+<span class="sd">        - a convolution</span>
+<span class="sd">        - a batchnorm (except for in the last layer)</span>
+<span class="sd">        - an activation.</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">         input_channels: how many channels the input feature representation has</span>
+<span class="sd">         output_channels: how many channels the output feature representation should have</span>
+<span class="sd">         kernel_size: the size of each convolutional filter, equivalent to (kernel_size, kernel_size)</span>
+<span class="sd">         stride: the stride of the convolution</span>
+<span class="sd">         final_layer: if true it is the final layer and otherwise not</span>
+<span class="sd">                     (affects activation and batchnorm)</span>
+<span class="sd">       """</span>        
+        <span class="c1"># Build the neural block</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">final_layer</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">(</span><span class="n">output_channels</span><span class="p">),</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">LeakyReLU</span><span class="p">(</span><span class="mf">0.2</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c1"># Final Layer</span>
+            <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+                <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">input_channels</span><span class="p">,</span> <span class="n">output_channels</span><span class="p">,</span> <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">),</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="sd">"""Complete a forward pass of the discriminator</span>
+
+<span class="sd">       Args:</span>
+<span class="sd">         image: a flattened image tensor with dimension (im_dim)</span>
+
+<span class="sd">       Returns:</span>
+<span class="sd">        a 1-dimension tensor representing fake/real.</span>
+<span class="sd">       """</span>
+        <span class="n">disc_pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">disc</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">disc_pred</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">disc_pred</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org8ab75f5">
+<h3 id="org8ab75f5">The Class Input</h3>
+<div class="outline-text-3" id="text-org8ab75f5"></div>
+<div class="outline-4" id="outline-container-org14550bf">
+<h4 id="org14550bf">One-Hot Encoder</h4>
+<div class="outline-text-4" id="text-org14550bf">
+<p>In conditional GANs, the input vector for the generator will also need to include the class information. The class is represented using a one-hot encoded vector where its length is the number of classes and each index represents a class. The vector is all 0's and a 1 on the chosen class. Given the labels of multiple images (e.g. from a batch) and number of classes, please create one-hot vectors for each label. There is a class within the PyTorch functional library that can help you.</p>
+<ol class="org-ol">
+<li>This code can be done in one line.</li>
+<li>pytorch documentation for <a href="https://pytorch.org/docs/stable/nn.functional.html#torch.nn.functional.one_hot">F.one<sub>hot</sub></a></li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">get_one_hot_labels</span><span class="p">(</span><span class="n">labels</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""Create one-hot vectors for the labels</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       labels: tensor of labels from the dataloader</span>
+<span class="sd">       n_classes: the total number of classes in the dataset</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">     a tensor of shape (labels size, num_classes).</span>
+<span class="sd">    """</span>
+    <span class="c1">#### START CODE HERE ####</span>
+    <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">one_hot</span><span class="p">(</span><span class="n">labels</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">)</span>
+    <span class="c1">#### END CODE HERE ####</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">assert</span> <span class="p">(</span>
+    <span class="n">get_one_hot_labels</span><span class="p">(</span>
+        <span class="n">labels</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span>
+        <span class="n">n_classes</span><span class="o">=</span><span class="mi">3</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> 
+    <span class="p">[[</span>
+      <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> 
+      <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> 
+      <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="p">]]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org808fc2c">
+<h4 id="org808fc2c">Combine Vectors</h4>
+<div class="outline-text-4" id="text-org808fc2c">
+<p>Next, you need to be able to concatenate the one-hot class vector to the noise vector before giving it to the generator. You will also need to do this when adding the class channels to the discriminator.</p>
+<ol class="org-ol">
+<li>This code can also be written in one line.</li>
+<li>See the documentation <a href="https://pytorch.org/docs/master/generated/torch.cat.html">torch.cat</a> ( Specifically, look at what the <code>dim</code> argument of <code>torch.cat</code> does)</li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">combine_vectors</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="sd">"""Combine two vectors with shapes (n_samples, ?) and (n_samples, ?).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">      x: the first vector. </span>
+<span class="sd">      y: the second vector.</span>
+<span class="sd">    """</span>
+    <span class="c1"># Note: Make sure this function outputs a float no matter what inputs it receives</span>
+    <span class="c1">#### START CODE HERE ####</span>
+    <span class="n">combined</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">((</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="c1">#### END CODE HERE ####</span>
+    <span class="k">return</span> <span class="n">combined</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">combined</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]]),</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span> <span class="p">[</span><span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">]]));</span>
+<span class="c1"># Check exact order of elements</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">combined</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span> <span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">]]))</span>
+<span class="c1"># Tests that items are of float type</span>
+<span class="k">assert</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">combined</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">())</span> <span class="o">==</span> <span class="nb">float</span><span class="p">)</span>
+<span class="c1"># Check shapes</span>
+<span class="n">combined</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">5</span><span class="p">));</span>
+<span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">combined</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+<span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">combine_vectors</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">long</span><span class="p">())</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">12</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org5c69a11">
+<h3 id="org5c69a11">Training</h3>
+<div class="outline-text-3" id="text-org5c69a11">
+<p>First, you will define some new parameters:</p>
+<ul class="org-ul">
+<li>mnist<sub>shape</sub>: the number of pixels in each MNIST image, which has dimensions 28 x 28 and one channel (because it's black-and-white) so 1 x 28 x 28</li>
+<li>n<sub>classes</sub>: the number of classes in MNIST (10, since there are the digits from 0 to 9)</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="n">mnist_shape</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">)</span>
+<span class="n">n_classes</span> <span class="o">=</span> <span class="mi">10</span>
+</pre></div>
+<p>And you also include the same parameters from before:</p>
+<ul class="org-ul">
+<li>criterion: the loss function</li>
+<li>n<sub>epochs</sub>: the number of times you iterate through the entire dataset when training</li>
+<li>z<sub>dim</sub>: the dimension of the noise vector</li>
+<li>display<sub>step</sub>: how often to display/visualize the images</li>
+<li>batch<sub>size</sub>: the number of images per forward/backward pass</li>
+<li>lr: the learning rate</li>
+<li>device: the device type</li>
+</ul>
+<div class="highlight">
+<pre><span></span><span class="n">criterion</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">BCEWithLogitsLoss</span><span class="p">()</span>
+<span class="n">n_epochs</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="n">z_dim</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">display_step</span> <span class="o">=</span> <span class="mi">500</span>
+<span class="n">batch_size</span> <span class="o">=</span> <span class="mi">128</span>
+<span class="n">lr</span> <span class="o">=</span> <span class="mf">0.0002</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s1">'cuda'</span>
+
+<span class="n">transform</span> <span class="o">=</span> <span class="n">transforms</span><span class="o">.</span><span class="n">Compose</span><span class="p">([</span>
+    <span class="n">transforms</span><span class="o">.</span><span class="n">ToTensor</span><span class="p">(),</span>
+    <span class="n">transforms</span><span class="o">.</span><span class="n">Normalize</span><span class="p">((</span><span class="mf">0.5</span><span class="p">,),</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,)),</span>
+<span class="p">])</span>
+
+<span class="n">data_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"~/pytorch-data/MNIST/"</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span>
+<span class="n">dataloader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span>
+    <span class="n">MNIST</span><span class="p">(</span><span class="n">data_path</span><span class="p">,</span> <span class="n">download</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">),</span>
+    <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size</span><span class="p">,</span>
+    <span class="n">shuffle</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-org963a20c">
+<h4 id="org963a20c">Input Dimensions</h4>
+<div class="outline-text-4" id="text-org963a20c">
+<p>Then, you can initialize your generator, discriminator, and optimizers. To do this, you will need to update the input dimensions for both models. For the generator, you will need to calculate the size of the input vector; recall that for conditional GANs, the generator's input is the noise vector concatenated with the class vector. For the discriminator, you need to add a channel for every class.</p>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">get_input_dimensions</span><span class="p">(</span><span class="n">z_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mnist_shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+    <span class="sd">"""Calculates the size of the conditional input dimensions </span>
+
+<span class="sd">    Args:</span>
+<span class="sd">       z_dim: the dimension of the noise vector</span>
+<span class="sd">       mnist_shape: the shape of each MNIST image as (C, W, H), which is (1, 28, 28)</span>
+<span class="sd">       n_classes: the total number of classes in the dataset, an integer scalar</span>
+<span class="sd">               (10 for MNIST)</span>
+<span class="sd">    Returns: </span>
+<span class="sd">       generator_input_dim: the input dimensionality of the conditional generator, </span>
+<span class="sd">                         which takes the noise and class vectors</span>
+<span class="sd">       discriminator_im_chan: the number of input channels to the discriminator</span>
+<span class="sd">                           (e.g. C x 28 x 28 for MNIST)</span>
+<span class="sd">    """</span>
+    <span class="c1">#### START CODE HERE ####</span>
+    <span class="n">generator_input_dim</span> <span class="o">=</span> <span class="n">z_dim</span> <span class="o">+</span> <span class="n">n_classes</span>
+    <span class="n">discriminator_im_chan</span> <span class="o">=</span> <span class="n">n_classes</span> <span class="o">+</span> <span class="n">mnist_shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1">#### END CODE HERE ####</span>
+    <span class="k">return</span> <span class="n">generator_input_dim</span><span class="p">,</span> <span class="n">discriminator_im_chan</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">test_input_dims</span><span class="p">():</span>
+    <span class="n">gen_dim</span><span class="p">,</span> <span class="n">disc_dim</span> <span class="o">=</span> <span class="n">get_input_dimensions</span><span class="p">(</span><span class="mi">23</span><span class="p">,</span> <span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">52</span><span class="p">),</span> <span class="mi">9</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">gen_dim</span> <span class="o">==</span> <span class="mi">32</span>
+    <span class="k">assert</span> <span class="n">disc_dim</span> <span class="o">==</span> <span class="mi">21</span>
+<span class="n">test_input_dims</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-org41bf32f">
+<h4 id="org41bf32f">Initialize the Objects</h4>
+<div class="outline-text-4" id="text-org41bf32f">
+<div class="highlight">
+<pre><span></span><span class="n">generator_input_dim</span><span class="p">,</span> <span class="n">discriminator_im_chan</span> <span class="o">=</span> <span class="n">get_input_dimensions</span><span class="p">(</span><span class="n">z_dim</span><span class="p">,</span> <span class="n">mnist_shape</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">)</span>
+
+<span class="n">gen</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">input_dim</span><span class="o">=</span><span class="n">generator_input_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">gen_opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
+<span class="n">disc</span> <span class="o">=</span> <span class="n">Discriminator</span><span class="p">(</span><span class="n">im_chan</span><span class="o">=</span><span class="n">discriminator_im_chan</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="n">disc_opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">disc</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">weights_init</span><span class="p">(</span><span class="n">m</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="sd">"""Initialize the weights from the normal distribution</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">     m: object to initialize</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose2d</span><span class="p">):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">BatchNorm2d</span><span class="p">):</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">constant_</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="n">gen</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">weights_init</span><span class="p">)</span>
+<span class="n">disc</span> <span class="o">=</span> <span class="n">disc</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">weights_init</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orgec2e1a6">
+<h4 id="orgec2e1a6">The Training</h4>
+<div class="outline-text-4" id="text-orgec2e1a6">
+<p>Now to train, you would like both your generator and your discriminator to know what class of image should be generated.</p>
+<p>For example, if you're generating a picture of the number "1", you would need to:</p>
+<ol class="org-ol">
+<li>Tell that to the generator, so that it knows it should be generating a "1"</li>
+<li>Tell that to the discriminator, so that it knows it should be looking at a "1". If the discriminator is told it should be looking at a 1 but sees something that's clearly an 8, it can guess that it's probably fake</li>
+</ol>
+<div class="highlight">
+<pre><span></span><span class="n">cur_step</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">generator_losses</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">discriminator_losses</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="n">noise_and_labels</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">fake</span> <span class="o">=</span> <span class="kc">False</span>
+
+<span class="n">fake_image_and_labels</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">real_image_and_labels</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">disc_fake_pred</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">disc_real_pred</span> <span class="o">=</span> <span class="kc">False</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">with</span> <span class="n">TIMER</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_epochs</span><span class="p">):</span>
+        <span class="c1"># Dataloader returns the batches and the labels</span>
+        <span class="k">for</span> <span class="n">real</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+            <span class="n">cur_batch_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="c1"># Flatten the batch of real images from the dataset</span>
+            <span class="n">real</span> <span class="o">=</span> <span class="n">real</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+            <span class="n">one_hot_labels</span> <span class="o">=</span> <span class="n">get_one_hot_labels</span><span class="p">(</span><span class="n">labels</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span> <span class="n">n_classes</span><span class="p">)</span>
+            <span class="n">image_one_hot_labels</span> <span class="o">=</span> <span class="n">one_hot_labels</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
+            <span class="n">image_one_hot_labels</span> <span class="o">=</span> <span class="n">image_one_hot_labels</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">mnist_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">mnist_shape</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+
+            <span class="c1">### Update discriminator ###</span>
+            <span class="c1"># Zero out the discriminator gradients</span>
+            <span class="n">disc_opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="c1"># Get noise corresponding to the current batch_size </span>
+            <span class="n">fake_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="n">cur_batch_size</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+
+            <span class="c1"># Now you can get the images from the generator</span>
+            <span class="c1"># Steps: 1) Combine the noise vectors and the one-hot labels for the generator</span>
+            <span class="c1">#        2) Generate the conditioned fake images</span>
+
+            <span class="c1">#### START CODE HERE ####</span>
+            <span class="n">noise_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">fake_noise</span><span class="p">,</span> <span class="n">one_hot_labels</span><span class="p">)</span>
+            <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise_and_labels</span><span class="p">)</span>
+            <span class="c1">#### END CODE HERE ####</span>
+
+            <span class="c1"># Make sure that enough images were generated</span>
+            <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">fake</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="c1"># Check that correct tensors were combined</span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">noise_and_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="n">cur_batch_size</span><span class="p">,</span> <span class="n">fake_noise</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">one_hot_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="c1"># It comes from the correct generator</span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">fake</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">)</span>
+
+            <span class="c1"># Now you can get the predictions from the discriminator</span>
+            <span class="c1"># Steps: 1) Create the input for the discriminator</span>
+            <span class="c1">#           a) Combine the fake images with image_one_hot_labels, </span>
+            <span class="c1">#              remember to detach the generator (.detach()) so you do not backpropagate through it</span>
+            <span class="c1">#           b) Combine the real images with image_one_hot_labels</span>
+            <span class="c1">#        2) Get the discriminator's prediction on the fakes as disc_fake_pred</span>
+            <span class="c1">#        3) Get the discriminator's prediction on the reals as disc_real_pred</span>
+
+            <span class="c1">#### START CODE HERE ####</span>
+            <span class="n">fake_image_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">fake</span><span class="o">.</span><span class="n">detach</span><span class="p">(),</span> <span class="n">image_one_hot_labels</span><span class="p">)</span>
+            <span class="n">real_image_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">real</span><span class="p">,</span> <span class="n">image_one_hot_labels</span><span class="p">)</span>
+            <span class="n">disc_fake_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">fake_image_and_labels</span><span class="p">)</span>
+            <span class="n">disc_real_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">real_image_and_labels</span><span class="p">)</span>
+            <span class="c1">#### END CODE HERE ####</span>
+
+            <span class="c1"># Make sure shapes are correct </span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">fake_image_and_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">),</span> <span class="n">fake</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">image_one_hot_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="mi">28</span> <span class="p">,</span><span class="mi">28</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">real_image_and_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">),</span> <span class="n">real</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">image_one_hot_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="mi">28</span> <span class="p">,</span><span class="mi">28</span><span class="p">)</span>
+            <span class="c1"># Make sure that enough predictions were made</span>
+            <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">real</span><span class="p">)</span>
+            <span class="c1"># Make sure that the inputs are different</span>
+            <span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">fake_image_and_labels</span> <span class="o">!=</span> <span class="n">real_image_and_labels</span><span class="p">)</span>
+            <span class="c1"># Shapes must match</span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">fake_image_and_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">real_image_and_labels</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+
+            <span class="n">disc_fake_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">))</span>
+            <span class="n">disc_real_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">disc_real_pred</span><span class="p">))</span>
+            <span class="n">disc_loss</span> <span class="o">=</span> <span class="p">(</span><span class="n">disc_fake_loss</span> <span class="o">+</span> <span class="n">disc_real_loss</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="n">disc_loss</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">retain_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">disc_opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span> 
+
+            <span class="c1"># Keep track of the average discriminator loss</span>
+            <span class="n">discriminator_losses</span> <span class="o">+=</span> <span class="p">[</span><span class="n">disc_loss</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span>
+
+            <span class="c1">### Update generator ###</span>
+            <span class="c1"># Zero out the generator gradients</span>
+            <span class="n">gen_opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+
+            <span class="n">fake_image_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">fake</span><span class="p">,</span> <span class="n">image_one_hot_labels</span><span class="p">)</span>
+            <span class="c1"># This will error if you didn't concatenate your labels to your image correctly</span>
+            <span class="n">disc_fake_pred</span> <span class="o">=</span> <span class="n">disc</span><span class="p">(</span><span class="n">fake_image_and_labels</span><span class="p">)</span>
+            <span class="n">gen_loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">disc_fake_pred</span><span class="p">))</span>
+            <span class="n">gen_loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+            <span class="n">gen_opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+            <span class="c1"># Keep track of the generator losses</span>
+            <span class="n">generator_losses</span> <span class="o">+=</span> <span class="p">[</span><span class="n">gen_loss</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span>
+            <span class="c1">#</span>
+
+            <span class="k">if</span> <span class="n">cur_step</span> <span class="o">%</span> <span class="n">display_step</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">cur_step</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">gen_mean</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">generator_losses</span><span class="p">[</span><span class="o">-</span><span class="n">display_step</span><span class="p">:])</span> <span class="o">/</span> <span class="n">display_step</span>
+                <span class="n">disc_mean</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">discriminator_losses</span><span class="p">[</span><span class="o">-</span><span class="n">display_step</span><span class="p">:])</span> <span class="o">/</span> <span class="n">display_step</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step </span><span class="si">{</span><span class="n">cur_step</span><span class="si">}</span><span class="s2">: Generator loss: </span><span class="si">{</span><span class="n">gen_mean</span><span class="si">}</span><span class="s2">, discriminator loss: </span><span class="si">{</span><span class="n">disc_mean</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="c1"># show_tensor_images(fake)</span>
+                <span class="c1"># show_tensor_images(real)</span>
+                <span class="n">step_bins</span> <span class="o">=</span> <span class="mi">20</span>
+                <span class="n">x_axis</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">([</span><span class="n">i</span> <span class="o">*</span> <span class="n">step_bins</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">generator_losses</span><span class="p">)</span> <span class="o">//</span> <span class="n">step_bins</span><span class="p">)]</span> <span class="o">*</span> <span class="n">step_bins</span><span class="p">)</span>
+                <span class="c1"># num_examples = (len(generator_losses) // step_bins) * step_bins</span>
+                <span class="c1"># plt.plot(</span>
+                <span class="c1">#     range(num_examples // step_bins), </span>
+                <span class="c1">#     torch.Tensor(generator_losses[:num_examples]).view(-1, step_bins).mean(1),</span>
+                <span class="c1">#     label="Generator Loss"</span>
+                <span class="c1"># )</span>
+                <span class="c1"># plt.plot(</span>
+                <span class="c1">#     range(num_examples // step_bins), </span>
+                <span class="c1">#     torch.Tensor(discriminator_losses[:num_examples]).view(-1, step_bins).mean(1),</span>
+                <span class="c1">#     label="Discriminator Loss"</span>
+                <span class="c1"># )</span>
+                <span class="c1"># plt.legend()</span>
+                <span class="c1"># plt.show()</span>
+            <span class="k">elif</span> <span class="n">cur_step</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">"Congratulations! If you've gotten here, it's working. Please let this train until you're happy with how the generated numbers look, and then go on to the exploration!"</span><span class="p">)</span>
+            <span class="n">cur_step</span> <span class="o">+=</span> <span class="mi">1</span>
+</pre></div>
+<pre class="example">
+Started: 2021-04-30 17:21:38.697176
+Congratulations! If you've gotten here, it's working. Please let this train until you're happy with how the generated numbers look, and then go on to the exploration!
+Step 500: Generator loss: 2.2972163581848144, discriminator loss: 0.24098993314430117
+Step 1000: Generator loss: 4.111798384666443, discriminator loss: 0.03910111421905458
+Step 1500: Generator loss: 5.055200936317444, discriminator loss: 0.017988519712351263
+Step 2000: Generator loss: 4.356978572845459, discriminator loss: 0.07956613468006253
+Step 2500: Generator loss: 3.1875410358905794, discriminator loss: 0.1825093053430319
+Step 3000: Generator loss: 2.7038124163150785, discriminator loss: 0.26903335136175155
+Step 3500: Generator loss: 2.3201852326393126, discriminator loss: 0.30360834433138373
+Step 4000: Generator loss: 2.3750923416614533, discriminator loss: 0.3380578280091286
+Step 4500: Generator loss: 1.9010865423679353, discriminator loss: 0.3774027600288391
+Step 5000: Generator loss: 1.9102082657814026, discriminator loss: 0.39759708976745606
+Step 5500: Generator loss: 1.6987447377443314, discriminator loss: 0.43035421246290206
+Step 6000: Generator loss: 1.6317225174903869, discriminator loss: 0.44889184486865996
+Step 6500: Generator loss: 1.4883701887130738, discriminator loss: 0.47211092388629916
+Step 7000: Generator loss: 1.4601867563724518, discriminator loss: 0.49546391534805295
+Step 7500: Generator loss: 1.3467793072462082, discriminator loss: 0.520910717189312
+Step 8000: Generator loss: 1.3130292971134185, discriminator loss: 0.5447795498371124
+Step 8500: Generator loss: 1.1705783107280732, discriminator loss: 0.5716251953244209
+Step 9000: Generator loss: 1.119933351278305, discriminator loss: 0.594505407333374
+Step 9500: Generator loss: 1.0671374444961548, discriminator loss: 0.6109852703809738
+Step 10000: Generator loss: 1.042488064646721, discriminator loss: 0.6221774860620498
+Step 10500: Generator loss: 1.015932119846344, discriminator loss: 0.6356924445033073
+Step 11000: Generator loss: 0.9900961836576462, discriminator loss: 0.6363092860579491
+Step 11500: Generator loss: 0.9709519152641296, discriminator loss: 0.642409072637558
+Step 12000: Generator loss: 0.9450125323534012, discriminator loss: 0.6527952731847763
+Step 12500: Generator loss: 0.9660063650608063, discriminator loss: 0.6581431583166123
+Step 13000: Generator loss: 0.8976931695938111, discriminator loss: 0.6624037518501281
+Step 13500: Generator loss: 0.8969441390037537, discriminator loss: 0.6631241027116775
+Step 14000: Generator loss: 0.902042475938797, discriminator loss: 0.6669842832088471
+Step 14500: Generator loss: 0.8777725909948348, discriminator loss: 0.6742114140987396
+Step 15000: Generator loss: 0.8425910116434098, discriminator loss: 0.6705276243686676
+Step 15500: Generator loss: 0.8403865963220596, discriminator loss: 0.6768578908443451
+Step 16000: Generator loss: 0.8556022493839264, discriminator loss: 0.6762306448221207
+Step 16500: Generator loss: 0.8764977214336396, discriminator loss: 0.678820540189743
+Step 17000: Generator loss: 0.8166215040683746, discriminator loss: 0.6793025200366973
+Step 17500: Generator loss: 0.8172620774507523, discriminator loss: 0.6820640956163406
+Step 18000: Generator loss: 0.8534817943572998, discriminator loss: 0.679261458158493
+Step 18500: Generator loss: 0.814961371421814, discriminator loss: 0.6819399018287658
+Step 19000: Generator loss: 0.8046633821725845, discriminator loss: 0.6841713408231735
+Step 19500: Generator loss: 0.8040647978782653, discriminator loss: 0.6816601184606552
+Step 20000: Generator loss: 0.8188033536672592, discriminator loss: 0.6830086879730225
+Step 20500: Generator loss: 0.8088009203672409, discriminator loss: 0.6811848978996277
+Step 21000: Generator loss: 0.7853847659826279, discriminator loss: 0.6836997301578521
+Step 21500: Generator loss: 0.7798927721977233, discriminator loss: 0.684486163020134
+Step 22000: Generator loss: 0.7833593552112579, discriminator loss: 0.685326477766037
+Step 22500: Generator loss: 0.8140243920087814, discriminator loss: 0.6838948290348053
+Step 23000: Generator loss: 0.7766883851289749, discriminator loss: 0.6896610424518586
+Step 23500: Generator loss: 0.7677333387136459, discriminator loss: 0.6847020034790039
+Step 24000: Generator loss: 0.7968860776424408, discriminator loss: 0.6859219465255737
+Step 24500: Generator loss: 0.7655997285842896, discriminator loss: 0.6866924543380737
+Step 25000: Generator loss: 0.7897603868246078, discriminator loss: 0.6862760508060455
+Step 25500: Generator loss: 0.7602986326217651, discriminator loss: 0.6839702378511429
+Step 26000: Generator loss: 0.7566630525588989, discriminator loss: 0.6884172073602677
+Step 26500: Generator loss: 0.7693239089250564, discriminator loss: 0.6848342741727829
+Step 27000: Generator loss: 0.7744117819070816, discriminator loss: 0.6884717727899552
+Step 27500: Generator loss: 0.7754857275485992, discriminator loss: 0.6871565765142441
+Step 28000: Generator loss: 0.7671164673566818, discriminator loss: 0.691150808095932
+Step 28500: Generator loss: 0.7767693866491318, discriminator loss: 0.6899988718032837
+Step 29000: Generator loss: 0.7584288560152054, discriminator loss: 0.6866833527088165
+Step 29500: Generator loss: 0.7469037870168685, discriminator loss: 0.6892017160654068
+Step 30000: Generator loss: 0.7409272351264954, discriminator loss: 0.6925988558530808
+Step 30500: Generator loss: 0.7461127021312713, discriminator loss: 0.6910134963989257
+Step 31000: Generator loss: 0.7623333480358124, discriminator loss: 0.6848250635862351
+Step 31500: Generator loss: 0.7320846046209335, discriminator loss: 0.6922971439361573
+Step 32000: Generator loss: 0.7360488106012344, discriminator loss: 0.6958958665132523
+Step 32500: Generator loss: 0.7436227219104767, discriminator loss: 0.6927914987802506
+Step 33000: Generator loss: 0.7528411923646927, discriminator loss: 0.6868532946109772
+Step 33500: Generator loss: 0.7555540499687194, discriminator loss: 0.6819704930782318
+Step 34000: Generator loss: 0.7339509303569793, discriminator loss: 0.6947230596542359
+Step 34500: Generator loss: 0.7203902735710144, discriminator loss: 0.694019063949585
+Step 35000: Generator loss: 0.7161798032522202, discriminator loss: 0.694249948143959
+Step 35500: Generator loss: 0.7100930047035218, discriminator loss: 0.6956643009185791
+Step 36000: Generator loss: 0.7224245357513428, discriminator loss: 0.692036272764206
+Step 36500: Generator loss: 0.7294702612161637, discriminator loss: 0.6839023213386536
+Step 37000: Generator loss: 0.7326101566553116, discriminator loss: 0.6864855628013611
+Step 37500: Generator loss: 0.7289662526845933, discriminator loss: 0.6891102294921875
+Step 38000: Generator loss: 0.7277824294567108, discriminator loss: 0.6930312074422836
+Step 38500: Generator loss: 0.7523093600273132, discriminator loss: 0.6822635132074356
+Step 39000: Generator loss: 0.7260702294111252, discriminator loss: 0.6836128298044205
+Step 39500: Generator loss: 0.7210463825464248, discriminator loss: 0.6865772886276245
+Step 40000: Generator loss: 0.7197876414060592, discriminator loss: 0.6861994673013687
+Step 40500: Generator loss: 0.7156198496818542, discriminator loss: 0.6897815141677857
+Step 41000: Generator loss: 0.7411812788248062, discriminator loss: 0.6876297281980515
+Step 41500: Generator loss: 0.7482703533172608, discriminator loss: 0.6831764079332352
+Step 42000: Generator loss: 0.7353900390863418, discriminator loss: 0.6809069069623948
+Step 42500: Generator loss: 0.726880151629448, discriminator loss: 0.6845077587366104
+Step 43000: Generator loss: 0.7335763674974441, discriminator loss: 0.6855163406133652
+Step 43500: Generator loss: 0.7247586588859558, discriminator loss: 0.684886796593666
+Step 44000: Generator loss: 0.7244187197685241, discriminator loss: 0.6869175283908844
+Step 44500: Generator loss: 0.7478935513496399, discriminator loss: 0.6783332238197327
+Step 45000: Generator loss: 0.7392684471607208, discriminator loss: 0.687694214463234
+Step 45500: Generator loss: 0.7384519840478897, discriminator loss: 0.6806207147836685
+Step 46000: Generator loss: 0.7173152709007263, discriminator loss: 0.6894198944568634
+Step 46500: Generator loss: 0.7135227386951446, discriminator loss: 0.6902039344310761
+Step 47000: Generator loss: 0.7121314022541047, discriminator loss: 0.691226885676384
+Step 47500: Generator loss: 0.7153779380321502, discriminator loss: 0.6898772416114807
+Step 48000: Generator loss: 0.7112214748859406, discriminator loss: 0.6919035356044769
+Step 48500: Generator loss: 0.729472970366478, discriminator loss: 0.6832324341535568
+Step 49000: Generator loss: 0.7259864670038223, discriminator loss: 0.6850444099903107
+Step 49500: Generator loss: 0.7463545156717301, discriminator loss: 0.6876692290306091
+Step 50000: Generator loss: 0.72439306807518, discriminator loss: 0.6840117316246033
+Step 50500: Generator loss: 0.7304026707410812, discriminator loss: 0.6828315691947937
+Step 51000: Generator loss: 0.735065841794014, discriminator loss: 0.6877049984931946
+Step 51500: Generator loss: 0.738693750500679, discriminator loss: 0.6786749280691147
+Step 52000: Generator loss: 0.7165734323263169, discriminator loss: 0.688656357049942
+Step 52500: Generator loss: 0.7124545810222626, discriminator loss: 0.6885210503339767
+Step 53000: Generator loss: 0.7169003388881683, discriminator loss: 0.6898472727537155
+Step 53500: Generator loss: 0.7116240389347076, discriminator loss: 0.6890990349054337
+Step 54000: Generator loss: 0.7254890002012253, discriminator loss: 0.686066904425621
+Step 54500: Generator loss: 0.7279696422815323, discriminator loss: 0.6824959990978241
+Step 55000: Generator loss: 0.7243433123826981, discriminator loss: 0.686788556933403
+Step 55500: Generator loss: 0.72320248234272, discriminator loss: 0.6819899456501007
+Step 56000: Generator loss: 0.7283236463069915, discriminator loss: 0.6813042680025101
+Step 56500: Generator loss: 0.7257692145109177, discriminator loss: 0.6882435537576675
+Step 57000: Generator loss: 0.7204343225955964, discriminator loss: 0.6905163298845292
+Step 57500: Generator loss: 0.7234136379957199, discriminator loss: 0.6828762836456299
+Step 58000: Generator loss: 0.7213340125083924, discriminator loss: 0.6852367097139358
+Step 58500: Generator loss: 0.7139561972618103, discriminator loss: 0.6901394550800324
+Step 59000: Generator loss: 0.7128681792020798, discriminator loss: 0.6899428930282593
+Step 59500: Generator loss: 0.7178032584190369, discriminator loss: 0.6901476013660431
+Step 60000: Generator loss: 0.7218955677747726, discriminator loss: 0.6866856569051742
+Step 60500: Generator loss: 0.7173091459274292, discriminator loss: 0.6909447896480561
+Step 61000: Generator loss: 0.7196292532682419, discriminator loss: 0.6888659211397171
+Step 61500: Generator loss: 0.7136147793531418, discriminator loss: 0.6911007264852523
+Step 62000: Generator loss: 0.7167167031764984, discriminator loss: 0.6874131036996841
+Step 62500: Generator loss: 0.7095696296691895, discriminator loss: 0.6924118340015412
+Step 63000: Generator loss: 0.7100733149051667, discriminator loss: 0.6894952065944672
+Step 63500: Generator loss: 0.7075963083505631, discriminator loss: 0.6918715183734894
+Step 64000: Generator loss: 0.7087407541275025, discriminator loss: 0.6912821785211564
+Step 64500: Generator loss: 0.7044790136814117, discriminator loss: 0.6919414196014404
+Step 65000: Generator loss: 0.7120586842298507, discriminator loss: 0.6889722956418991
+Step 65500: Generator loss: 0.7059948451519013, discriminator loss: 0.6913756219148636
+Step 66000: Generator loss: 0.7103360829353332, discriminator loss: 0.6888430647850037
+Step 66500: Generator loss: 0.7106574136018753, discriminator loss: 0.6923392252922058
+Step 67000: Generator loss: 0.7205636972188949, discriminator loss: 0.6888139424324036
+Step 67500: Generator loss: 0.7325763144493103, discriminator loss: 0.6851953419446946
+Step 68000: Generator loss: 0.7144211075305938, discriminator loss: 0.6894719363451004
+Step 68500: Generator loss: 0.7039347168207168, discriminator loss: 0.692310958981514
+Step 69000: Generator loss: 0.707789731502533, discriminator loss: 0.690034374833107
+Step 69500: Generator loss: 0.7080022550821304, discriminator loss: 0.6897176603078842
+Step 70000: Generator loss: 0.706935028553009, discriminator loss: 0.6917025876045227
+Step 70500: Generator loss: 0.7035844438076019, discriminator loss: 0.6928271135091781
+Step 71000: Generator loss: 0.706664494395256, discriminator loss: 0.6913493415117263
+Step 71500: Generator loss: 0.7080443944931031, discriminator loss: 0.6943384435176849
+Step 72000: Generator loss: 0.7080535914897919, discriminator loss: 0.6904549078941346
+Step 72500: Generator loss: 0.7195642621517181, discriminator loss: 0.6883307158946991
+Step 73000: Generator loss: 0.7137477462291717, discriminator loss: 0.6895240060091019
+Step 73500: Generator loss: 0.7089026942253113, discriminator loss: 0.6893982688188552
+Step 74000: Generator loss: 0.71370064163208, discriminator loss: 0.6885940716266632
+Step 74500: Generator loss: 0.7126090573072433, discriminator loss: 0.6913927717208862
+Step 75000: Generator loss: 0.7061277792453766, discriminator loss: 0.6915859417915344
+Step 75500: Generator loss: 0.7079737706184387, discriminator loss: 0.6918540188074112
+Step 76000: Generator loss: 0.7094860315322876, discriminator loss: 0.6909938471317292
+Step 76500: Generator loss: 0.7089288998842239, discriminator loss: 0.6928894543647766
+Step 77000: Generator loss: 0.7099210443496704, discriminator loss: 0.6881472972631455
+Step 77500: Generator loss: 0.7087316303253174, discriminator loss: 0.6922812685966492
+Step 78000: Generator loss: 0.7124276860952378, discriminator loss: 0.686549712896347
+Step 78500: Generator loss: 0.7118150774240494, discriminator loss: 0.6914097841978073
+Step 79000: Generator loss: 0.7061567052602767, discriminator loss: 0.6910830926895142
+Step 79500: Generator loss: 0.7130619381666183, discriminator loss: 0.6901648813486099
+Step 80000: Generator loss: 0.7189263315200806, discriminator loss: 0.6891602661609649
+Step 80500: Generator loss: 0.7099695562124252, discriminator loss: 0.6893361113071441
+Step 81000: Generator loss: 0.7043007851839066, discriminator loss: 0.6928421225547791
+Step 81500: Generator loss: 0.7055111042261124, discriminator loss: 0.6913482803106308
+Step 82000: Generator loss: 0.7107034167051315, discriminator loss: 0.6899493371248245
+Step 82500: Generator loss: 0.7072652250528335, discriminator loss: 0.691617219209671
+Step 83000: Generator loss: 0.7116999027729034, discriminator loss: 0.6887015362977982
+Step 83500: Generator loss: 0.7103397004604339, discriminator loss: 0.6889865008592606
+Step 84000: Generator loss: 0.702219740986824, discriminator loss: 0.6927198125123978
+Step 84500: Generator loss: 0.7042218887805939, discriminator loss: 0.6910840107202529
+Step 85000: Generator loss: 0.7036903632879257, discriminator loss: 0.6948130846023559
+Step 85500: Generator loss: 0.7157929112911224, discriminator loss: 0.6877820398807526
+Step 86000: Generator loss: 0.703074496269226, discriminator loss: 0.6928336225748062
+Step 86500: Generator loss: 0.7018165578842163, discriminator loss: 0.6942198793888092
+Step 87000: Generator loss: 0.7056693414449692, discriminator loss: 0.6903062870502472
+Step 87500: Generator loss: 0.7070764343738556, discriminator loss: 0.690039452791214
+Step 88000: Generator loss: 0.7018579070568085, discriminator loss: 0.6929991252422333
+Step 88500: Generator loss: 0.7042791714668274, discriminator loss: 0.6906855113506317
+Step 89000: Generator loss: 0.7052908551692962, discriminator loss: 0.6917922974824905
+Step 89500: Generator loss: 0.7057228873968124, discriminator loss: 0.6917544984817505
+Step 90000: Generator loss: 0.7041428442001343, discriminator loss: 0.6921311345100403
+Step 90500: Generator loss: 0.7040341221094132, discriminator loss: 0.6916886166334152
+Step 91000: Generator loss: 0.7016080802679062, discriminator loss: 0.6918226274251937
+Step 91500: Generator loss: 0.7047490992546082, discriminator loss: 0.6919238156080246
+Step 92000: Generator loss: 0.7015802135467529, discriminator loss: 0.6937261604070664
+Step 92500: Generator loss: 0.7035572265386582, discriminator loss: 0.6899326649904252
+Step 93000: Generator loss: 0.7005916707515717, discriminator loss: 0.6933788905143737
+Step 93500: Generator loss: 0.7005794968605041, discriminator loss: 0.6932051202058792
+Ended: 2021-04-30 18:15:27.636306
+Elapsed: 0:53:48.939130
+</pre></div>
+</div>
+</div>
+<div class="outline-3" id="outline-container-org5ccbefe">
+<h3 id="org5ccbefe">Exploration</h3>
+<div class="outline-text-3" id="text-org5ccbefe">
+<p>Before you explore, you should put the generator in eval mode, both in general and so that batch norm doesn't cause you issues and is using its eval statistics.</p>
+<div class="highlight">
+<pre><span></span><span class="n">gen</span> <span class="o">=</span> <span class="n">gen</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</pre></div>
+</div>
+<div class="outline-4" id="outline-container-orga274e2c">
+<h4 id="orga274e2c">Changing the Class Vector</h4>
+<div class="outline-text-4" id="text-orga274e2c">
+<p>You can generate some numbers with your new model! You can add interpolation as well to make it more interesting.</p>
+<p>So starting from a image, you will produce intermediate images that look more and more like the ending image until you get to the final image. Your're basically morphing one image into another. You can choose what these two images will be using your conditional GAN.</p>
+<p>### Change me! ###</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_interpolation</span> <span class="o">=</span> <span class="mi">9</span> <span class="c1"># Choose the interpolation: how many intermediate images you want + 2 (for the start and end image)</span>
+<span class="n">interpolation_noise</span> <span class="o">=</span> <span class="n">make_some_noise</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">n_interpolation</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">interpolate_class</span><span class="p">(</span><span class="n">first_number</span><span class="p">,</span> <span class="n">second_number</span><span class="p">):</span>
+    <span class="n">first_label</span> <span class="o">=</span> <span class="n">get_one_hot_labels</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">([</span><span class="n">first_number</span><span class="p">])</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">n_classes</span><span class="p">)</span>
+    <span class="n">second_label</span> <span class="o">=</span> <span class="n">get_one_hot_labels</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">([</span><span class="n">second_number</span><span class="p">])</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">n_classes</span><span class="p">)</span>
+
+    <span class="c1"># Calculate the interpolation vector between the two labels</span>
+    <span class="n">percent_second_label</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n_interpolation</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="n">interpolation_labels</span> <span class="o">=</span> <span class="n">first_label</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">percent_second_label</span><span class="p">)</span> <span class="o">+</span> <span class="n">second_label</span> <span class="o">*</span> <span class="n">percent_second_label</span>
+
+    <span class="c1"># Combine the noise and the labels</span>
+    <span class="n">noise_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">interpolation_noise</span><span class="p">,</span> <span class="n">interpolation_labels</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">))</span>
+    <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise_and_labels</span><span class="p">)</span>
+    <span class="n">show_tensor_images</span><span class="p">(</span><span class="n">fake</span><span class="p">,</span> <span class="n">num_images</span><span class="o">=</span><span class="n">n_interpolation</span><span class="p">,</span> <span class="n">nrow</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">n_interpolation</span><span class="p">)),</span> <span class="n">show</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="c1">### Change me! ###</span>
+<span class="n">start_plot_number</span> <span class="o">=</span> <span class="mi">1</span> <span class="c1"># Choose the start digit</span>
+<span class="c1">### Change me! ###</span>
+<span class="n">end_plot_number</span> <span class="o">=</span> <span class="mi">5</span> <span class="c1"># Choose the end digit</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+<span class="n">interpolate_class</span><span class="p">(</span><span class="n">start_plot_number</span><span class="p">,</span> <span class="n">end_plot_number</span><span class="p">)</span>
+<span class="n">_</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s1">'off'</span><span class="p">)</span>
+
+<span class="c1">### Uncomment the following lines of code if you would like to visualize a set of pairwise class </span>
+<span class="c1">### interpolations for a collection of different numbers, all in a single grid of interpolations.</span>
+<span class="c1">### You'll also see another visualization like this in the next code block!</span>
+<span class="c1"># plot_numbers = [2, 3, 4, 5, 7]</span>
+<span class="c1"># n_numbers = len(plot_numbers)</span>
+<span class="c1"># plt.figure(figsize=(8, 8))</span>
+<span class="c1"># for i, first_plot_number in enumerate(plot_numbers):</span>
+<span class="c1">#     for j, second_plot_number in enumerate(plot_numbers):</span>
+<span class="c1">#         plt.subplot(n_numbers, n_numbers, i * n_numbers + j + 1)</span>
+<span class="c1">#         interpolate_class(first_plot_number, second_plot_number)</span>
+<span class="c1">#         plt.axis('off')</span>
+<span class="c1"># plt.subplots_adjust(top=1, bottom=0, left=0, right=1, hspace=0.1, wspace=0)</span>
+<span class="c1"># plt.show()</span>
+<span class="c1"># plt.close()</span>
+</pre></div>
+</div>
+</div>
+<div class="outline-4" id="outline-container-orge204fb9">
+<h4 id="orge204fb9">Changing the Noise Vector</h4>
+<div class="outline-text-4" id="text-orge204fb9">
+<p>Now, what happens if you hold the class constant, but instead you change the noise vector? You can also interpolate the noise vector and generate an image at each step.</p>
+<div class="highlight">
+<pre><span></span><span class="n">n_interpolation</span> <span class="o">=</span> <span class="mi">9</span> <span class="c1"># How many intermediate images you want + 2 (for the start and end image)</span>
+</pre></div>
+<p>This time you're interpolating between the noise instead of the labels</p>
+<div class="highlight">
+<pre><span></span><span class="n">interpolation_label</span> <span class="o">=</span> <span class="n">get_one_hot_labels</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">([</span><span class="mi">5</span><span class="p">])</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">n_classes</span><span class="p">)</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">n_interpolation</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+</pre></div>
+<div class="highlight">
+<pre><span></span><span class="k">def</span> <span class="nf">interpolate_noise</span><span class="p">(</span><span class="n">first_noise</span><span class="p">,</span> <span class="n">second_noise</span><span class="p">):</span>
+    <span class="c1"># This time you're interpolating between the noise instead of the labels</span>
+    <span class="n">percent_first_noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n_interpolation</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">interpolation_noise</span> <span class="o">=</span> <span class="n">first_noise</span> <span class="o">*</span> <span class="n">percent_first_noise</span> <span class="o">+</span> <span class="n">second_noise</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">percent_first_noise</span><span class="p">)</span>
+
+    <span class="c1"># Combine the noise and the labels again</span>
+    <span class="n">noise_and_labels</span> <span class="o">=</span> <span class="n">combine_vectors</span><span class="p">(</span><span class="n">interpolation_noise</span><span class="p">,</span> <span class="n">interpolation_label</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">))</span>
+    <span class="n">fake</span> <span class="o">=</span> <span class="n">gen</span><span class="p">(</span><span class="n">noise_and_labels</span><span class="p">)</span>
+    <span class="n">show_tensor_images</span><span class="p">(</span><span class="n">fake</span><span class="p">,</span> <span class="n">num_images</span><span class="o">=</span><span class="n">n_interpolation</span><span class="p">,</span> <span class="n">nrow</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">n_interpolation</span><span class="p">)),</span> <span class="n">show</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+<p>Generate noise vectors to interpolate between.</p>
+<div class="highlight">
+<pre><span></span><span class="c1">### Change me! ###</span>
+<span class="n">n_noise</span> <span class="o">=</span> <span class="mi">5</span> <span class="c1"># Choose the number of noise examples in the grid</span>
+<span class="n">plot_noises</span> <span class="o">=</span> <span class="p">[</span><span class="n">get_noise</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">z_dim</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_noise</span><span class="p">)]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">first_plot_noise</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">plot_noises</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">second_plot_noise</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">plot_noises</span><span class="p">):</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="n">n_noise</span><span class="p">,</span> <span class="n">n_noise</span><span class="p">,</span> <span class="n">i</span> <span class="o">*</span> <span class="n">n_noise</span> <span class="o">+</span> <span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">interpolate_noise</span><span class="p">(</span><span class="n">first_plot_noise</span><span class="p">,</span> <span class="n">second_plot_noise</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s1">'off'</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">subplots_adjust</span><span class="p">(</span><span class="n">top</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">bottom</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">left</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hspace</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">wspace</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="outline-2" id="outline-container-org202a7e6">
+<h2 id="org202a7e6">End</h2>
+</div>
+</div>
+<aside class="postpromonav">
+<nav>
+<ul class="tags" itemprop="keywords">
+<li><a class="tag p-category" href="../../../categories/gan/" rel="tag">gan</a></li>
+</ul>
+<ul class="pager hidden-print">
+<li class="previous"><a href="../wasserstein-gan-with-gradient-penalty/" rel="prev" title="Wasserstein GAN With Gradient Penalty">Previous post</a></li>
+<li class="next"><a href="../controllable-generation/" rel="next" title="Controllable Generation">Next post</a></li>
+</ul>
+</nav>
+</aside>
+</article>
+<!--End of body content-->
+<footer id="footer"><a href="https://creativecommons.org/licenses/by/4.0/" rel="license"><img alt="Creative Commons License" id="license-image" src="https://licensebuttons.net/l/by/4.0/80x15.png" style="border-width:0"></a>This work is licensed under a <a href="http://creativecommons.org/licenses/by/4.0/" rel="license">Creative Commons Attribution 4.0 International License</a>. <a href="mailto:cloisteredmonkey.jmark@slmail.me">Cloistered Monkey</a> - Powered by <a href="https://getnikola.com" rel="nofollow">Nikola</a></footer>
+</div>
+</div>
+<script src="../../../assets/js/all-nocdn.js"></script>
+<script>
+
+    baguetteBox.run('div#content', {
+        ignoreClass: 'islink',
+        captions: function(element){var i=element.getElementsByTagName('img')[0];return i===undefined?'':i.alt;}});
+</script>
+</body>
+</html>
