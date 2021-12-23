@@ -11,7 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-80110f81-b30a-437f-aa87-1fc76c5726a1-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-3722e9ad-c9cc-4374-95af-0c1518710310-ssh.json
 #+BEGIN_SRC python :results none :exports none
 %load_ext autoreload
 %autoreload 2
@@ -74,7 +74,11 @@ Plot = namedtuple("Plot", ["width", "height", "fontscale",
 GANParts = namedtuple("GANParts", ["generator", "generator_optimizer",
                                    "discriminator", "discriminator_optimizer"])
 
-PlotData = namedtuple("PlotData", ["steps", "generator_losses", "discriminator_losses"])
+PlotData = namedtuple("PlotData", ["steps", "generator_losses",
+                                   "discriminator_losses", "best_loss"])
+
+MODEL_PATH = Path("~/models/gans/mnist.pth").expanduser()
+INFINITY = float("inf")
 #+end_src
 * Middle
 ** The MNIST Dataset
@@ -237,15 +241,6 @@ To be able to use the generator, we will need to be able to create noise vectors
 
 #+begin_src python :results none
 get_noise = partial(torch.randn, device="cuda")
-# def get_noise(n_samples: int, z_dim: int, device='cuda') -> torch.Tensor:
-#     """create noise vectors
-# 
-#     Args:
-#         n_samples: the number of samples to generate, a scalar
-#         z_dim: the dimension of the noise vector, a scalar
-#         device: the device type
-#     """
-#     return torch.randn(n_samples, z_dim, device=device)
 #+end_src
 
 *** Verify the noise vector function
@@ -371,7 +366,7 @@ test_discriminator(20, 8)
 
 ** Training
 First, you will set your parameters:
-   -   criterion: the loss function ([[https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html?highlight=bcewithlogitsloss][BCEWithLogitsLoss]]
+   -   criterion: the loss function ([[https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html?highlight=bcewithlogitsloss][BCEWithLogitsLoss]])
    -   n_epochs: the number of times you iterate through the entire dataset when training
    -   z_dim: the dimension of the noise vector
    -   display_step: how often to display/visualize the images
@@ -563,11 +558,11 @@ test_disc_loss()
 #+end_src
 *** Generator Loss
 #+begin_src python :results none
-def get_gen_loss(gen: Generator,
-                 disc: Discriminator,
-                 criterion: nn.BCEWithLogitsLoss,
-                 num_images: int,
-                 z_dim: int, device: str="cuda") -> torch.Tensor:
+def get_generator_loss(gen: Generator,
+                       disc: Discriminator,
+                       criterion: nn.BCEWithLogitsLoss,
+                       num_images: int,
+                       z_dim: int, device: str="cuda") -> torch.Tensor:
     """Calculates the loss for the generator
 
     Args:
@@ -627,7 +622,7 @@ def test_gen_loss(num_images):
     disc = Discriminator().to(device) 
     disc_opt = torch.optim.Adam(disc.parameters(), lr=lr)
     
-    gen_loss = get_gen_loss(gen, disc, criterion, num_images, z_dim, device)
+    gen_loss = get_generator_loss(gen, disc, criterion, num_images, z_dim, device)
     
     # Check that the loss is reasonable
     assert (gen_loss - 0.7).abs() < 0.1
@@ -650,14 +645,28 @@ def train(epochs: int=2000, gen: Generator=gen,
           gen_opt: torch.optim.Adam=gen_opt,
           disc: Discriminator=disc,
           disc_opt: torch.optim.Adam=disc_opt,
-          start_step: int=0) -> PlotData:
-    cur_step = start_step
+          start_step: int=0,
+          best_loss: float = INFINITY,
+          test_the_generator: bool=True,
+          display_step: int=4500) -> PlotData:
+    """Train a batch
+
+    Args:
+     epochs: number of epochs to train
+     gen: the Generator object
+     gen_opt: optimizer for the generator
+     disc: the Discriminator object
+     disc_opt: the optimizer for the discriminator
+     start_step: where we are in the training if this is called more than once
+     best_loss: what the best loss for the generator has been so far
+     test_the_generator: whether to double-check the generator is changing
+     display_step: how often to emit messages
+    """
+    current_step = start_step
     mean_generator_loss = 0
     mean_discriminator_loss = 0
-    test_generator = True # Whether the generator should be tested
-    gen_loss = False
+    generator_loss = False
     error = False
-    display_step = 4100
     generator_losses = []
     discriminator_losses = []
     steps = []
@@ -677,7 +686,8 @@ def train(epochs: int=2000, gen: Generator=gen,
                 disc_opt.zero_grad()
         
                 # Calculate discriminator loss
-                disc_loss = get_disc_loss(gen, disc, criterion, real, cur_batch_size, z_dim, device)
+                disc_loss = get_disc_loss(gen, disc, criterion, real,
+                                          cur_batch_size, z_dim, device)
         
                 # Update gradients
                 disc_loss.backward(retain_graph=True)
@@ -691,10 +701,16 @@ def train(epochs: int=2000, gen: Generator=gen,
         
                 ### Update generator ###
                 gen_opt.zero_grad()
-                gen_loss = get_gen_loss(gen, disc, criterion, cur_batch_size, z_dim, device)
-                gen_loss.backward(retain_graph=True)
+                generator_loss = get_generator_loss(gen, disc, criterion, cur_batch_size, z_dim, device)
+                generator_loss.backward(retain_graph=True)
                 gen_opt.step()
-    
+
+                # check if it's the best so far
+                if generator_loss.item() < best_loss:
+                    best_loss = generator_loss.item()
+                    print(f"Saving model with best loss so far ({best_loss:.2f})")
+
+                    torch.save(gen.state_dict(), MODEL_PATH)
                 # For testing purposes, to check that your code changes the generator weights
                 if test_generator:
                     try:
@@ -708,30 +724,39 @@ def train(epochs: int=2000, gen: Generator=gen,
                 mean_discriminator_loss += disc_loss.item() / display_step
         
                 # Keep track of the average generator loss
-                mean_generator_loss += gen_loss.item() / display_step
+                mean_generator_loss += generator_loss.item() / display_step
         
-                if cur_step % display_step == 0 and cur_step > 0:
-                    print(f"Epoch {epoch}, step {cur_step}: Generator loss:"
+                if current_step % display_step == 0 and current_step > 0:
+                    print(f"Epoch {epoch}, step {current_step}: Generator loss:"
                             f" {mean_generator_loss}, discriminator loss:"
                             f" {mean_discriminator_loss}")
-                    steps.append(cur_step)
+                    steps.append(current_step)
                     generator_losses.append(mean_generator_loss)
                     discriminator_losses.append(mean_discriminator_loss)
     
                     mean_generator_loss = 0
                     mean_discriminator_loss = 0
-                cur_step += 1
+                current_step += 1
     return PlotData(steps=steps, generator_losses=generator_losses,
-                    discriminator_losses=discriminator_losses)
+                    discriminator_losses=discriminator_losses, best_loss=best_loss)
 print(train(epochs=10))
 #+end_src
 
 #+RESULTS:
-: Started: 2021-12-11 00:33:13.638946
-: Epoch 8, step 4100: Generator loss: 2.0296122446438143, discriminator loss: 0.20560982278207462
-: Ended: 2021-12-11 00:34:27.772860
-: Elapsed: 0:01:14.133914
-: PlotData(steps=[4100], generator_losses=[2.0296122446438143], discriminator_losses=[0.20560982278207462])
+#+begin_example
+Started: 2021-12-12 21:18:06.595695
+Saving model with best loss so far (3.82)
+Saving model with best loss so far (3.77)
+Saving model with best loss so far (3.75)
+Saving model with best loss so far (3.58)
+Saving model with best loss so far (3.54)
+Saving model with best loss so far (3.50)
+Saving model with best loss so far (3.25)
+Epoch 9, step 4500: Generator loss: 4.100310390790306, discriminator loss: 0.053616619475599675
+Ended: 2021-12-12 21:19:19.963121
+Elapsed: 0:01:13.367426
+PlotData(steps=[4500], generator_losses=[4.100310390790306], discriminator_losses=[0.053616619475599675], best_loss=3.2485642433166504)
+#+end_example
 
 #+begin_src python :results none
 def run_batch(parts: GANParts, plot_data: PlotData,
@@ -746,41 +771,42 @@ def run_batch(parts: GANParts, plot_data: PlotData,
      updated plot_data
     """
     next_step = max(plot_data.steps) + 1 if plot_data.steps else 0
+    best_loss = plot_data.best_loss
     output = train(gen=parts.generator,
                    gen_opt=parts.generator_optimizer,
                    disc=parts.discriminator,
                    disc_opt=parts.discriminator_optimizer, epochs=batch_size,
-                   start_step=next_step)
+                   start_step=next_step, best_loss=best_loss)
     return PlotData(
         steps=plot_data.steps + output.steps,
         generator_losses=plot_data.generator_losses + output.generator_losses,
         discriminator_losses=(plot_data.discriminator_losses +
-                              output.discriminator_losses))
+                              output.discriminator_losses), best_loss=output.best_loss)
 #+end_src
 
 At about one epoch a minute, this should take about an hour and forty minutes or so.
 
 #+begin_src python :results output :exports both
 parts = build_parts()
-plot_data = run_batch(parts, PlotData([], [], []))
+plot_data = run_batch(parts, PlotData([], [], [], best_loss=INFINITY))
 #+end_src
 
 #+RESULTS:
 #+begin_example
-Started: 2021-12-11 00:47:14.931061
-Epoch 8, step 4100: Generator loss: 1.934377251819866, discriminator loss: 0.2229057149607244
-Epoch 17, step 8200: Generator loss: 3.4881149883386517, discriminator loss: 0.09036333611371311
-Epoch 26, step 12300: Generator loss: 3.79820193645431, discriminator loss: 0.07907055546234283
-Epoch 34, step 16400: Generator loss: 3.5352928067416753, discriminator loss: 0.12281120490646158
-Epoch 43, step 20500: Generator loss: 3.21601489741629, discriminator loss: 0.1628626244387976
-Epoch 52, step 24600: Generator loss: 2.989254439458613, discriminator loss: 0.18208623294786722
-Epoch 61, step 28700: Generator loss: 2.7631628133901764, discriminator loss: 0.22777474837695708
-Epoch 69, step 32800: Generator loss: 2.628327419728768, discriminator loss: 0.24390439436566586
-Epoch 78, step 36900: Generator loss: 2.5670700825714463, discriminator loss: 0.24794671018676115
-Epoch 87, step 41000: Generator loss: 2.472670504349029, discriminator loss: 0.26582738677539414
-Epoch 96, step 45100: Generator loss: 2.3724955604134528, discriminator loss: 0.2780200535131669
-Ended: 2021-12-11 00:59:33.404832
-Elapsed: 0:12:18.473771
+Started: 2021-12-12 22:41:21.823164
+Saving model with best loss so far (0.68)
+Epoch 9, step 4500: Generator loss: 2.0671158762905333, discriminator loss: 0.2002916043450438
+Epoch 19, step 9000: Generator loss: 3.894586259894906, discriminator loss: 0.07030286101831354
+Epoch 28, step 13500: Generator loss: 4.128244651317588, discriminator loss: 0.07312827965741342
+Epoch 38, step 18000: Generator loss: 3.679966155105171, discriminator loss: 0.11400978071076953
+Epoch 47, step 22500: Generator loss: 3.396804347621069, discriminator loss: 0.1500528004517162
+Epoch 57, step 27000: Generator loss: 3.1040636014938245, discriminator loss: 0.17772292008996066
+Epoch 67, step 31500: Generator loss: 2.8721981742117144, discriminator loss: 0.20018046746320184
+Epoch 76, step 36000: Generator loss: 2.6418062130610167, discriminator loss: 0.22749259825216356
+Epoch 86, step 40500: Generator loss: 2.5520630269580473, discriminator loss: 0.2384359383367829
+Epoch 95, step 45000: Generator loss: 2.2842552210754827, discriminator loss: 0.2856089066366352
+Ended: 2021-12-12 22:53:26.813378
+Elapsed: 0:12:04.990214
 #+end_example
 
 Twelve minutes... something's wrong with my math (or my code).
@@ -791,66 +817,80 @@ plot_data = run_batch(parts, plot_data, batch_size=500)
 
 #+RESULTS:
 #+begin_example
-Started: 2021-12-11 01:13:48.089630
-Epoch 8, step 49200: Generator loss: 2.2106766842923546, discriminator loss: 0.30767942854180547
-Epoch 17, step 53300: Generator loss: 2.053519683320349, discriminator loss: 0.3469244217182084
-Epoch 26, step 57400: Generator loss: 1.8833183762213095, discriminator loss: 0.3716685724476485
-Epoch 34, step 61500: Generator loss: 1.7962335860147725, discriminator loss: 0.388955959706772
-Epoch 43, step 65600: Generator loss: 1.7297733351079438, discriminator loss: 0.39347998913468357
-Epoch 52, step 69700: Generator loss: 1.6756027169634629, discriminator loss: 0.40696758046382825
-Epoch 61, step 73800: Generator loss: 1.7340464807719738, discriminator loss: 0.391147572165583
-Epoch 69, step 77900: Generator loss: 1.6250884978945666, discriminator loss: 0.4112582277960894
-Epoch 78, step 82000: Generator loss: 1.5282696703294425, discriminator loss: 0.4417608343828005
-Epoch 87, step 86100: Generator loss: 1.551421322909793, discriminator loss: 0.4309799511621639
-Epoch 96, step 90200: Generator loss: 1.502451353887236, discriminator loss: 0.43569522036284997
-Epoch 104, step 94300: Generator loss: 1.5355568281034093, discriminator loss: 0.4274125394515864
-Epoch 113, step 98400: Generator loss: 1.515106762124273, discriminator loss: 0.4361268874203291
-Epoch 122, step 102500: Generator loss: 1.4262471299345922, discriminator loss: 0.4538826259389165
-Epoch 131, step 106600: Generator loss: 1.3722852372541716, discriminator loss: 0.46847428283313336
-Epoch 139, step 110700: Generator loss: 1.30627704975082, discriminator loss: 0.4916798695195014
-Epoch 148, step 114800: Generator loss: 1.3066031820744994, discriminator loss: 0.48832398747525635
-Epoch 157, step 118900: Generator loss: 1.2358002482972494, discriminator loss: 0.5049220843794864
-Epoch 166, step 123000: Generator loss: 1.2148369922434428, discriminator loss: 0.5165507747632705
-Epoch 174, step 127100: Generator loss: 1.1939138480802867, discriminator loss: 0.5140434620365866
-Epoch 183, step 131200: Generator loss: 1.1655712901092137, discriminator loss: 0.5210341898333737
-Epoch 192, step 135300: Generator loss: 1.0877681193119135, discriminator loss: 0.5537625885663968
-Epoch 201, step 139400: Generator loss: 1.1292353331461187, discriminator loss: 0.5308915733782256
-Epoch 209, step 143500: Generator loss: 1.097566315502655, discriminator loss: 0.5411388381806799
-Epoch 218, step 147600: Generator loss: 1.0757532430131274, discriminator loss: 0.5517329544628548
-Epoch 227, step 151700: Generator loss: 1.0799634633267818, discriminator loss: 0.5458411719668192
-Epoch 236, step 155800: Generator loss: 1.0768744062068984, discriminator loss: 0.5462928909935603
-Epoch 244, step 159900: Generator loss: 1.038065175501311, discriminator loss: 0.5608314768788278
-Epoch 253, step 164000: Generator loss: 1.0237846635173, discriminator loss: 0.5654601171176611
-Epoch 262, step 168100: Generator loss: 0.9991180751236483, discriminator loss: 0.5736101391184627
-Epoch 271, step 172200: Generator loss: 1.0070789654516565, discriminator loss: 0.5714522401516029
-Epoch 279, step 176300: Generator loss: 0.9614028337670539, discriminator loss: 0.5910174207425695
-Epoch 288, step 180400: Generator loss: 0.9706563392499603, discriminator loss: 0.5850461383781773
-Epoch 297, step 184500: Generator loss: 0.9717842458661009, discriminator loss: 0.5814466277055627
-Epoch 305, step 188600: Generator loss: 0.9541865834084969, discriminator loss: 0.5840334389413279
-Epoch 314, step 192700: Generator loss: 0.9712330036628544, discriminator loss: 0.5782463719932038
-Epoch 323, step 196800: Generator loss: 0.9551204285098255, discriminator loss: 0.5880173592596538
-Epoch 332, step 200900: Generator loss: 0.9226158920584665, discriminator loss: 0.5996578313373941
-Epoch 340, step 205000: Generator loss: 0.9246665488074481, discriminator loss: 0.597404850198001
-Epoch 349, step 209100: Generator loss: 0.9608930256744725, discriminator loss: 0.5801783614260392
-Epoch 358, step 213200: Generator loss: 0.9612123412766118, discriminator loss: 0.5802033745152197
-Epoch 367, step 217300: Generator loss: 0.9180114618307212, discriminator loss: 0.5937960715264811
-Epoch 375, step 221400: Generator loss: 0.9368741252364194, discriminator loss: 0.5900343924106617
-Epoch 384, step 225500: Generator loss: 0.9440083874725718, discriminator loss: 0.5846795598762786
-Epoch 393, step 229600: Generator loss: 0.9536703778330882, discriminator loss: 0.5829839877384473
-Epoch 402, step 233700: Generator loss: 0.9294257469729658, discriminator loss: 0.5916450903909986
-Epoch 410, step 237800: Generator loss: 0.9466903525445554, discriminator loss: 0.5856489780472574
-Epoch 419, step 241900: Generator loss: 0.9522996573477257, discriminator loss: 0.5799181649743058
-Epoch 428, step 246000: Generator loss: 0.9839635591972143, discriminator loss: 0.5714024179156216
-Epoch 437, step 250100: Generator loss: 0.9648611798373641, discriminator loss: 0.5808709646216277
-Epoch 445, step 254200: Generator loss: 0.9566089589712128, discriminator loss: 0.5805564494249301
-Epoch 454, step 258300: Generator loss: 0.9783696506226937, discriminator loss: 0.5709307750914155
-Epoch 463, step 262400: Generator loss: 0.9719752054098166, discriminator loss: 0.5762244856866391
-Epoch 472, step 266500: Generator loss: 0.999251530417581, discriminator loss: 0.5657230390717329
-Epoch 480, step 270600: Generator loss: 0.9960989969387296, discriminator loss: 0.5667149156113943
-Epoch 489, step 274700: Generator loss: 1.0056089845953926, discriminator loss: 0.5628991482534059
-Epoch 498, step 278800: Generator loss: 0.9715120762295836, discriminator loss: 0.5786686657042022
-Ended: 2021-12-11 02:15:09.581779
-Elapsed: 1:01:21.492149
+Started: 2021-12-12 22:56:24.985796
+Epoch 9, step 49500: Generator loss: 1.9961646406915445, discriminator loss: 0.3290849660535635
+Epoch 19, step 54000: Generator loss: 1.8578781396812813, discriminator loss: 0.352255903386407
+Epoch 28, step 58500: Generator loss: 1.7970310585498779, discriminator loss: 0.35997216095195933
+Epoch 38, step 63000: Generator loss: 1.790595402267244, discriminator loss: 0.35704792838626415
+Epoch 47, step 67500: Generator loss: 1.6337452937761876, discriminator loss: 0.399976011382207
+Epoch 57, step 72000: Generator loss: 1.553067971309023, discriminator loss: 0.4149618665973359
+Epoch 67, step 76500: Generator loss: 1.530716036346228, discriminator loss: 0.41230284125937433
+Epoch 76, step 81000: Generator loss: 1.4763377503554027, discriminator loss: 0.42583107221126515
+Epoch 86, step 85500: Generator loss: 1.4468076727655206, discriminator loss: 0.43238778846131376
+Epoch 95, step 90000: Generator loss: 1.341741836388908, discriminator loss: 0.4629372137056456
+Epoch 105, step 94500: Generator loss: 1.3321984058486116, discriminator loss: 0.4620412641101409
+Epoch 115, step 99000: Generator loss: 1.2581868343618232, discriminator loss: 0.48384387395116984
+Epoch 124, step 103500: Generator loss: 1.2193222048944967, discriminator loss: 0.4943520678679146
+Epoch 134, step 108000: Generator loss: 1.210901861535182, discriminator loss: 0.4949321229921447
+Epoch 143, step 112500: Generator loss: 1.1491395987007338, discriminator loss: 0.5172655161817865
+Epoch 153, step 117000: Generator loss: 1.1057299662033748, discriminator loss: 0.5293599960472835
+Epoch 163, step 121500: Generator loss: 1.0677826208141108, discriminator loss: 0.5450594869587152
+Epoch 172, step 126000: Generator loss: 1.0314588887823974, discriminator loss: 0.5558468225730787
+Epoch 182, step 130500: Generator loss: 0.988256526258255, discriminator loss: 0.5727653868463289
+Epoch 191, step 135000: Generator loss: 0.9866233132415357, discriminator loss: 0.5702601793143482
+Epoch 201, step 139500: Generator loss: 0.9552508686383555, discriminator loss: 0.5773511084649297
+Epoch 211, step 144000: Generator loss: 0.9940739690330269, discriminator loss: 0.5602315128578074
+Epoch 220, step 148500: Generator loss: 0.957331194546487, discriminator loss: 0.5762877901130254
+Epoch 230, step 153000: Generator loss: 0.940105734388034, discriminator loss: 0.5758193738725437
+Epoch 239, step 157500: Generator loss: 0.9115204359822786, discriminator loss: 0.5869797533286937
+Epoch 249, step 162000: Generator loss: 0.9108314050965834, discriminator loss: 0.5894923475186025
+Epoch 259, step 166500: Generator loss: 0.8571861512131169, discriminator loss: 0.6157774040169194
+Epoch 268, step 171000: Generator loss: 0.9255197024875222, discriminator loss: 0.5831143510672784
+Epoch 278, step 175500: Generator loss: 0.9227028174797725, discriminator loss: 0.5861976487901457
+Epoch 287, step 180000: Generator loss: 0.9116632200082172, discriminator loss: 0.5921973378062267
+Epoch 297, step 184500: Generator loss: 0.896604921857515, discriminator loss: 0.5983437673317067
+Epoch 307, step 189000: Generator loss: 0.8876715467108619, discriminator loss: 0.5988295680549406
+Epoch 316, step 193500: Generator loss: 0.8981850113338913, discriminator loss: 0.596900998810927
+Epoch 326, step 198000: Generator loss: 0.9132995079225976, discriminator loss: 0.5932699956099183
+Saving model with best loss so far (0.67)
+Saving model with best loss so far (0.66)
+Saving model with best loss so far (0.66)
+Saving model with best loss so far (0.65)
+Saving model with best loss so far (0.64)
+Saving model with best loss so far (0.63)
+Saving model with best loss so far (0.62)
+Epoch 335, step 202500: Generator loss: 0.8218274900118518, discriminator loss: 0.6400571531719623
+Epoch 345, step 207000: Generator loss: 0.9687661434412017, discriminator loss: 0.5792819880843164
+Saving model with best loss so far (0.62)
+Saving model with best loss so far (0.61)
+Saving model with best loss so far (0.59)
+Saving model with best loss so far (0.59)
+Saving model with best loss so far (0.58)
+Saving model with best loss so far (0.58)
+Saving model with best loss so far (0.57)
+Saving model with best loss so far (0.56)
+Saving model with best loss so far (0.56)
+Saving model with best loss so far (0.53)
+Saving model with best loss so far (0.51)
+Saving model with best loss so far (0.50)
+Epoch 355, step 211500: Generator loss: 0.7063771485355128, discriminator loss: 0.7654304582807753
+Epoch 364, step 216000: Generator loss: 0.8059421989785318, discriminator loss: 0.6302714381350409
+Epoch 374, step 220500: Generator loss: 0.9056880848937555, discriminator loss: 0.5996440589427954
+Epoch 383, step 225000: Generator loss: 0.9476164460844481, discriminator loss: 0.5872065601017749
+Epoch 393, step 229500: Generator loss: 0.8700628989405085, discriminator loss: 0.614429159349864
+Epoch 402, step 234000: Generator loss: 0.9316757869985379, discriminator loss: 0.5935855323341168
+Epoch 412, step 238500: Generator loss: 0.9884794838296045, discriminator loss: 0.5769219878051017
+Epoch 422, step 243000: Generator loss: 0.9787677707009845, discriminator loss: 0.5881667502986057
+Epoch 431, step 247500: Generator loss: 0.9812438432375566, discriminator loss: 0.5934927140739243
+Epoch 441, step 252000: Generator loss: 0.9866997564368781, discriminator loss: 0.5696533908512852
+Epoch 450, step 256500: Generator loss: 1.0139115802447014, discriminator loss: 0.5784266778760502
+Epoch 460, step 261000: Generator loss: 0.9905964203940505, discriminator loss: 0.5876510691973909
+Epoch 470, step 265500: Generator loss: 0.9866478079954776, discriminator loss: 0.5789911089009697
+Epoch 479, step 270000: Generator loss: 0.9699252954191648, discriminator loss: 0.593749921997389
+Epoch 489, step 274500: Generator loss: 0.9484661724964777, discriminator loss: 0.5820076752834854
+Epoch 498, step 279000: Generator loss: 0.9874062088992859, discriminator loss: 0.5781058085229654
+Ended: 2021-12-12 23:56:45.487848
+Elapsed: 1:00:20.502052
 #+end_example
 
 #+begin_src python :results none
@@ -890,7 +930,7 @@ def plot_losses(plot_data: PlotData, file_name: str="losses",
 output = plot_losses(plot_data)
 #+end_src
 
-#+begin_src python :results output html :exports output
+#+begin_src python :results output html :exports results
 print(output)
 #+end_src
 
@@ -906,7 +946,7 @@ plot_data = run_batch(parts, plot_data, batch_size=500)
 output = plot_losses(plot_data, file_name="losses_2", title="Training Loss 2")
 #+end_src
 
-#+begin_src python :results output html :exports output
+#+begin_src python :results output html :exports results
 print(output)
 #+end_src
 
@@ -916,7 +956,6 @@ print(output)
   <p>Figure Missing</p>
 </object>
 #+end_export
-
 
 ** Looking at the Final model.
 #+begin_src python :results none
@@ -952,12 +991,11 @@ def plot_image(image: torch.Tensor,
 
 #+begin_src python :results output :exports both
 fake_noise = get_noise(500, z_dim, device=device)
+parts.generator.load_state_dict(torch.load(MODEL_PATH))
 fake = parts.generator(fake_noise)
 plot_image(image=fake, filename="fake_digits.png", title="Fake Digits")
 #+end_src
 
-
  [[file:fake_digits.png]]
 
-
-I thought something was wrong with the losses, at first, since they seem to go up over time, but the loss is based on the Generator and the Discriminator being able to do their job, so as they get better, the loss goes up. The main one for us to note is the Discriminator loss, since this is how much it gets fooled by the Generator. Since it's still going up this likely means that the Generator can still improve.
+It's interesting that there's that crossover point where the generator's loss dips below the discriminator's and then they diverge again and the generator seems to stop improving. The digits for the best model do look passable as human-written digits, in most cases (depending on the human it might be in all cases).
