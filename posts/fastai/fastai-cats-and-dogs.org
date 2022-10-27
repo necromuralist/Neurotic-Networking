@@ -1,0 +1,126 @@
+#+BEGIN_COMMENT
+.. title: FastAI Cats and Dogs
+.. slug: fastai-cats-and-dogs
+.. date: 2022-10-25 17:50:22 UTC-07:00
+.. tags: fastai
+.. category: FastAI
+.. link: 
+.. description: A look at the FastAI Cats and Dogs quick-start example.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-02612301-e477-46a3-a44c-bf86ac2918c6-ssh.json
+* The QuickStart
+** Importing
+
+#+begin_src python :results none
+# python standard library
+from pathlib import Path
+
+# pytorch
+import torch
+#+end_src
+
+As noted on [[https://stackoverflow.com/questions/65128126/fast-ai-attributeerror-learner-object-has-no-attribute-fine-tune][Stack Overflow]], FastAI does a lot of monkey patching, so if you just import something where it's defined it might not have the method or attribute you expect. In this case the ``vision_learner`` is defined in ``fastai.vision.learner`` but if you try and import it from there the object you get back won't have the ``to_fp16`` method so you have to import it from ``fastai.vision.all``, which is probably why they use the ``*`` import, even though it's one of the things you're told to avoid when you learn python. Since there's no way to avoid ``all`` I'll import it from there but I'll probably also document the original modules where things are defined to make it easier to look things up.
+
+#+begin_src python :results none
+# from fastai.data.external import untar_data, URLs
+# from fastai.data.transforms import get_image_files
+# from fastai.metrics import error_rate
+# from fastai.vision.learner import vision_learner
+# from fastai.vision.augment import Resize
+# from fastai.vision.core import PILImage
+# from fastai.vision.data import ImageDataLoaders
+# 
+# from torchvision.models.resnet import resnet34
+#+end_src
+
+#+begin_src python :results none
+from fastai.vision.all import (
+    ImageDataLoaders,
+    PILImage,
+    Resize, 
+    URLs,
+    error_rate,
+    get_image_files,
+    resnet34,
+    untar_data,
+    vision_learner,
+)
+#+end_src
+
+** Setting Up
+
+#+begin_src python :results output :exports both
+path = untar_data(URLs.PETS)/"images"
+print(path)
+#+end_src
+
+#+RESULTS:
+: /home/athena/.fastai/data/oxford-iiit-pet/images
+
+#+begin_src python :results none
+def its_a_cat(x) -> bool:
+    return x[0].isupper()
+#+end_src
+
+#+begin_src python :results none
+loader = ImageDataLoaders.from_name_func(
+    path,
+    get_image_files(path),
+    valid_pct=0.2,
+    seed=42,
+    label_func=its_a_cat,
+    item_tfms=Resize(224)
+)
+#+end_src
+
+#+begin_src python :results none
+learner = vision_learner(
+    loader, resnet34, metrics=error_rate)
+cat_model = learner.to_fp16()
+#+end_src
+
+** Train It
+
+For some reason fastai assumes that you're running it in a jupyter notebook and dumps out progress bar with no simple way to disable it permanently. As a workaround the context-manager using ~no_bar~ turns off the progress bar temporarily.
+
+#+begin_src python :results output :exports both
+with cat_model.no_bar():
+    cat_model.fine_tune(1)
+#+end_src
+
+#+RESULTS:
+: [0, 0.03754512593150139, 0.008992760442197323, 0.004736130125820637, '00:22']
+: [0, 0.03528735414147377, 0.02503746934235096, 0.0067658997140824795, '00:27']
+
+Fastai really seems to want to force you to use their system - the output is printed but not returned so I can't re-format it to look correct here. The columns for the two rows of output are:
+
+ - epoch
+ - train_loss
+ - valid_loss
+ - error_rate
+ - time
+
+#+begin_src python :results none
+image = PILImage.create(Path("~/test-cat.jpg").expanduser())
+#+end_src
+
+#+begin_src python :results output :exports both
+with cat_model.no_bar():
+    ees_cat, _, probablilities = cat_model.predict(image)
+print(f"I think this is a cat: {ees_cat}")
+print(f"The probability that it's a cat is {probablilities[1].item():.2f}")
+#+end_src
+
+#+RESULTS:
+: I think this is a cat: True
+: The probability that it's a cat is 1.00
+
