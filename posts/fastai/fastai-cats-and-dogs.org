@@ -16,16 +16,13 @@
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-02612301-e477-46a3-a44c-bf86ac2918c6-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b1e6848a-a0be-4e7c-8551-7b352c46055e-ssh.json
 * The QuickStart
 ** Importing
 
 #+begin_src python :results none
 # python standard library
 from pathlib import Path
-
-# pytorch
-import torch
 #+end_src
 
 As noted on [[https://stackoverflow.com/questions/65128126/fast-ai-attributeerror-learner-object-has-no-attribute-fine-tune][Stack Overflow]], FastAI does a lot of monkey patching, so if you just import something where it's defined it might not have the method or attribute you expect. In this case the ``vision_learner`` is defined in ``fastai.vision.learner`` but if you try and import it from there the object you get back won't have the ``to_fp16`` method so you have to import it from ``fastai.vision.all``, which is probably why they use the ``*`` import, even though it's one of the things you're told to avoid when you learn python. Since there's no way to avoid ``all`` I'll import it from there but I'll probably also document the original modules where things are defined to make it easier to look things up.
@@ -58,6 +55,8 @@ from fastai.vision.all import (
 
 ** Setting Up
 
+This downloads the [[https://www.robots.ox.ac.uk/~vgg/data/pets/][Oxford-IIIT Pet Dataset]]. Despite the name, there are only cats and dogis in the dataset (37 breeds across the species).
+
 #+begin_src python :results output :exports both
 path = untar_data(URLs.PETS)/"images"
 print(path)
@@ -66,10 +65,23 @@ print(path)
 #+RESULTS:
 : /home/athena/.fastai/data/oxford-iiit-pet/images
 
+The names of the files give the breed of the pet (either cat or dog) with dog names all in lower case (e.g. "yorkshire_terrire_9.jpg") and cats with the first initials capitalized (e.g. "Abyssinian_100.jpg"). So our function to categorize the training data will check if the first letter is a capital letter and label it True if it is, False if it isn't, using the following function.
+
 #+begin_src python :results none
-def its_a_cat(x) -> bool:
-    return x[0].isupper()
+def its_a_cat(filename: str) -> bool:
+    """Decide if file is a picture of a cat
+
+    Args:
+     filename: name of file where first letter is capitalized if it's a cat
+
+    Returns:
+     True if first letter is capitalized (so it's a picture of a cat)
+    """
+    return filename[0].isupper()
 #+end_src
+
+
+This next bit creates a batch data loader for us.
 
 #+begin_src python :results none
 loader = ImageDataLoaders.from_name_func(
@@ -82,15 +94,19 @@ loader = ImageDataLoaders.from_name_func(
 )
 #+end_src
 
+
+Now we create the model that learns to detect cats.
+
 #+begin_src python :results none
 learner = vision_learner(
     loader, resnet34, metrics=error_rate)
+
 cat_model = learner.to_fp16()
 #+end_src
 
 ** Train It
 
-For some reason fastai assumes that you're running it in a jupyter notebook and dumps out progress bar with no simple way to disable it permanently. As a workaround the context-manager using ~no_bar~ turns off the progress bar temporarily.
+For some reason fastai assumes that you'll only run it in a jupyter notebook and dumps out a progress bar with no simple way to disable it permanently. As a workaround the context-manager using ~no_bar~ turns off the progress bar temporarily.
 
 #+begin_src python :results output :exports both
 with cat_model.no_bar():
@@ -98,8 +114,8 @@ with cat_model.no_bar():
 #+end_src
 
 #+RESULTS:
-: [0, 0.03754512593150139, 0.008992760442197323, 0.004736130125820637, '00:22']
-: [0, 0.03528735414147377, 0.02503746934235096, 0.0067658997140824795, '00:27']
+: [0, 0.16633917391300201, 0.02602040022611618, 0.009472260251641273, '03:32']
+: [0, 0.06965431571006775, 0.028812119737267494, 0.005412719678133726, '00:29']
 
 Fastai really seems to want to force you to use their system - the output is printed but not returned so I can't re-format it to look correct here. The columns for the two rows of output are:
 
@@ -109,18 +125,75 @@ Fastai really seems to want to force you to use their system - the output is pri
  - error_rate
  - time
 
+Given these labels, the output of the last block shows that the error rate for the second epoch was 0.005, and that for some reason the first epoch took three minutes and thirty-two seconds... This is an anomaly, I'll have to look into what happened.
+
+** A Test Image
+
 #+begin_src python :results none
-image = PILImage.create(Path("~/test-cat.jpg").expanduser())
+cat_image = PILImage.create(Path("~/test-cat.jpg").expanduser())
 #+end_src
 
+[[file:test-cat.jpg]]
+
 #+begin_src python :results output :exports both
+POSITIVE, NEGATIVE = " think", " don't think"
 with cat_model.no_bar():
-    ees_cat, _, probablilities = cat_model.predict(image)
-print(f"I think this is a cat: {ees_cat}")
+    ees_cat, _, probablilities = cat_model.predict(cat_image)
+print(f"I{POSITIVE if ees_cat=='True' else NEGATIVE} this is a cat.")
 print(f"The probability that it's a cat is {probablilities[1].item():.2f}")
 #+end_src
 
 #+RESULTS:
-: I think this is a cat: True
+: I think this is a cat.
 : The probability that it's a cat is 1.00
+
+So, it's pretty sure that this is a cat.
+
+** A Negative Test Image
+
+#+begin_src python :results none
+dog_image = PILImage.create(Path("~/test-dog.jpg").expanduser())
+#+end_src
+
+[[file:test-dog.jpg]]
+
+#+begin_src python :results output :exports both
+with cat_model.no_bar():
+    ees_cat, _, probablilities = cat_model.predict(dog_image)
+print(f"I{POSITIVE if ees_cat=='True' else NEGATIVE} this is a cat.")
+print(f"The probability that it's a cat is {probablilities[1].item():.2f}")
+#+end_src
+
+#+RESULTS:
+: I don't think this is a cat.
+: The probability that it's a cat is 0.00
+
+
+And it's sure that this isn't a cat.
+
+** A Strange Cat
+
+#+begin_src python :results none
+elf_image = PILImage.create(Path("~/elf-cat.jpg").expanduser())
+#+end_src
+
+[[file:elf-cat.jpg]]
+
+#+begin_src python :results output :exports both
+with cat_model.no_bar():
+    ees_cat, _, probablilities = cat_model.predict(elf_image)
+print(f"I{POSITIVE if ees_cat=='True' else NEGATIVE} this is a cat.")
+print(f"The probability that it's a cat is {probablilities[1].item():.2f}")
+#+end_src
+
+#+RESULTS:
+: I think this is a cat.
+: The probability that it's a cat is 1.00
+
+
+* Sources
+** Test Images (Wikimedia commons)
+ - [[https://commons.wikimedia.org/wiki/File:Golden_Retriever_Hund_Dog.JPG][Golden Retriever]]
+ - [[https://commons.wikimedia.org/wiki/File:Cat_scratching.jpg][Cat Scratching]]
+ - [[https://commons.wikimedia.org/wiki/File:Elf1111111.jpg][Elf Cat]]
 
