@@ -1,0 +1,264 @@
+#+BEGIN_COMMENT
+.. title: FastAI Lesson 0: Is It A Bird?
+.. slug: fastai-lesson-0-is-it-a-bird
+.. date: 2022-11-07 16:12:55 UTC-08:00
+.. tags: fastai
+.. category: FastAI
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-c5524818-97ff-49dd-9863-d94642d9f471-ssh.json
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+* What Is This?
+This is a run-through of Lesson 0 of the FastAI [[https://course.fast.ai/][Practical Deep Learning for Coders]] course. In it we search for photos using a search engine and build a neural-network to classify the images that belong to one of the two classes of photos that we use.
+
+** Imports
+
+For the search engine we'll use [[https://duckduckgo.com/][DuckDuckGo]] via the [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search]] package (from [[https://pypi.org/project/duckduckgo-search/][pypi]]).
+
+#+begin_src python :results none
+# python
+from functools import partial
+from pathlib import Path
+from time import sleep
+
+# pypi
+from duckduckgo_search import ddg_images
+
+# fastai
+from fastcore.all import L as ListLike
+from fastai.data.all import (
+    CategoryBlock,
+    DataBlock,
+    parent_label,
+    RandomSplitter,
+)
+from fastai.vision.all import (
+    download_images,
+    get_image_files,
+    ImageBlock,
+    Resize,
+    resnet18,
+    resize_images,
+    verify_images,
+    vision_learner,
+    error_rate,
+    PILImage,
+)
+from fastdownload import download_url
+
+# monkey shines
+from graeae import Timer
+
+TIMER = Timer()
+#+end_src
+
+* Getting the Images
+We're going to create an alias for the ~ddg_images~ function to make the search and then return only the URLs of the images that DuckDuckGo finds.
+
+#+begin_src python :results none
+def search_images(keywords: str, max_images: int=200) -> ListLike:
+    """Search duckduckgo images
+
+    Args:
+     keywords: A string with keywords to give to duckduckgo
+     max_images: the upper limit for how many images to return
+
+    Returns:
+     a list-like object with the URLs of the images found
+    """
+    return ListLike(
+        ddg_images(keywords,
+                   max_results=max_images)).itemgot('image')
+#+end_src
+
+** A Test Of Birds
+We'll start by checking that our searcher is working using the keywords "bird" and "photos".
+
+#+begin_src python :results output :exports both
+URLS = search_images('bird photos', max_images=1)
+print(URLS[0])
+#+end_src
+
+#+RESULTS:
+: https://2.bp.blogspot.com/-LZ4VixDdVoE/Tq0ZhPycLsI/AAAAAAAADDM/OKyayfW-z4U/s1600/beautiful_Birds_wallpapers_pictures_Kingfisher_Lilac+Breasted+Roller+Bird.JPG
+
+And now let's try and download it.
+
+#+begin_src python :results none
+BIRD_OUTPUT = "/tmp/bird.jpg"
+download_url(URLS[0], OUTPUT, show_progress=False)
+#+end_src
+
+
+And Here's the image we downloaded.
+
+[[file:bird.jpg]]
+
+Seems to work.
+
+Now for the forest.
+
+#+begin_src python :results none
+FOREST_OUTPUT = "/tmp/forest.jpg"
+download_url(search_images('forest photos',
+                           max_images=1)[0],
+             OUTPUT,
+             show_progress=False)
+#+end_src
+
+[[file:forest.jpg]]
+
+** Build A Data Set
+
+#+begin_src python :results output :exports both
+KEYWORDS = ("forest", "bird")
+DATA_PATH = Path("/tmp/bird-or-forest/")
+PAUSE = 10
+PAUSE_BETWEEN_SEARCHES = partial(sleep, PAUSE)
+CONDITIONS = tuple(("", "sun ", "shade "))
+IMAGE_MAXIMUM = 400
+
+print(f"Estimated Run Time: {len(CONDITIONS) * len(KEYWORDS) * PAUSE} seconds")
+
+with TIMER:
+    for keyword in KEYWORDS:
+        destination = DATA_PATH/keyword
+        destination.mkdir(exist_ok=True, parents=True)
+        
+    
+        for condition in CONDITIONS:
+            SEARCH_TERMS = f"{keyword} {condition}photo"
+            print(SEARCH_TERMS)
+            download_images(
+                destination,
+                urls=search_images(SEARCH_TERMS)
+            )
+            PAUSE_BETWEEN_SEARCHES()
+            resize_images(destination,
+                          max_size=IMAGE_MAXIMUM,
+                          dest=destination)
+#+end_src
+
+#+RESULTS:
+: Estimated Run Time: 60 seconds
+: Started: 2022-11-08 16:43:06.642784
+: forest photo
+: forest sun photo
+: forest shade photo
+: bird photo
+: bird sun photo
+: bird shade photo
+: Ended: 2022-11-08 16:47:24.764018
+: Elapsed: 0:04:18.121234
+
+** Verify the Dataset
+
+Some of the images might be invalid for whatever reason, we'll use a fastai builtin function (~verify_images~) to check them and [[https://docs.python.org/3/library/pathlib.html#pathlib.Path.unlink][Path.unlnk]] to delete the files that were deemed invalid.
+
+#+begin_src python :results output :exports both
+failed = verify_images(get_image_files(DATA_PATH))
+failed.map(Path.unlink)
+print(f"{len(failed)} images were deemed failures.")
+#+end_src
+
+#+RESULTS:
+: 53 images were deemed failures.
+
+* Training the Model
+
+#+begin_src python :results none
+loaders = DataBlock(
+    blocks=(ImageBlock, CategoryBlock), 
+    get_items=get_image_files, 
+    splitter=RandomSplitter(valid_pct=0.2, seed=42),
+    get_y=parent_label,
+    item_tfms=[Resize(192, method='squish')]
+).dataloaders(DATA_PATH)
+#+end_src
+
+| Parameter | Argument                      | Description                                                               |
+|-----------+-------------------------------+---------------------------------------------------------------------------|
+| blocks    | (~ImageBlock, CategoryBlock~) | Defines the inputs as images and outputs as categories                    |
+| get_items | ~get_image_files~             | A function to search for image files.                                     |
+| splitter  | ~RandomSplitter~              | A class to split the data into training (80%) and validation (20%)        |
+| get_y     | ~parent_label~                | A function that grabs the name of the folder an image is in as the label. |
+| item_tfms | ~Resize~                      | Resize all the images to a uniform size (192 x 192)                       |
+
+
+#+begin_src python :results output :exports both
+learner = vision_learner(loaders, resnet18, metrics=error_rate)
+with learner.no_bar():
+    learner.fine_tune(3)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: /home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+:   warnings.warn(
+: /home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet18_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet18_Weights.DEFAULT` to get the most up-to-date weights.
+:   warnings.warn(msg)
+: Downloading: "https://download.pytorch.org/models/resnet18-f37072fd.pth" to /home/athena/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth
+:   0%|          | 0.00/44.7M [00:00<?, ?B/s]
+: [0, 0.21283966302871704, 0.02193957008421421, 0.006906077265739441, '00:06']
+: [0, 0.02172856032848358, 0.020356157794594765, 0.008287292905151844, '00:07']
+: [1, 0.014296791516244411, 0.005196973215788603, 0.0013812155229970813, '00:07']
+: [2, 0.008343205787241459, 0.0004556080384645611, 0.0, '00:07']
+:END:
+
+The pytorch/torchvision warnings indicate that the API has changed and fastai is using deprecated terms, but it's still working for now so oh, well.
+
+* Some Examples
+
+** A Helper
+
+#+begin_src python :results none
+def predict_category(path: str, learner):
+    
+    with learner.no_bar():
+        prediction,_, probabilities = learner.predict(
+            PILImage.create(path))
+    print(f"This is a {prediction}.")
+    print(f"Probability it's a bird: {float(probabilities[0]):.2f}")
+    return
+
+predict = partial(predict_category, learner=learner)
+#+end_src
+
+Let's look at a couple of examples to see how to use the model. First, a crow.
+
+[[file:crow.jpg]]
+
+#+begin_src python :results output :exports both
+predict("/tmp/crow.jpg")
+#+end_src
+
+#+RESULTS:
+: This is a bird.
+: Probability it's a bird: 1.00
+
+Now a plane.
+
+[[file:plane.jpg]]
+
+#+begin_src python :results output :exports both
+predict("/tmp/plane.jpg")
+#+end_src
+
+#+RESULTS:
+: This is a bird.
+: Probability it's a bird: 1.00
+
+Here we see a problem with machine learning models (and humans too) - they need to make a classification even if they have no idea what the immage is. It's 100%  sure that it's a bird, but since it was only trained on two categories it might be truer to say that it's 100% sure that it isn't a forest. Even if it's true that the plane has enough attributes in common with a bird to say that it's ambiguous, the certainty of the model seems problamatic.
+
+* Sources
+- [[https://commons.wikimedia.org/wiki/File:Corvus_corone_-near_Canford_Cliffs,_Poole,_England-8.jpg][Crow Image]]: Ian Kirk from Broadstone, Dorset, UK, CC BY 2.0, via Wikimedia Commons
+- [[]https://www.publicdomainpictures.net/en/view-image.php?image=179305&picture=flying-plane][Plane Image]]: Petr Kratochvil via [[https://www.publicdomainpictures.net][Public Domain Pictures]]
