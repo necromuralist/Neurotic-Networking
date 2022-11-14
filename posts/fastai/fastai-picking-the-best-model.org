@@ -1,0 +1,467 @@
+#+BEGIN_COMMENT
+.. title: FastAI: Picking the Best Model
+.. slug: fastai-picking-the-best-model
+.. date: 2022-11-12 20:41:38 UTC-08:00
+.. tags: fastai,model selection
+.. category: FastAI
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-717d9490-4839-4376-8a8a-99db9be9dc30-ssh.json
+
+
+#+begin_src python :results none :exports none
+import torch
+assert torch.cuda.is_available()
+#+end_src
+* In the Beginning
+In this notebook we'll go over the fastai course lesson 3 - "Which image models are best?". We'll use the benchmarking data from [[https://timm.fast.ai/][timm]], a collection of *pyTorch IMage Models* to compare how different computer vision models performed using time-per-image and accuracy as our metrics.
+
+** Imports and Setup
+#+begin_src python :results none
+# from python
+from functools import partial
+from pathlib import Path
+
+# from pypi
+from tabulate import tabulate
+
+import altair
+import pandas
+
+# monkey
+from graeae.visualization.altair_helpers import output_path, save_chart
+#+end_src
+
+#+begin_src python :results none
+TABLE = partial(tabulate, tablefmt="orgtbl", headers=["Column", "Value"] )
+
+SLUG = "fastai-picking-the-best-model"
+OUTPUT_PATH = output_path(SLUG)
+save_it = partial(save_chart, output_path=OUTPUT_PATH)
+#+end_src
+** The Data
+We'll be using data that's part of the [[https://github.com/rwightman/pytorch-image-models][git repository for ~timm~]]. Once you clone it the file we want will be in ~results/results-imagenet.csv~.
+
+#+begin_src python :results output :exports both
+
+RESULTS = Path("~/projects/third-party/"
+               "pytorch-image-models/results").expanduser()
+DATA = RESULTS/"results-imagenet.csv"
+results_frame = pandas.read_csv(DATA)
+
+print(TABLE(results_frame.iloc[0].to_frame()))
+#+end_src
+
+#+RESULTS:
+
+| Column        | Value                  |
+|---------------+------------------------|
+| model         | beit_large_patch16_512 |
+| top1          | 88.602                 |
+| top1_er r     | 11.398                 |
+| top5          | 98.656                 |
+| top5_err      | 1.344                  |
+| param_count   | 305.67                 |
+| img_size      | 512                    |
+| crop_pct      | 1.0                    |
+| interpolation | bicubic                |
+
+It isn't obvious yet what this is, but let's move along.
+
+*** Get Data
+We're going to merge our "results" data with two "benchmark" files (also in the "results" folder) doing some cryptic filtering and data wrangling. It's not obvious what everything is doing so let's use it first and maybe figure it out later.
+
+#+begin_src python :results none
+BENCHMARK_FILE = "benchmark-{part}-amp-nhwc-pt111-cu113-rtx3090.csv"
+FAMILY_REGEX = r'^([a-z]+?(?:v2)?)(?:\d|_|$)'
+FAMILY_FILTER = r'^re[sg]netd?|beit|convnext|levit|efficient|vit|vgg'
+
+def get_data(part: str,
+             results: pandas.DataFrame=results_frame) -> pandas.DataFrame:
+    """Load a benchmark dataframe
+
+    Args:
+     part: part of filename with label (infer or train)
+     results: DataFrame created from results file
+
+    Returns:
+     benchmark data merged with results
+    """
+    SAMPLE_RATE = f"{part}_samples_per_sec"
+    frame = pandas.read_csv(RESULTS/BENCHMARK_FILE.format(part=part)).merge(
+        results, on='model')
+    frame['secs'] = 1. / frame[SAMPLE_RATE]
+    frame['family'] = frame.model.str.extract(FAMILY_REGEX)
+    frame = frame[~frame.model.str.endswith('gn')]
+    IN_FILTERER = frame.model.str.contains('in22'), "family"
+    frame.loc[IN_FILTERER] = frame.loc[IN_FILTERER] + '_in22'
+    
+    RESNET_FILTERER = frame.model.str.contains('resnet.*d'),'family'
+    frame.loc[RESNET_FILTERER] = frame.loc[RESNET_FILTERER] + 'd'
+    return frame[frame.family.str.contains(FAMILY_FILTER)]
+#+end_src
+
+*** Build The Base Chart
+
+#+begin_src python :results none
+SELECTION = altair.selection_multi(fields=["family"], bind="legend")
+COLUMNS = ["secs", "top1", "family", "model"]
+
+def build_chart(frame: pandas.DataFrame, infer_or_train: str,
+                add_selection: bool=True) -> altair.Chart:
+    """Build the basic chart for our benchmarks
+
+    Note:
+     the ``add_selection`` function can only be called once on a chart so to
+     add more layers don't add it here, add it later to the end
+
+    Args:
+     frame: benchmark frame to plot
+     infer_or_train: which image size column (infer | train)
+     add_selection: whether to add the selection at the end
+    """
+    # altair includes all the data even if it's not used in the plot
+    # reducing the dataframe to just the data you need
+    # makes the file smaller
+    SIZE = f"{infer_or_train}_img_size"
+    frame = frame[COLUMNS + [SIZE]]
+    chart = altair.Chart(frame).mark_circle().encode(
+        x=altair.X("secs", scale=altair.Scale(type="log"),
+                   axis=altair.Axis(title="Seconds Per Image (log)")),
+        y=altair.Y("top1",
+                   scale=altair.Scale(zero=False),
+                   axis=altair.Axis(title="Imagenet Accuracy")),
+        size=altair.Size(SIZE,
+                         scale=altair.Scale(
+                             type="pow", exponent=2)),
+        color="family",
+        tooltip=[altair.Tooltip("family", title="Architecture Family"),
+                 altair.Tooltip("model", title="Model"),
+                 altair.Tooltip(SIZE, format=",", title="Image Size"),
+                 altair.Tooltip("top1", title="Accuracy"),
+                 altair.Tooltip("secs", title="Time (sec)", format=".2e")
+                 ]
+        )
+    if add_selection:
+        chart = chart.encode(opacity=altair.condition(
+                SELECTION,
+                altair.value(1),
+                altair.value(0.1))
+        ).add_selection(SELECTION)
+    return chart
+#+end_src
+
+*** Plot All the Architectures
+#+begin_src python :results none
+def plot_it(frame: pandas.DataFrame,
+            title: str,
+            filename: str,
+            infer_or_train: str,
+            width: int=800,
+            height: int=525) -> None:
+    """Make an altair plot of the frame
+
+    Args:
+     frame: benchmark frame to plot
+     title: title to give the plot
+     filename: name of file to save the chart to
+     infer_or_train: which image size column (infer or train)
+     width: width of plot in pixels
+     height: height of plot in pixels
+    """
+    chart = build_chart(frame, infer_or_train).properties(
+        title=title,
+        width=width,
+        height=height,
+    )
+
+    save_it(chart, filename)
+    return
+#+end_src
+
+*** Plot Some of the Architectures
+
+To make it easier to understand, the author of the fastai lesson chose a subset of the models to plot.
+
+- a subset which represents a single key model from each of the families that are looking best
+- convnext models that have been pretrained on the larger 22,000 category imagenet sample (`convnext_in22`) 
+- convnext model that haven't (`convnext`). 
+
+**Note:**
+The fastai notebook points out that because of the different sample sizes used to train the models it isn't a simple case of picking the "best" performing model (given a speed vs accuracy trade off). The pytorch-image-models repository has information to help research what went into the training.
+
+
+#+begin_src python :results none
+FAMILIES = 'levit|resnetd?|regnetx|vgg|convnext.*|efficientnetv2|beit'
+
+def subset_regression(frame: pandas.DataFrame,
+                      title: str,
+                      filename: str,
+                      infer_or_train: str,
+                      width: int=800,
+                      height: int=525) -> None:
+    """Plot subset of model-families
+
+    Args:
+     frame: frame with benchmark data
+     title: title to give the plot
+     filename: name to save the file
+     infer_or_train: which image size column
+     width: width of plot in pixels
+     height: height of plot in pixels
+    """
+    subset = frame[frame.family.str.fullmatch(FAMILIES)]
+
+    base = build_chart(subset, infer_or_train, add_selection=False)
+
+    line = base.transform_regression(
+        "secs", "top1",
+        groupby=["family"],
+        method="log",
+        ).mark_line().encode(
+            opacity=altair.condition(
+                SELECTION,
+                altair.value(1),
+                altair.value(0.1)
+            ))
+
+    chart = base.encode(
+        opacity=altair.condition(
+        SELECTION,
+        altair.value(1),
+        altair.value(0.1)
+    ))
+
+    chart = altair.layer(chart, line).properties(
+        title=title,
+        width=width,
+        height=height,
+    ).add_selection(SELECTION)
+
+    save_it(chart, filename)
+    return
+#+end_src
+
+*** Inference
+
+#+begin_src python :results output :exports both
+inference = get_data('infer')
+print(TABLE(inference.iloc[0].to_frame()))
+#+end_src
+
+#+RESULTS:
+| Column                | Value                 |
+|-----------------------+-----------------------|
+| model                 | levit_128s            |
+| infer_samples_per_sec | 21485.8               |
+| infer_step_time       | 47.648                |
+| infer_batch_size      | 1024                  |
+| infer_img_size        | 224                   |
+| param_count_x         | 7.78                  |
+| top1                  | 76.514                |
+| top1_err              | 23.486                |
+| top5                  | 92.87                 |
+| top5_err              | 7.13                  |
+| param_count_y         | 7.78                  |
+| img_size              | 224                   |
+| crop_pct              | 0.9                   |
+| interpolation         | bicubic               |
+| secs                  | 4.654236751715086e-05 |
+| family                | levit                 |
+
+
+
+#+begin_src python :results output :exports both
+plot_it(inference, title="Inference", 
+        filename="inference-benchmark",
+        infer_or_train="infer")
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="inference-benchmark.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+While we still don't have an explanation of exactly what we're looking at, in the broadest it's a plot of the time it takes for a model to process an image (in seconds on a logarithmic scale) versus the accuracy when categorizing the Imagenet dataset.
+
+ - The color matches the family in the legend.
+ - The size is proportional to the number of seconds it took.
+ - Clicking on a family in the legend will highlight it and suppress the other families.
+ - Hovering over a circle gives the exact information for that point.
+
+I believe that the accuracy is the best performance for a model, so even though a family might have multiple points in the plot, each model will only have one point to represent its best accuracy and the time it took.
+
+**** A Subset
+
+To make it easier to see what's going on the author(s) of the fastai lesson paired down the dataset to a subset of families and then added regression lines to compare them.
+
+
+#+begin_src python :results output :exports both
+subset_regression(inference,
+                  title="Inference Subset",
+                  filename="inference-subset-benchmark",
+                  infer_or_train="infer")
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="inference-subset-benchmark.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+*** Training
+
+#+begin_src python :results output :exports both
+training = get_data("train")
+plot_it(training, title="Training", 
+        filename="training-benchmark",
+        infer_or_train="train")
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training-benchmark.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+#+begin_src python :results output :exports both
+subset_regression(training,
+                  title="Training Subset",
+                  filename="training-subset-benchmark",
+                  infer_or_train="train")
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="training-subset-benchmark.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
+
+* Sources
+- [[https://timm.fast.ai/][PyTorch Image Models]]: Documentation for the ~timm~ pre-built computer vision models for pytorch.
+- [[https://github.com/rwightman/pytorch-image-models][Pytorch Image Models on github]]: Repository for ~timm~.
+* Raw
+#+begin_example python
+
+# ## Inference results
+
+# Here's the results for inference performance (see the last section for training performance). In this chart:
+# 
+# - the x axis shows how many seconds it takes to process one image (**note**: it's a log scale)
+# - the y axis is the accuracy on Imagenet
+# - the size of each bubble is proportional to the size of images used in testing
+# - the color shows what "family" the architecture is from.
+# 
+# Hover your mouse over a marker to see details about the model. Double-click in the legend to display just one family. Single-click in the legend to show or hide a family.
+# 
+# **Note**: on my screen, Kaggle cuts off the family selector and some plotly functionality -- to see the whole thing, collapse the table of contents on the right by clicking the little arrow to the right of "*Contents*".
+
+# In[ ]:
+
+
+import plotly.express as px
+w,h = 1000,800
+
+def show_all(df, title, size):
+    return px.scatter(df, width=w, height=h, size=df[size]**2, title=title,
+        x='secs',  y='top1', log_x=True, color='family', hover_name='model', hover_data=[size])
+
+
+# In[ ]:
+
+
+show_all(df, 'Inference', 'infer_img_size')
+
+
+
+# In[ ]:
+
+
+subs = 'levit|resnetd?|regnetx|vgg|convnext.*|efficientnetv2|beit'
+
+
+# In this chart, I'll add lines through the points of each family, to help see how they compare -- but note that we can see that a linear fit isn't actually ideal here! It's just there to help visually see the groups.
+
+# In[ ]:
+
+
+def show_subs(df, title, size):
+    df_subs = df[df.family.str.fullmatch(subs)]
+    return px.scatter(df_subs, width=w, height=h, size=df_subs[size]**2, title=title,
+        trendline="ols", trendline_options={'log_x':True},
+        x='secs',  y='top1', log_x=True, color='family', hover_name='model', hover_data=[size])
+
+
+# In[ ]:
+
+
+show_subs(df, 'Inference', 'infer_img_size')
+
+
+# From this, we can see that the *levit* family models are extremely fast for image recognition, and clearly the most accurate amongst the faster models. That's not surprising, since these models are a hybrid of the best ideas from CNNs and transformers, so get the benefit of each. In fact, we see a similar thing even in the middle category of speeds -- the best is the ConvNeXt, which is a pure CNN, but which takes advantage of ideas from the transformers literature.
+# 
+# For the slowest models, *beit* is the most accurate -- although we need to be a bit careful of interpreting this, since it's trained on a larger dataset (ImageNet-21k, which is also used for *vit* models).
+# 
+# I'll add one other plot here, which is of speed vs parameter count. Often, parameter count is used in papers as a proxy for speed. However, as we see, there is a wide variation in speeds at each level of parameter count, so it's really not a useful proxy.
+# 
+# (Parameter count may be be useful for identifying how much memory a model needs, but even for that it's not always a great proxy.)
+
+# In[ ]:
+
+
+px.scatter(df, width=w, height=h,
+    x='param_count_x',  y='secs', log_x=True, log_y=True, color='infer_img_size',
+    hover_name='model', hover_data=['infer_samples_per_sec', 'family']
+)
+
+
+# ## Training results
+
+# We'll now replicate the above analysis for training performance. First we grab the data:
+
+# In[ ]:
+
+
+tdf = get_data('train', 'train_samples_per_sec')
+
+
+# Now we can repeat the same *family* plot we did above:
+
+# In[ ]:
+
+
+show_all(tdf, 'Training', 'train_img_size')
+
+
+# ...and we'll also look at our chosen subset of models:
+
+# In[ ]:
+
+
+show_subs(tdf, 'Training', 'train_img_size')
+
+
+# Finally, we should remember that speed depends on hardware. If you're using something other than a modern NVIDIA GPU, your results may be different. In particular, I suspect that transformers-based models might have worse performance in general on CPUs (although I need to study this more to be sure).
+
+# In[ ]:
+
+
+
+
+
+#+end_example
