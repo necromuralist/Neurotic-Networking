@@ -16,8 +16,7 @@
 %load_ext autoreload
 %autoreload 2
 #+END_SRC
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-717d9490-4839-4376-8a8a-99db9be9dc30-ssh.json
-
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-d49dae16-d566-49f7-8773-a70722f3a741-ssh.json
 
 #+begin_src python :results none :exports none
 import torch
@@ -45,21 +44,21 @@ from graeae.visualization.altair_helpers import output_path, save_chart
 #+begin_src python :results none
 TABLE = partial(tabulate, tablefmt="orgtbl", headers=["Column", "Value"] )
 
+PLOT_WIDTH, PLOT_HEIGHT = 900, 600
 SLUG = "fastai-picking-the-best-model"
 OUTPUT_PATH = output_path(SLUG)
 save_it = partial(save_chart, output_path=OUTPUT_PATH)
 #+end_src
 ** The Data
-We'll be using data that's part of the [[https://github.com/rwightman/pytorch-image-models][git repository for ~timm~]]. Once you clone it the file we want will be in ~results/results-imagenet.csv~.
+We'll be using data that's part of the [[https://github.com/rwightman/pytorch-image-models][git repository for ~timm~ ]]. Once you clone the repository the file within it that we want will be ~results/results-imagenet.csv~. This is the result of using the [[https://github.com/rwightman/pytorch-image-models/tree/main/results#imagenet-validation---results-imagenetcsv][Imagenet Validation]] set to validate the models.
 
 #+begin_src python :results output :exports both
-
 RESULTS = Path("~/projects/third-party/"
                "pytorch-image-models/results").expanduser()
 DATA = RESULTS/"results-imagenet.csv"
-results_frame = pandas.read_csv(DATA)
+validation = pandas.read_csv(DATA)
 
-print(TABLE(results_frame.iloc[0].to_frame()))
+print(TABLE(validation.iloc[0].to_frame()))
 #+end_src
 
 #+RESULTS:
@@ -76,30 +75,44 @@ print(TABLE(results_frame.iloc[0].to_frame()))
 | crop_pct      | 1.0                    |
 | interpolation | bicubic                |
 
-It isn't obvious yet what this is, but let's move along.
+This table shows the first row of the /results/ CSV. Each row represents a computer vision model and how well it performed on a validation test. The documentation says that ~top1~ and ~top5~ are "top-1/top-5 differences from clean validation." Which means... what? Looking at the [[https://github.com/rwightman/pytorch-image-models/blob/main/validate.py][validate.py]] file it appears that ~top1~ and ~top5~ are measures of accuracy. Looking in the ~utils.metrics.py~ module the function ~accuracy~ has a docstring that says: /Computes the accuracy over the k top predictions for the specified values of k/. The ~top1~ and ~top5~ are ~AverageMeter~ objects that keep a running average of their accuracies. 
+
+This seems straightforward enough, but if you look at that first row the ~top1~ is smaller than the ~top5~ and has a larger error...
+
+Guessing by the name, the model in our row is an instance of "BEIT: BERT Pre-Training of Image Transformers (https://arxiv.org/abs/2106.08254)" found in timm's [[https://github.com/pprp/timm/blob/master/timm/models/beit.py][beit.py]] module.
+
+#+begin_src python :results output :exports both
+print(validation.shape)
+#+end_src
+
+#+RESULTS:
+: (668, 9)
 
 *** Get Data
-We're going to merge our "results" data with two "benchmark" files (also in the "results" folder) doing some cryptic filtering and data wrangling. It's not obvious what everything is doing so let's use it first and maybe figure it out later.
+We're going to merge our "validation" data with two "benchmark" files (also in the "results" folder) doing some cryptic filtering and data wrangling. It's not obvious what everything is doing so let's use it first and maybe figure it out later.
 
 #+begin_src python :results none
-BENCHMARK_FILE = "benchmark-{part}-amp-nhwc-pt111-cu113-rtx3090.csv"
+BENCHMARK_FILE = ("benchmark-{infer_or_train}"
+                  "-amp-nhwc-pt111-cu113-rtx3090.csv")
 FAMILY_REGEX = r'^([a-z]+?(?:v2)?)(?:\d|_|$)'
 FAMILY_FILTER = r'^re[sg]netd?|beit|convnext|levit|efficient|vit|vgg'
 
-def get_data(part: str,
-             results: pandas.DataFrame=results_frame) -> pandas.DataFrame:
+def get_data(infer_or_train: str,
+             validation: pandas.DataFrame=validation) -> pandas.DataFrame:
     """Load a benchmark dataframe
 
     Args:
-     part: part of filename with label (infer or train)
-     results: DataFrame created from results file
+     infer_or_train: part of filename with label (infer or train)
+     validation: DataFrame created from validation results file
 
     Returns:
-     benchmark data merged with results
+     benchmark data merged with validation
     """
     SAMPLE_RATE = f"{part}_samples_per_sec"
-    frame = pandas.read_csv(RESULTS/BENCHMARK_FILE.format(part=part)).merge(
-        results, on='model')
+    frame = pandas.read_csv(
+        RESULTS/BENCHMARK_FILE.format(
+            infer_or_train=infer_or_train)).merge(
+        validation, on='model')
     frame['secs'] = 1. / frame[SAMPLE_RATE]
     frame['family'] = frame.model.str.extract(FAMILY_REGEX)
     frame = frame[~frame.model.str.endswith('gn')]
@@ -112,6 +125,7 @@ def get_data(part: str,
 #+end_src
 
 *** Build The Base Chart
+We're going to be doing some plotting so here are some helper functions.
 
 #+begin_src python :results none
 SELECTION = altair.selection_multi(fields=["family"], bind="legend")
@@ -280,6 +294,76 @@ print(TABLE(inference.iloc[0].to_frame()))
 | family                | levit                 |
 
 
+Let's look at what was added to our original validation data.
+
+#+begin_src python :results output :exports both
+added = inference[list(set(inference.columns) - set(validation.columns))].iloc[0]
+print(TABLE(added.to_frame()))
+#+end_src
+
+#+RESULTS:
+| Column                | Value                 |
+|-----------------------+-----------------------|
+| secs                  | 4.654236751715086e-05 |
+| family                | levit                 |
+| param_count_y         | 7.78                  |
+| infer_batch_size      | 1024                  |
+| param_count_x         | 7.78                  |
+| infer_samples_per_sec | 21485.8               |
+| infer_step_time       | 47.648                |
+| infer_img_size        | 224                   |
+
+If you look back at ~get_data~ you'll see that we added the ~sec~ column which is defined as \(\frac{1}{\textit{samples per second}}). So it's the averaged(?) seconds per sample. I think.
+
+#+begin_src python :results output :exports both
+counts = inference.family.value_counts().to_frame().reset_index().rename(columns = {"index": "Family", "family": "Count"})
+print(TABLE(counts, headers="keys", showindex=False))
+#+end_src
+
+#+RESULTS:
+| Family         |   Count |
+|----------------+---------|
+| vit            |      24 |
+| efficientnet   |      14 |
+| regnety        |      12 |
+| regnetx        |      12 |
+| resnet         |      11 |
+| crossvit       |      11 |
+| regnetz        |       9 |
+| repvgg         |       8 |
+| resnetv2       |       8 |
+| resnetd        |       7 |
+| resnetrs       |       7 |
+| vgg            |       7 |
+| convnext_in22  |       6 |
+| levit          |       5 |
+| convnext       |       5 |
+| beit           |       5 |
+| convit         |       3 |
+| efficientnetv2 |       3 |
+| mobilevit      |       3 |
+| resnetv2d      |       2 |
+| regnetv        |       2 |
+| resnetblur     |       1 |
+
+#+begin_src python :results output :exports both
+chart = altair.Chart(counts).mark_bar().encode(
+    x="Count", y=altair.Y("Family", sort="-x"),
+).properties(
+    width=PLOT_WIDTH,
+    height=PLOT_HEIGHT,
+    title="Inference Family Counts"
+)
+
+save_it(chart, "inference-family-counts")
+#+end_src
+
+#+RESULTS:
+#+begin_export html
+<object type="text/html" data="inference-family-counts.html" style="width:100%" height=600>
+  <p>Figure Missing</p>
+</object>
+#+end_export
 
 #+begin_src python :results output :exports both
 plot_it(inference, title="Inference", 
@@ -355,6 +439,8 @@ subset_regression(training,
 * Sources
 - [[https://timm.fast.ai/][PyTorch Image Models]]: Documentation for the ~timm~ pre-built computer vision models for pytorch.
 - [[https://github.com/rwightman/pytorch-image-models][Pytorch Image Models on github]]: Repository for ~timm~.
+- [[https://paperswithcode.com/lib/timm][timm on paperswithcode.com]]: Table of ~timm~ models showing what dataset was used for training and links to publications about each model, and links to a detail page for each model.
+- [[https://github.com/rwightman/pytorch-image-models/tree/main/results#validation-and-benchmark-results][README]] for the ~timm~ results folder on GitHub.
 * Raw
 #+begin_example python
 
