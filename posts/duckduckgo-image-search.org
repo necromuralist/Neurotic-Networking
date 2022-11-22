@@ -1,0 +1,111 @@
+#+BEGIN_COMMENT
+.. title: DuckDuckGo Image Search
+.. slug: duckduckgo-image-search
+.. date: 2022-11-21 15:19:04 UTC-08:00
+.. tags: library,image,data
+.. category: Library
+.. link: 
+.. description: A look at the duckduckgo-search library's image search.
+.. type: text
+
+#+END_COMMENT
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-a1cca29c-3e70-4b62-9001-99ec83a636ed-ssh.json
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+#+begin_src python :results none :exports none
+from pprint import pprint
+#+end_src
+
+* DuckDuckGo Image Search
+This is a post for some notes on the ~ddg_images~ function from the [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search library (link to GitHub)]]. 
+
+* The Request
+From what I can tell [[https://duckduckgo.com/][duckduckgo]] doesn't have an advertised API for its image search, but if you look at the duckduckgo-search code it appears to be using a special token (~vqd~) that you can use to make queries to a special endpoint (https://www.duckduckgo.com/i.js) that you can use to get the search results from, which isn't documented in the duckduckgo-search repository but I found mentioned in this [[https://stackoverflow.com/a/59624169][StackOverflow]] answer. I don't know how they figure it out, but using the ~vqd~ parameter and ~o=json~ makes it work pretty much like an API, although the code is also handing pagination so it seems almost like a hybrid web-scraping and API request.
+
+I'll show a request for "tanuki" using URL parameters, although the actual code is using the requests library and sends them as a payload dictionary instead.
+
+First, make a request using the search terms (POST).
+
+#+begin_example python
+https://duckduckgo.com/?q=tanuki
+#+end_example
+
+In the response will be a "vqd=" value which the code extracts - in this case it's:
+
+#+begin_example
+vqd=3-183508436572108516352390770793970586828-294342034741290420994864096532891255767&f=%2C%2C%2C%2C%2C
+#+end_example
+
+Then a second request is made using the VQD token, and whatever other parameters you want - in this case we're setting the region (~l=wt-wt~ meaning "no region"), asking that the response be JSON (~o=json~), using the  keyword "tanuki" (~q=tanuki~), and turning safe-search off (~p=-1~).
+
+#+begin_example
+https://duckduckgo.com/i.js?l=wt-wt&o=json&s=1&q=tanuki&vqd=3-183508436572108516352390770793970586828-294342034741290420994864096532891255767&f=%2C%2C%2C%2C%2C&p=-1
+#+end_example
+
+The payload to the response is a JSON blob that gets converted by the python code into a dict.
+
+* The Parameters
+#+begin_src python :results output :exports both
+from duckduckgo_search import ddg_images
+
+print(ddg_images.__doc__)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+DuckDuckGo images search. Query params: https://duckduckgo.com/params
+
+    Args:
+        keywords (str): keywords for query.
+        region (str, optional): wt-wt, us-en, uk-en, ru-ru, etc. Defaults to "wt-wt".
+        safesearch (str, optional): On, Moderate, Off. Defaults to "Moderate".
+        time (Optional[str], optional): Day, Week, Month, Year. Defaults to None.
+        size (Optional[str], optional): Small, Medium, Large, Wallpaper. Defaults to None.
+        color (Optional[str], optional): color, Monochrome, Red, Orange, Yellow, Green, Blue,
+            Purple, Pink, Brown, Black, Gray, Teal, White. Defaults to None.
+        type_image (Optional[str], optional): photo, clipart, gif, transparent, line.
+            Defaults to None.
+        layout (Optional[str], optional): Square, Tall, Wide. Defaults to None.
+        license_image (Optional[str], optional): any (All Creative Commons), Public (PublicDomain),
+            Share (Free to Share and Use), ShareCommercially (Free to Share and Use Commercially),
+            Modify (Free to Modify, Share, and Use), ModifyCommercially (Free to Modify, Share, and
+            Use Commercially). Defaults to None.
+        max_results (int, optional): maximum number of results, max=1000. Defaults to 100.
+        output (Optional[str], optional): csv, json, print. Defaults to None.
+        download (bool, optional): if True, download and save images to 'keywords' folder.
+            Defaults to False.
+
+    Returns:
+        Optional[List[dict]]: DuckDuckGo text search results.
+#+end_example
+
+* The Output
+
+#+begin_src python :results none
+output = ddg_images("rabbit lop", type_image="photo",
+                    license_image="public", 
+                    max_results=1)
+#+end_src
+
+#+begin_src python :results both
+pprint(output[0])
+#+end_src
+
+#+RESULTS:
+: {'height': 848,
+:  'image': 'https://cdn.pixabay.com/photo/2015/12/22/20/27/animals-1104748_1280.jpg',
+:  'source': 'Bing',
+:  'thumbnail': 'https://tse1.mm.bing.net/th?id=OIP.lEqFD_LPmRGbc1GyIUoNygHaE6&pid=Api',
+:  'title': 'Flemish Lop Rabbit Very · Free photo on Pixabay',
+:  'url': 'https://pixabay.com/en/flemish-lop-rabbit-rabbit-1104748/',
+:  'width': 1280}
+
+* Sources
+ - [[https://pypi.org/project/duckduckgo-search/][duckduckgo-search on pypi]]
+ - [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search on GitHub]]
