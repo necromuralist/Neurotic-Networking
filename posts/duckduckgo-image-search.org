@@ -9,7 +9,7 @@
 .. type: text
 
 #+END_COMMENT
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-a1cca29c-3e70-4b62-9001-99ec83a636ed-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8891ab60-5f89-49a6-aa23-60618c76e646-ssh.json
 #+OPTIONS: ^:{}
 #+OPTIONS: H:5
 #+TOC: headlines 2
@@ -25,32 +25,9 @@ from pprint import pprint
 * DuckDuckGo Image Search
 This is a post for some notes on the ~ddg_images~ function from the [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search library (link to GitHub)]]. 
 
-* The Request
-From what I can tell [[https://duckduckgo.com/][duckduckgo]] doesn't have an advertised API for its image search, but if you look at the duckduckgo-search code it appears to be using a special token (~vqd~) that you can use to make queries to a special endpoint (https://www.duckduckgo.com/i.js) that you can use to get the search results from, which isn't documented in the duckduckgo-search repository but I found mentioned in this [[https://stackoverflow.com/a/59624169][StackOverflow]] answer. I don't know how they figure it out, but using the ~vqd~ parameter and ~o=json~ makes it work pretty much like an API, although the code is also handing pagination so it seems almost like a hybrid web-scraping and API request.
-
-I'll show a request for "tanuki" using URL parameters, although the actual code is using the requests library and sends them as a payload dictionary instead.
-
-First, make a request using the search terms (POST).
-
-#+begin_example python
-https://duckduckgo.com/?q=tanuki
-#+end_example
-
-In the response will be a "vqd=" value which the code extracts - in this case it's:
-
-#+begin_example
-vqd=3-183508436572108516352390770793970586828-294342034741290420994864096532891255767&f=%2C%2C%2C%2C%2C
-#+end_example
-
-Then a second request is made using the VQD token, and whatever other parameters you want - in this case we're setting the region (~l=wt-wt~ meaning "no region"), asking that the response be JSON (~o=json~), using the  keyword "tanuki" (~q=tanuki~), and turning safe-search off (~p=-1~).
-
-#+begin_example
-https://duckduckgo.com/i.js?l=wt-wt&o=json&s=1&q=tanuki&vqd=3-183508436572108516352390770793970586828-294342034741290420994864096532891255767&f=%2C%2C%2C%2C%2C&p=-1
-#+end_example
-
-The payload to the response is a JSON blob that gets converted by the python code into a dict.
-
 * The Parameters
+Let's start by looking at the arguments that the function takes.
+
 #+begin_src python :results output :exports both
 from duckduckgo_search import ddg_images
 
@@ -85,7 +62,11 @@ DuckDuckGo images search. Query params: https://duckduckgo.com/params
         Optional[List[dict]]: DuckDuckGo text search results.
 #+end_example
 
+Hopefully the arguments are pretty straight forward. I couldn't find an official help page for image searches but they seem pretty straight-forward.
+
 * The Output
+
+Let's do a search for images of [[https://en.wikipedia.org/wiki/Lop_rabbit][lop-eared rabbits]] and then take a look at what ~ddg_images~ returns.
 
 #+begin_src python :results none
 output = ddg_images("rabbit lop", type_image="photo",
@@ -93,7 +74,7 @@ output = ddg_images("rabbit lop", type_image="photo",
                     max_results=1)
 #+end_src
 
-#+begin_src python :results both
+#+begin_src python :results output :exports both
 pprint(output[0])
 #+end_src
 
@@ -106,6 +87,144 @@ pprint(output[0])
 :  'url': 'https://pixabay.com/en/flemish-lop-rabbit-rabbit-1104748/',
 :  'width': 1280}
 
+I thought that the ~output~ argument would change the format of the returned values but it instead seems to direct the values to a file (counting ~stdout~ as a file) and then return the same function output as before. Here's what "print" does'.
+
+#+begin_src python :results output :exports both
+output = ddg_images("rabbit lop", type_image="photo",
+                    license_image="public",
+                    output="print",
+                    max_results=1)
+
+print(output[0])
+#+end_src
+
+#+RESULTS:
+: 1. {
+:     "title": "Flemish Lop Rabbit Very · Free photo on Pixabay",
+:     "image": "https://cdn.pixabay.com/photo/2015/12/22/20/27/animals-1104748_1280.jpg",
+:     "thumbnail": "https://tse1.mm.bing.net/th?id=OIP.lEqFD_LPmRGbc1GyIUoNygHaE6&pid=Api",
+:     "url": "https://pixabay.com/en/flemish-lop-rabbit-rabbit-1104748/",
+:     "height": 848,
+:     "width": 1280,
+:     "source": "Bing"
+: }
+: {'title': 'Flemish Lop Rabbit Very · Free photo on Pixabay', 'image': 'https://cdn.pixabay.com/photo/2015/12/22/20/27/animals-1104748_1280.jpg', 'thumbnail': 'https://tse1.mm.bing.net/th?id=OIP.lEqFD_LPmRGbc1GyIUoNygHaE6&pid=Api', 'url': 'https://pixabay.com/en/flemish-lop-rabbit-rabbit-1104748/', 'height': 848, 'width': 1280, 'source': 'Bing'}
+
+* Under The Hood
+I was hoping that I'd be able to link to some official documentation to explain what's going on, but from what I can tell [[https://duckduckgo.com/][duckduckgo]] doesn't have an advertised API for its image search, and ~duckduckgo-search~ isn't too heavily documented, but if you look at the ~duckduckgo-search~ code it appears to be using a special token (~vqd~) that you can use to make queries to a special endpoint (https://www.duckduckgo.com/i.js) that you can use to get the search results from, which I couldn't find documented in the duckduckgo-search repository but is mentioned in this [[https://stackoverflow.com/a/59624169][StackOverflow]] answer. I don't know how they figured it out, but using the ~vqd~ parameter and ~o=json~ makes it work pretty much like an API, although the code is also handing pagination so it seems almost like a hybrid web-scraping and API request.
+
+** The VQD
+
+I'll show a request for "rabbit lop" using URL parameters. The actual code is using the [[https://requests.readthedocs.io/en/latest/][requests]] library and sends them as a payload dictionary instead, but I thought it might be more familiar to see them as URL parameters (and I it makes it so you can copy and paste the output into a browser to see what happens).
+
+The first thing that ~ddg_images~ does is make a POST request to "https://duckduckgo.com/" using the search terms as data.
+
+This returns some HTML, within which is some javascript that contains the "vqd" value that we need to pass in as an argument to make the proper search query.
+
+#+begin_example html
+<script type="text/JavaScript">
+  function nrji() {
+    nrj('/t.js?q=rabbit%20lop&l=us-en&s=0&dl=en&ct=US&ss_mkt=us&p_ent=&ex=-1&dfrsp=1')
+    DDG.deep.initialize('/d.js?q=rabbit%20lop&l=us-en&s=0&dl=en&ct=US&ss_mkt=us&vqd=3-175223187338608511244788076450682226312-294342034741290420994864096532891255767&p_ent=&ex=-1&sp=1&dfrsp=1');;
+  }
+  DDG.ready(nrji, 1)
+</script>
+#+end_example
+
+The "vqd" is one of the arguments to the ~DDG.deep_initialize~ function in that javascript and the ~duckduckgo-search~ code extractis it using substring searching, giving us just the vqd.
+
+#+begin_example
+vqd=3-175223187338608511244788076450682226312-294342034741290420994864096532891255767
+#+end_example
+
+Then a second request is made using the VQD token, and whatever other parameters you want - in this case we're setting the region (~l=wt-wt~ meaning "no region"), asking that the response be JSON (~o=json~), using the  keywords "rabbit lop" (~q="rabbit lop"~), and turning safe-search off (~p=-1~). To make it work you also need to send the request to a special endpoint ~https://duckduckgo.com/i.js~. So we end up with a request that looks like this:
+
+#+begin_example
+https://duckduckgo.com/i.js?q=rabbit+lop&o=json&l=wt-wt&s=0&f=%2C%2C%2Ctype%3Aphoto%2C%2Clicense%3Apublic&p=-1&vqd=3-175223187338608511244788076450682226312-294342034741290420994864096532891255767
+#+end_example
+
+The payload to the response is a JSON blob that gets converted by the python code into a dictionary (if you past the example url into a browser address bar you should be able to see the response).
+
+** Python Translation
+The previous section was my attempt to explain to myself more or less how the code works, but I thought it might be easier to understand if we steal some of the code from ~duckduckgo-search~ and modify it to get a single output more or less the way ~ddg_images~ does it..
+
+First we set up our requests session.
+
+#+begin_src python :results none
+import requests
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0",
+    "Referer": "https://duckduckgo.com/",
+}
+
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+#+end_src
+
+Now we get the ~vqd~ by doing a POST and then searching the returned HTML for the string.
+
+#+begin_src python :results output :exports both
+payload = dict(q="rabbit lop")
+
+response = SESSION.post("https://duckduckgo.com", data=payload, timeout=10)
+
+vqd_index_start = response.content.index(b"vqd='") + 5
+vqd_index_end = response.content.index(b"'", vqd_index_start)
+vqd_bytes = response.content[vqd_index_start:vqd_index_end]
+
+vqd = vqd_bytes.decode()
+print(vqd)
+#+end_src
+
+#+RESULTS:
+: 3-175223187338608511244788076450682226312-294342034741290420994864096532891255767
+
+Now that we have the VQD (whatever it is) we can make our actual search request by building up the payload dictionary and sending the request to duckduckgo.
+
+#+begin_src python :results none
+payload["o"] = "json"
+payload["l"] = "wt-wt"
+payload["s"] = 0
+payload["f"] = ",,,type:photo,,license:public"
+payload["p"] = -1
+payload["vqd"] = vqd
+
+response = SESSION.get("https://duckduckgo.com/i.js", params=payload)
+#+end_src
+
+The response contains multiple search results but let's unpack the first one as a demonstration.
+
+#+begin_src python :results output :exports both
+page_data = response.json()["results"]
+
+row = page_data[0]
+
+output = {
+    "title": row["title"],
+    "image": row["image"],
+    "thumbnail": row["thumbnail"],
+    "url": row["url"],
+    "height": row["height"],
+    "width": row["width"],
+    "source": row["source"],
+}
+
+SESSION.close()
+pprint(output)
+#+end_src
+
+#+RESULTS:
+: {'height': 848,
+:  'image': 'https://cdn.pixabay.com/photo/2015/12/22/20/27/animals-1104748_1280.jpg',
+:  'source': 'Bing',
+:  'thumbnail': 'https://tse1.mm.bing.net/th?id=OIP.lEqFD_LPmRGbc1GyIUoNygHaE6&pid=Api',
+:  'title': 'Flemish Lop Rabbit Very · Free photo on Pixabay',
+:  'url': 'https://pixabay.com/en/flemish-lop-rabbit-rabbit-1104748/',
+:  'width': 1280}
+
+The ~ddg_images~ function is doing more than this, but for future reference, here's the basics of what's going on and how the author made the search work.
 * Sources
  - [[https://pypi.org/project/duckduckgo-search/][duckduckgo-search on pypi]]
  - [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search on GitHub]]
+
