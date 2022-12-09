@@ -115,13 +115,13 @@ I was hoping that I'd be able to link to some official documentation to explain 
 
 ** The VQD
 
-I'll show a request for "rabbit lop" using URL parameters. The actual code is using the [[https://requests.readthedocs.io/en/latest/][requests]] library and sends them as a payload dictionary instead, but I thought it might be more familiar to see them as URL parameters (and I it makes it so you can copy and paste the output into a browser to see what happens).
+I'll show a request for "rabbit lop" using URL parameters. The actual code is using the [[https://requests.readthedocs.io/en/latest/][requests]] library and sends them as a payload dictionary instead, but I thought it might be more familiar to see them as URL parameters (and it makes it so you can copy and paste the output into a browser to see what happens).
 
-The first thing that ~ddg_images~ does is make a POST request to "https://duckduckgo.com/" using the search terms as data.
+The first thing that ~ddg_images~ does is make a POST request to "https://duckduckgo.com/" using the search terms as data (~{q="rabbit lop"}~).
 
 This returns some HTML, within which is some javascript that contains the "vqd" value that we need to pass in as an argument to make the proper search query.
 
-#+begin_example html
+#+begin_example javascript
 <script type="text/JavaScript">
   function nrji() {
     nrj('/t.js?q=rabbit%20lop&l=us-en&s=0&dl=en&ct=US&ss_mkt=us&p_ent=&ex=-1&dfrsp=1')
@@ -131,19 +131,19 @@ This returns some HTML, within which is some javascript that contains the "vqd" 
 </script>
 #+end_example
 
-The "vqd" is one of the arguments to the ~DDG.deep_initialize~ function in that javascript and the ~duckduckgo-search~ code extractis it using substring searching, giving us just the vqd.
+The "vqd" is one of the arguments to the ~DDG.deep.initialize~ function in the javascript/HTML that's returned from the request and the ~duckduckgo-search~ code extracts it using substring searching, giving us just the vqd.
 
 #+begin_example
 vqd=3-175223187338608511244788076450682226312-294342034741290420994864096532891255767
 #+end_example
 
-Then a second request is made using the VQD token, and whatever other parameters you want - in this case we're setting the region (~l=wt-wt~ meaning "no region"), asking that the response be JSON (~o=json~), using the  keywords "rabbit lop" (~q="rabbit lop"~), and turning safe-search off (~p=-1~). To make it work you also need to send the request to a special endpoint ~https://duckduckgo.com/i.js~. So we end up with a request that looks like this:
+Then a second request is made using the VQD token as one of the parameters along with whatever other parameters you want - in this case we're setting the region (~l=wt-wt~ meaning "no region"), asking that the response be JSON (~o=json~), using the  keywords "rabbit lop" (~q="rabbit lop"~), and turning safe-search off (~p=-1~). To make it work you also need to send the request to a special endpoint ~https://duckduckgo.com/i.js~. So we end up with a request that looks like this:
 
 #+begin_example
 https://duckduckgo.com/i.js?q=rabbit+lop&o=json&l=wt-wt&s=0&f=%2C%2C%2Ctype%3Aphoto%2C%2Clicense%3Apublic&p=-1&vqd=3-175223187338608511244788076450682226312-294342034741290420994864096532891255767
 #+end_example
 
-The payload to the response is a JSON blob that gets converted by the python code into a dictionary (if you past the example url into a browser address bar you should be able to see the response).
+The payload to the response is a JSON blob that gets converted by the python code into a dictionary (if you paste the example url into a browser address bar you should be able to see the response).
 
 ** Python Translation
 The previous section was my attempt to explain to myself more or less how the code works, but I thought it might be easier to understand if we steal some of the code from ~duckduckgo-search~ and modify it to get a single output more or less the way ~ddg_images~ does it..
@@ -169,10 +169,14 @@ payload = dict(q="rabbit lop")
 
 response = SESSION.post("https://duckduckgo.com", data=payload, timeout=10)
 
-vqd_index_start = response.content.index(b"vqd='") + 5
-vqd_index_end = response.content.index(b"'", vqd_index_start)
+PREFIX = b"vqd='"
+
+vqd_index_start = response.content.index(PREFIX) + len(PREFIX)
+vqd_index_end = response.content.index(b"'", start=vqd_index_start)
+
 vqd_bytes = response.content[vqd_index_start:vqd_index_end]
 
+# convert it from bytes back to a string before using it as a payload value
 vqd = vqd_bytes.decode()
 print(vqd)
 #+end_src
