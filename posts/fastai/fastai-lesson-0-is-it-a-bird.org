@@ -1,15 +1,15 @@
 #+BEGIN_COMMENT
-.. title: Is it a rabbit?
+.. title: Raccoon Or Raccoon Dog?
 .. slug: fastai-lesson-0-is-it-a-bird
 .. date: 2022-11-07 16:12:55 UTC-08:00
 .. tags: fastai
 .. category: FastAI
 .. link: 
-.. description: 
+.. description: Creating a dataset for image identification using duckduckgo.
 .. type: text
 
 #+END_COMMENT
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-8921a2a5-9d7d-4207-9c30-bde0b41c8ea7-ssh.json
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-7b605e34-a776-4668-ae6b-d99350b71b8f-ssh.json
 #+OPTIONS: ^:{}
 #+OPTIONS: H:5
 #+TOC: headlines 2
@@ -18,24 +18,27 @@
 %autoreload 2
 #+END_SRC
 * What Is This?
-This is a run-through of Lesson 0 of the FastAI [[https://course.fast.ai/][Practical Deep Learning for Coders]] course. In it we search for photos using a search engine and build a neural-network to classify the images that belong to one of the two classes of photos that we use. This is an image classification example, like the {{% lancelot "Cats vs Dogs" %}}fastai-cats-and-dogs{{% /lancelot %}} post but it has the added feature of demonstrating how to build your own dataset using a search-engine.
+This is a run-through of some of the ideas from Lesson 0 of the FastAI [[https://course.fast.ai/][Practical Deep Learning for Coders]] course (sort of, there's a 2022 version that I'm using which doesn't seem to exactly match the lectures on the website). In it we search for photos using a search engine and build a neural-network to classify the images that belong to one of the two classes of photos that we use. This is an image classification example, like the {{% lancelot "Cats vs Dogs" %}}fastai-cats-and-dogs{{% /lancelot %}} post but it has the added feature of demonstrating how to build your own dataset using a search-engine. I'll be using [[https://en.wikipedia.org/wiki/Japanese_raccoon_dog][Tanuki (the Japanese Raccoon Dog)]] and [[https://en.wikipedia.org/wiki/Raccoon][Raccoon]] images as the categories to classify.
 
 ** Imports
 
-For the search engine we'll use [[https://duckduckgo.com/][DuckDuckGo]] via the [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search]] package (from [[https://pypi.org/project/duckduckgo-search/][pypi]]).
+For the search engine we'll use [[https://duckduckgo.com/][DuckDuckGo]] via the [[https://github.com/deedy5/duckduckgo_search][duckduckgo-search]] package (from [[https://pypi.org/project/duckduckgo-search/][pypi]]) and its {{% lancelot "~ddg_images~" %}}duckduckgo-image-search{{% /lancelot %}} function..
 
 #+begin_src python :results none
 # python
-from collections import Counter
 from functools import partial
 from pathlib import Path
 from time import sleep
 
+import os, warnings
+
 # pypi
 from duckduckgo_search import ddg_images
+from dotenv import load_dotenv
+
+import torch
 
 # fastai
-from fastcore.all import L as ListLike
 from fastai.data.all import (
     CategoryBlock,
     DataBlock,
@@ -54,21 +57,29 @@ from fastai.vision.all import (
     error_rate,
     PILImage,
 )
-from fastdownload import download_url
+
+from fastcore.net import urlsave
 
 # monkey shines
 from graeae import Timer
 
 TIMER = Timer()
+load_dotenv()
+
+DATA_PATH = Path(os.environ["FASTAI_DATA"])/"raccoon-vs-tanuki"
+assert torch.cuda.is_available()
 #+end_src
 
+**Note:** The ~DATA_PATH~ is where we're going to store the images we download. We are going to use a function (~parent_label~) that uses the folders within this directory to label the images within the folders (so images in a folder named "herbert" will be labeled "herbert"). This means that it should only have the folders that we are going to use to build the model. I originally set it to the fastai root root data path which then made the data loader think that all the other data folders were labels as well, so I created a sub-folder named "raccoon-vs-tanuki" to isolate the images I need to train the model.
+
 * Getting the Images
-We're going to create an alias for the ~ddg_images~ function to make the search and then return only the URLs of the images that DuckDuckGo finds.
+We're going to create an alias for the {{% lancelot "~ddg_images~" %}}duckduckgo-image-search{{% /lancelot %}} function to make the search and then return only the URLs of the images (or their thumbnails) that DuckDuckGo finds. 
 
 #+begin_src python :results none
-def search_images(keywords: str,
-                  max_images: int=200,
-                  license_image: str="any") -> ListLike:
+def get_image_urls(keywords: str,
+                   max_images: int=200,
+                   license_image: str="any",
+                   key="image") -> list:
     """Search duckduckgo images
 
     Args:
@@ -78,127 +89,210 @@ def search_images(keywords: str,
     Returns:
      a list-like object with the URLs of the images found
     """
-    return ListLike(
-        ddg_images(keywords,
-                   type_image="photo",
-                   license_image=license_image,
-                   max_results=max_images)).itemgot('image')
+    return [output.get(key) for output in 
+            ddg_images(keywords,
+                       type_image="photo",
+                       license_image=license_image,
+                       max_results=max_images)]
 #+end_src
 
-** A Test Of Rabbits & Pigs
-We'll start by checking that our searcher is working using the keywords "rabbit" and "photos".
+** A Test Of Tanuki
+We'll start by checking that our searcher is working using the keywords "tanuki" and "racoon". First, what does ~ddg_images~ return when we search for tanuki?
 
 #+begin_src python :results output :exports both
-URLS = search_images('rabbit', max_images=1, license_image="Public")
-print(URLS[0])
+o = ddg_images("tanuki", type_image="photo", max_results=1)
+print(o)
 #+end_src
 
 #+RESULTS:
-: https://images.pexels.com/photos/3828097/pexels-photo-3828097.jpeg?cs=srgb&dl=pexels-lavoni-islam-3828097.jpg&fm=jpg
+: [{'title': 'Tanuki | Animal Jam Fanon Wiki | Fandom', 'image': 'https://vignette.wikia.nocookie.net/ajfanideas/images/6/6a/God_damnit.png/revision/latest?cb=20190222141158', 'thumbnail': 'https://tse3.mm.bing.net/th?id=OIP.74LPltCuN75QxFq2RHLhywHaFj&pid=Api', 'url': 'https://ajfanideas.fandom.com/wiki/Tanuki', 'height': 1200, 'width': 1600, 'source': 'Bing'}]
 
-And now let's try and download it.
+So it looks like it returns a list of json/dict objects. I'll print it out in a table to maybe make it easier to see. First, the title contains 'pipes' that break the table so I'll replace them with dashes.
 
 #+begin_src python :results none
-RABBIT_OUTPUT = "/tmp/rabbit.jpg"
-download_url(URLS[0], RABBIT_OUTPUT, show_progress=False)
+o[0]["title"] = o[0]["title"].replace("|", ",")
 #+end_src
 
-
-And Here's the image we downloaded.
-
-[[file:rabbit.jpg]]
-
-Seems to work.
-
-Now for the pig.
+Now the table.
 
 #+begin_src python :results output :exports both
-PIG_OUTPUT = "/tmp/pig.jpg"
-URL = search_images("pig photos",
-                    max_images=1)[0]
-print(URL)
-download_url(URL,
-             PIG_OUTPUT,
-             show_progress=False)
+print("|Key | Value|")
+print("|-+-|")
+for key, value in o[0].items():
+    print(f"|{key}| {value}|")
 #+end_src
 
 #+RESULTS:
-: http://www.publicdomainpictures.net/pictures/170000/velka/smiling-pig-1463074462eDC.jpg
+|Key | Value|
+|-+-|
+|title| Tanuki , Animal Jam Fanon Wiki , Fandom|
+|image| https://vignette.wikia.nocookie.net/ajfanideas/images/6/6a/God_damnit.png/revision/latest?cb=20190222141158|
+|thumbnail| https://tse3.mm.bing.net/th?id=OIP.74LPltCuN75QxFq2RHLhywHaFj&pid=Api|
+|url| https://ajfanideas.fandom.com/wiki/Tanuki|
+|height| 1200|
+|width| 1600|
+|source| Bing|
 
-[[file:pig.jpg]]
+Looking at the image URL you might not guess that it was an image of a tanuki (is the tanuki named "God damnit"?), but the title suggests that it is. Interestingly, if you follow the URL to the page where the image comes from you'll see that it's a wiki dedicated to a game called "Animal Jam" but the author of the page says that they couldn't find an image of the tanuki from the game so it is, indeed, a photo of a real tanuki, not a game character.
+
+That's the output of ~ddg_images~ but we created ~get_image_urls~ to make it a little simpler to get just the URLs so let's search for "tanuki" images again but this time I'm going to download and show the image so I'll specify that I want to pull the image from the Public Domain.
+
+#+begin_src python :results output :exports both
+TANUKI_URLS = get_image_urls("tanuki", max_images=1, license_image="Public")
+print(TANUKI_URLS[0])
+#+end_src
+
+#+RESULTS:
+: https://c.pxhere.com/photos/04/ff/animal_marten_raccoon_dog_tanuki_enok_obstfuchs_omnivore_fur-705793.jpg!d
+
+The images are usually pretty big so let's download a thumbnail of the image and take a look at it to make sure we're getting the image we expect. The original fastai notebook uses the fastai ~download_url~ function (which appears to come from another fastai project called [[https://github.com/fastai/fastdownload/tree/master/][fastdownload (github]], [[https://fastdownload.fast.ai/][documentation]])) but, it looks like all this function is doing is starting a progress bar (which I can't use here) and then calling ~urlsave~ from another fastai library called [[https://github.com/fastai/fastcore][fastcore]] ([[https://fastcore.fast.ai/][documentation]]) so I'll use ~urlsave~ instead.
+
+#+begin_src python :results none
+THUMBS = get_image_urls("tanuki", max_images=1, license_image="Public", key="thumbnail")
+TANUKI_OUTPUT = "/tmp/tanuki_thumb.jpg"
+urlsave(url=THUMBS[0], dest=TANUKI_OUTPUT)
+#+end_src
+
+And Here's the thumbnail we downloaded.
+
+[[file:tanuki_thumb.jpg]]
+
+Seems to work. One disadvantage to using the ~get_image_urls~ to alias the ~ddg_images~ function is that we end up throwing away the other information, so to get the source URL to see the page where the image comes from we have to make another function call.
+
+#+begin_src python :results output :exports both
+print(get_image_urls("tanuki", max_images=1, license_image="Public", key="url")[0])
+#+end_src
+
+#+RESULTS:
+: https://pxhere.com/en/photo/705793
+
+This image comes from [[https://pxhere.com/][pxhere.com]] which appears to be a public domain image hosting site.
+
+Now for the raccoon.
+
+#+begin_src python :results none
+RACCOON_OUTPUT = "/tmp/raccoon_thumb.jpg"
+RACCOON_URLS = get_image_urls("raccoon",
+                             max_images=1,
+                             license_image="Public", key="thumbnail")
+
+urlsave(url=RACCOON_URLS[0],
+        dest=RACCOON_OUTPUT)
+#+end_src
+
+
+[[file:raccoon_thumb.jpg]]
+
+#+begin_src python :results output :exports both
+print(get_image_urls("raccoon",
+                     max_images=1,
+                     license_image="Public", key="url")[0])
+#+end_src
+
+#+RESULTS:
+: http://www.publicdomainpictures.net/view-image.php?image=33712&picture=raccoon-4&large=1
 
 ** Build A Data Set
 
+Now that we've done a little check of what our function does we can move on to creating our dataset using it. When you download an archived dataset from fastai it saves it to the =~/.fastai/= directory, so I'll put this dataset there too. I'll use fastai's ~download_images~ function to do the actual downloading.
+
 #+begin_src python :results output :exports both
-KEYWORDS = ("rabbit", "pig")
-DATA_PATH = Path("/tmp/rabbit-or-pig/")
+print(download_images.__doc__)
+#+end_src
+
+#+RESULTS:
+: Download images listed in text file `url_file` to path `dest`, at most `max_pics`
+
+These are the arguments it takes.
+
+| Argument          | Meaning                                          | Default                            |
+|-------------------+--------------------------------------------------+------------------------------------|
+| dest              | Folder Path to save files to                     | None (required)                    |
+| url_file          | Text file with one URL per line to use as source | None (only used if ~urls~ is None) |
+| urls              | Iterable collection of URLs to download          | None                               |
+| max_pics          | Limit on the number of images to download        | 1000                               |
+| n_workers         | Number of parallel threads to use                | 8                                  |
+| timeout           | Seconds to allow for a download                  | 4                                  |
+| preserve_filename | Whether to use the filename in the URL           | False                              |
+
+We'll add two extra keywords - "sun" and "shade" to the search to hopefully get images that match those conditions and between each search query I'll put in a sleep so that we aren't hitting the server too hard. We'll also use fastai's ~resize_images~ to make sure that none of the images are too big. The argument ~max_size~ gives the maximum number of pixels either dimension (height or width) can have.
+
+#+begin_src python :results none
+def download_and_resize(destination: Path, search_terms: str, max_size: int=400) -> None:
+    """Download images and resize them
+
+    Args:
+     destination: path to parent folder
+     search_terms: keywords to use to search for images
+     max_size: maximum size for height and width of images
+    """
+    download_images(
+        dest=destination,
+        urls=get_image_urls(SEARCH_TERMS)
+    )
+    
+    resize_images(path=destination,
+                  max_size=max_size,
+                  dest=destination)
+    return
+#+end_src
+
+The ~path~ argument is the /source/ of the images and the ~dest~ is where you want to put the resized images. Normally I don't suppose you'd want to remove the original images, but in this case I do so they're set to the same folder.
+
+#+begin_src python :results output :exports both
+ANIMALS = ("tanuki", "raccoon")
+
 PAUSE = 10
 PAUSE_BETWEEN_SEARCHES = partial(sleep, PAUSE)
 CONDITIONS = tuple(("", "sun ", "shade "))
-IMAGE_MAXIMUM = 400
 
-print(f"Estimated Run Time: {len(CONDITIONS) * len(KEYWORDS) * PAUSE} seconds")
+print(f"Estimated Run Time: {len(CONDITIONS) * len(ANIMALS) * PAUSE + 15} seconds")
 
 with TIMER:
-    for keyword in KEYWORDS:
-        destination = DATA_PATH/keyword
-        destination.mkdir(exist_ok=True, parents=True)        
-        
+    print("Searching for:")
+    for animal in ANIMALS:
+        destination = DATA_PATH/animal
+        destination.mkdir(exist_ok=True, parents=True)
+
         for condition in CONDITIONS:
-            SEARCH_TERMS = f"{keyword} {condition}"
-            print(SEARCH_TERMS)
-            download_images(
-                destination,
-                urls=search_images(SEARCH_TERMS)
-            )
+            SEARCH_TERMS = f"{animal} {condition}"
+            print(f" - '{SEARCH_TERMS}'")
+            download_and_resize(destination, SEARCH_TERMS)
             PAUSE_BETWEEN_SEARCHES()
-            resize_images(destination,
-                          max_size=IMAGE_MAXIMUM,
-                          dest=destination)
 #+end_src
 
 #+RESULTS:
 #+begin_example
-Estimated Run Time: 60 seconds
-Started: 2022-11-12 16:40:38.130024
-rabbit 
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-rabbit sun 
-rabbit shade 
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-pig 
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-pig sun 
-pig shade 
-/home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/PIL/Image.py:959: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images
-  warnings.warn(
-Ended: 2022-11-12 16:44:02.356436
-Elapsed: 0:03:24.226412
+Estimated Run Time: 75 seconds
+Started: 2022-12-08 18:24:00.371278
+Searching for:
+ - 'tanuki '
+ - 'tanuki sun '
+ - 'tanuki shade '
+ - 'raccoon '
+ - 'raccoon sun '
+ - 'raccoon shade '
+Ended: 2022-12-08 18:27:07.360951
+Elapsed: 0:03:06.989673
 #+end_example
-
 
 
 ** Verify the Dataset
 
-Some of the images might be invalid for whatever reason, we'll use a fastai builtin function (~verify_images~) to check them and [[https://docs.python.org/3/library/pathlib.html#pathlib.Path.unlink][Path.unlnk]] to delete the files that were deemed invalid.
+Some of the images might be invalid for whatever reason, we'll use a fastai builtin function (~verify_images~) to check them and [[https://docs.python.org/3/library/pathlib.html#pathlib.Path.unlink][Path.unlnk]] to delete the files that were deemed invalid. ~verify_images~ works by trying to open each file as an image. It adds some parallelism to speed it up but isn't doing anything fancy and, depending on how many files you have and their size, might take a little while to cmoplete.
 
 #+begin_src python :results output :exports both
-failed = verify_images(get_image_files(DATA_PATH))
-failed.map(Path.unlink)
+with TIMER:
+    failed = verify_images(get_image_files(DATA_PATH))
+    failed.map(Path.unlink)
 print(f"{len(failed)} images were deemed failures.")
 #+end_src
 
 #+RESULTS:
-: 10 images were deemed failures.
+: Started: 2022-12-08 18:28:17.277347
+: Ended: 2022-12-08 18:28:22.806488
+: Elapsed: 0:00:05.529141
+: 18 images were deemed failures.
 
 * Training the Model
 
@@ -212,32 +306,36 @@ loaders = DataBlock(
 ).dataloaders(DATA_PATH)
 #+end_src
 
-| Parameter | Argument                      | Description                                                               |
-|-----------+-------------------------------+---------------------------------------------------------------------------|
-| blocks    | (~ImageBlock, CategoryBlock~) | Defines the inputs as images and outputs as categories                    |
-| get_items | ~get_image_files~             | A function to search for image files.                                     |
-| splitter  | ~RandomSplitter~              | A class to split the data into training (80%) and validation (20%)        |
-| get_y     | ~parent_label~                | A function that grabs the name of the folder an image is in as the label. |
-| item_tfms | ~Resize~                      | Resize all the images to a uniform size (192 x 192)                       |
+| Parameter | Argument                      | Description                                                            |
+|-----------+-------------------------------+------------------------------------------------------------------------|
+| blocks    | (~ImageBlock, CategoryBlock~) | Defines the inputs as images and outputs as categories                 |
+| get_items | ~get_image_files~             | A function to search for image files.                                  |
+| splitter  | ~RandomSplitter~              | A class to split the data into training (80%) and validation (20%)     |
+| get_y     | ~parent_label~                | A function that grabs the name of the folder to use as an image label. |
+| item_tfms | ~Resize~                      | Resize all the images to a uniform size (192 x 192) by squishing them. |
 
+
+And now we train the categorizer.
 
 #+begin_src python :results output :exports both
-learner = vision_learner(loaders, resnet18, metrics=error_rate)
-with learner.no_bar():
+with warnings.catch_warnings() as catcher:
+    warnings.simplefilter("ignore")
+    learner = vision_learner(loaders, resnet18, metrics=error_rate)
+    
+with learner.no_bar() as nobar, Timer() as timmy:
     learner.fine_tune(3)
 #+end_src
 
 #+RESULTS:
-: /home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
-:   warnings.warn(
-: /home/athena/.conda/envs/neurotic-fastai/lib/python3.9/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet18_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet18_Weights.DEFAULT` to get the most up-to-date weights.
-:   warnings.warn(msg)
-: [0, 0.5389516949653625, 0.23803706467151642, 0.08648648858070374, '01:22']
-: [0, 0.1865328848361969, 0.1018112376332283, 0.03567567467689514, '01:52']
-: [1, 0.08857729285955429, 0.09243999421596527, 0.0324324332177639, '01:51']
-: [2, 0.04247060418128967, 0.07865928113460541, 0.031351350247859955, '01:52']
+: Started: 2022-12-08 18:28:55.158226
+: [0, 0.29742079973220825, 0.0608036108314991, 0.020555555820465088, '00:12']
+: [0, 0.05481018126010895, 0.0367087759077549, 0.009444444440305233, '00:16']
+: [1, 0.029521549120545387, 0.0178204495459795, 0.004999999888241291, '00:17']
+: [2, 0.012186083942651749, 0.013458597473800182, 0.006666666828095913, '00:17']
+: Ended: 2022-12-08 18:29:59.272703
+: Elapsed: 0:01:04.114477
 
-It looks like fastai has to update their code to match pytorch eventually.
+I put the supression of the warnings in because somebody (I assume FastAI) is calling pytorch with deprecated arguments.
 
 * Some Examples
 
@@ -256,36 +354,48 @@ def predict_category(path: str, learner) -> tuple:
 predict = partial(predict_category, learner=learner)
 #+end_src
 
-** A Rabbit
+** A Tanuki
 
-Let's look at the output of the ~learner.predict~ method when we pass the model the picture of a rabbit that we looked at when we were looking at the duckduckgo search example.
+Let's look at the output of the ~learner.predict~ method when we pass the model the picture of a raccoon dog that we looked at when we were looking at the duckduckgo search example.
+
 
 #+begin_src python :results output :exports both
-prediction, probability_index, probabilities = predict(RABBIT_OUTPUT)
+TANUKI_PATH = "/tmp/tanuki_image.jpg"
+urlsave(url=TANUKI_URLS[0], dest=TANUKI_PATH)
+prediction, probability_index, probabilities = predict(TANUKI_PATH)
 #+end_src
 
 #+RESULTS:
-: This is a rabbit.
-: Probability it's a rabbit: 1.00
+: This is a raccoon.
+: Probability it's a raccoon: 0.99
 
-The ~prediction~ returned by ~learner.predict~ is a string version of whatever your labeling function (~parent_label~ in this case) returns.
+[[file:tanuki_image.jpg]]
+
+*** Prediction
+The ~prediction~ returned by ~learner.predict~ is a string version of whatever your labeling function (~parent_label~ in this case) returns. 
 
 #+begin_src python :results output :exports both
 print(prediction)
 #+end_src
 
 #+RESULTS:
-: rabbit
+: raccoon
 
-The ~probabilities~ is a ~TensorBase which, for our purposes, acts like a list of the probabilities for each classification matching our image.
+In this case it thinks it's a raccoon, not a raccoon dog, so our model probably isn't ready for prime-time, but let's look at rest of the output anyway.
+
+*** Probabilities
+The ~probabilities~ is a ~TensorBase~ which, for our purposes, acts like a list of the probabilities that our image belongs to one of the classifications.
 
 #+begin_src python :results output :exports both
 print(probabilities)
 #+end_src
 
 #+RESULTS:
-: TensorBase([2.9848e-07, 1.0000e+00])
+: TensorBase([0.9894, 0.0106])
 
+There are two probabilities because we have two classifications (raccoon and tanuki). When I first encountered fastai one of the things I couldn't figure out is which probability matches which classification. To figure that out you need our next value, the ~probability_index~.
+
+*** Probability Index
 The ~probability_index~ tells you which one of the probabilities matches the predicted classification.
 
 #+begin_src python :results output :exports both
@@ -293,36 +403,26 @@ print(probability_index)
 #+end_src
 
 #+RESULTS:
-: TensorBase(1)
+: TensorBase(0)
 
-So, since the probability index is 1, the "rabbit" category matches the second entry in the ~probabilities~ collection.
+Our model predicted that the image was a raccon and since the probability index is 0, the "raccoon" category matches the first entry in the ~probabilities~ collection, and looking back at the ~probabilities~ this means that the model is 99% sure that this is a raccoon.
 
-** It's a Bird, It's a Plane
-Let's look at a couple of examples to see how the model does. First, a crow.
-
-[[file:crow.jpg]]
+** Now, a Raccoon
 
 #+begin_src python :results output :exports both
-predict("/tmp/crow.jpg")
+RACCOON_PATH = "/tmp/raccoon_image.jpg"
+urlsave(url=RACCOON_URLS[0], dest=RACCOON_PATH)
+prediction, probability_index, probabilities = predict(RACCOON_PATH)
 #+end_src
 
 #+RESULTS:
-: This is a pig.
-: Probability it's a pig: 1.00
+: This is a raccoon.
+: Probability it's a raccoon: 1.00
 
-It's not surprising that we got it wrong, since we only have "rabbit" and "pig" as our categories. It's odd how certain the model is that it's a pig, though. I wonder what features of the crow make it more pig than rabbit?
 
-We did the rabbit when we looked at the output of the ~predict~ method so let's try our pig here.
+[[file:raccoon_image.jpg]]
 
-#+begin_src python :results output :exports both
-predict(PIG_OUTPUT)
-#+end_src
+It's really sure this is a raccoon.
 
-#+RESULTS:
-: This is a pig.
-: Probability it's a pig: 1.00
-
-The rabbit and pig images were part of the dataset we used to build the training and validation sets so we shouldn't get too excited about their ability to predict the images, but these examples show you how you would use the model once it's been re-trained.
-
-* Sources
-- [[https://commons.wikimedia.org/wiki/File:Corvus_corone_-near_Canford_Cliffs,_Poole,_England-8.jpg][Crow Image]]: Ian Kirk from Broadstone, Dorset, UK, CC BY 2.0, via Wikimedia Commons
+* And Then, the End
+The final loss for the model during training was pretty low (less than 1%) but it wasn't able to identify our one tanuki test image. On the one hand, less than 1% loss isn't 0 loss, so I might just have chosen one example that is particularly hard. It might also be important that tanuki and raccoons do look quite a bit alike, so this is a harder problem than, say, cats versus dogs. Also, our method for gathering images isn't checking that the images are unique (although the URLs are, they might be redundant postings), and tanuki might be obscure enough that there aren't a huge variety of images out there, making it harder for the model to train to identify them.
