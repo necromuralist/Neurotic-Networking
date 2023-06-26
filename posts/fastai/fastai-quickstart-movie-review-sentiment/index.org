@@ -1,0 +1,141 @@
+#+BEGIN_COMMENT
+.. title: FastAI Quickstart: Movie Review Sentiment
+.. slug: fastai-quickstart-movie-review-sentiment
+.. date: 2022-11-02 19:49:43 UTC-07:00
+.. tags: fastai,sentiment,nlp
+.. category: NLP
+.. link: 
+.. description: 
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-ab4ed38d-5b0b-4d7f-9ada-3c12c046aafb-ssh.json
+
+* The Beginning
+The top post for the quickstart posts is {{% lancelot title="this one" %}}fastai-quickstart{{% /lancelot %}} and the previous post was on {{% lancelot title="image segmentation" %}}fastai-quickstart-segmentation{{% /lancelot %}}.
+
+** Imports
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+# fastai
+from fastai.text.all import (
+    accuracy,
+    AWD_LSTM,
+    TextDataLoaders,
+    text_classifier_learner,
+    untar_data,
+    URLs,
+)
+
+# monkey stuff
+from graeae import Timer
+
+TIMER = Timer()
+#+end_src
+
+* The Model
+** Training the RNN
+
+**Note:** Using ~untar_data~ for this dataset seems to fail with a ~FileNotFoundError~. It's looking for a file =~/.fastai/data/imdb_tok/counter.pkl= that isn't there. It seems to be something that other people have encountered as well ([[https://forums.fast.ai/t/filenotfounderror-errno-2/81563][on the fastai forums]], [[https://github.com/fastai/fastai/issues/2787][on github]]). This might need to be downloaded the old-fashioned way instead.
+
+**Update:** ~untar_data~ seems to successfully download the ~imdb~ data but then something goes wrong with the ~imdb_tok~ folder. If you just delete it and pass in the path to the ~imdb~ folder (e.g. =~/.fastai/data/imdb/=) to the data loader it seems to work.
+
+#+begin_src python :results none
+path = untar_data(URLs.IMDB)
+#+end_src
+
+So here's the bit where we have to work around the ~untar_data~ error and pass in the path to the downloaded folder to the ~TextDataLoaders~ (why is this plural?).
+
+**Note:** On the machine that I'm using the defaults for the transfer learning causes a CUDA Out of Memory Error. Following the advice in [[https://github.com/fastai/fastai/issues/1752][this github ticket]] I reduced the batch size to get it to work (the default is 64, 32 still crashed so I went for 16) so it takes a fairly long time to finish.
+
+#+begin_src python :results none
+path = Path("~/.fastai/data/imdb/").expanduser()
+BATCH_SIZE = 16
+
+loader = TextDataLoaders.from_folder(path , valid='test', bs=BATCH_SIZE)
+learner = text_classifier_learner(loader, AWD_LSTM, drop_mult=0.5, metrics=accuracy)
+#+end_src
+
+#+begin_src python :results output :exports both
+with learner.no_bar() as no_bar, TIMER as t:
+    learner.fine_tune(2, 1e-2)
+#+end_src
+
+#+RESULTS:
+: Started: 2022-11-03 18:19:52.039717
+: [0, 0.5076004862785339, 0.4184568226337433, 0.8115599751472473, '09:36']
+: [0, 0.2924654185771942, 0.21511425077915192, 0.9154800176620483, '14:35']
+: [1, 0.22890949249267578, 0.19540540874004364, 0.9239199757575989, '14:35']
+: Ended: 2022-11-03 18:58:39.453115
+: Elapsed: 0:38:47.413398
+
+** Testing it Out
+
+#+begin_src python :results output :exports both
+with learner.no_bar():
+    print(learner.predict("I really like this movie.")[2][1])
+    print(learner.predict("I like this movie.")[2][1])
+    print(learner.predict("I didn't like this movie.")[2][1])
+    print(learner.predict("I hated this movie.")[2][1])
+    print(learner.predict("I really hated this movie.")[2][1])
+#+end_src
+
+#+RESULTS:
+: tensor(0.4845)
+: tensor(0.8964)
+: tensor(0.5823)
+: tensor(0.0839)
+: tensor(0.1197)
+
+It appears to not think "really hated" is more positive than "hated", but more or less follows what you'd expect. But is this a general sentiment analyzer or only a movie sentiment analyzer?
+
+#+begin_src python :results output :exports both
+with learner.no_bar():
+    print(learner.predict("I really like this book.")[2][1])
+    print(learner.predict("I like this car.")[2][1])
+    print(learner.predict("I didn't like this lettuce.")[2][1])
+    print(learner.predict("I hated this weather.")[2][1])
+    print(learner.predict("I really hated this meeting.")[2][1])
+#+end_src
+
+#+RESULTS:
+: tensor(0.9321)
+: tensor(0.7614)
+: tensor(0.2984)
+: tensor(0.0582)
+: tensor(0.3288)
+
+It seems to pretty much follow the same pattern, although it was even more confused by really hating 
+meetings.
+
+#+begin_src python :results output :exports both
+with learner.no_bar():
+    print(learner.predict("This lettuce is great.")[2][1])
+    print(learner.predict("This lettuce is like butter.")[2][1])
+    print(learner.predict("This lettuce was good enough.")[2][1])
+    print(learner.predict("The lettuce was okay.")[2][1])
+    print(learner.predict("I thought this lettuce wasn't very good.")[2][1])
+    print(learner.predict("This lettuce is terrible.")[2][1])
+    print(learner.predict("This lettuce was worse than spam.")[2][1])
+#+end_src
+
+#+RESULTS:
+: tensor(0.9444)
+: tensor(0.2520)
+: tensor(0.6674)
+: tensor(0.3201)
+: tensor(0.4201)
+: tensor(0.0237)
+: tensor(0.0191)
+
+* End
+I think as long as you pass in adjectives that it encountered in the reviews it works well enough. In a way it's more interesting to see how terms match up relative to each other (e.g. /terrible/ isn't as bad as /hated/ and /okay/ is worse than /wasn't very good/) as it gives you a sense of how the reviewers use descriptive words in their reviews.

@@ -1,0 +1,149 @@
+#+BEGIN_COMMENT
+.. title: FastAI QuickStart Tabular Data
+.. slug: fastai-quickstart-tabular-data
+.. date: 2022-11-04 17:27:25 UTC-07:00
+.. tags: fastai
+.. category: FastAI
+.. link: 
+.. description: A look at the tabular data quickstart for FastAI.
+.. type: text
+
+#+END_COMMENT
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-9096d585-78d6-44fd-882e-92a23e72f7f9-ssh.json
+
+* The Beginning
+** Imports
+
+#+begin_src python :results none
+# python
+from functools import partial
+
+# fastai
+from fastai.tabular.all import (
+    Categorify,
+    FillMissing,
+    Normalize,
+    TabularDataLoaders,
+    URLs,
+    accuracy,
+    tabular_learner,
+    untar_data,
+)
+
+# pypy
+from tabulate import tabulate
+
+import numpy
+import pandas
+
+# my stuff
+from graeae import Timer
+#+end_src
+
+#+begin_src python :results none
+table = partial(tabulate, tablefmt="orgtbl", headers="keys")
+TIMER = Timer()
+#+end_src
+
+* The Middle
+** The Data
+
+We're using the [[https://archive.ics.uci.edu/ml/datasets/Adult][Adult Data Set]], which has an unfortunate title but is a dataset built from 1994 census data to predict whether a person has an income greater than $50,000 a year.
+
+#+begin_src python :results none
+path = untar_data(URLs.ADULT_SAMPLE)
+DATA_PATH = path/"adult.csv"
+data = pandas.read_csv(DATA_PATH)
+
+numerical = data.select_dtypes(include=[numpy.number])
+non_numerical = data.select_dtypes(exclude=[numpy.number])
+#+end_src
+
+#+begin_src python :results output :exports both
+print(table(numerical.describe()))
+#+end_src
+
+|       |        age |          fnlwgt |   education-num |   capital-gain |   capital-loss |   hours-per-week |
+|-------+------------+-----------------+-----------------+----------------+----------------+------------------|
+| count | 32561      |  32561          |      32074      |       32561    |     32561      |       32561      |
+| mean  |    38.5816 | 189778          |         10.0798 |        1077.65 |        87.3038 |          40.4375 |
+| std   |    13.6404 | 105550          |          2.573  |        7385.29 |       402.96   |          12.3474 |
+| min   |    17      |  12285          |          1      |           0    |         0      |           1      |
+| 25%   |    28      | 117827          |          9      |           0    |         0      |          40      |
+| 50%   |    37      | 178356          |         10      |           0    |         0      |          40      |
+| 75%   |    48      | 237051          |         12      |           0    |         0      |          45      |
+| max   |    90      |      1.4847e+06 |         16      |       99999    |      4356      |          99      |
+
+#+begin_src python :results output :exports both
+print(table(non_numerical.describe()))
+#+end_src
+
+#+RESULTS:
+|        | workclass   | education   | marital-status     | occupation     | relationship   | race   | sex   | native-country   | salary   |
+|--------+-------------+-------------+--------------------+----------------+----------------+--------+-------+------------------+----------|
+| count  | 32561       | 32561       | 32561              | 32049          | 32561          | 32561  | 32561 | 32561            | 32561    |
+| unique | 9           | 16          | 7                  | 15             | 6              | 5      | 2     | 42               | 2        |
+| top    | Private     | HS-grad     | Married-civ-spouse | Prof-specialty | Husband        | White  | Male  | United-States    | <50k     |
+| freq   | 22696       | 10501       | 14976              | 4073           | 13193          | 27816  | 21790 | 29170            | 24720    |
+
+The column names don't really make clear what some things are, but since this is a quickstart I'll ignore their meaning but note that it was useful to split the data up by numeric and non-numeric types becaus when you build the ~TabularDataLoader~ you should specify the numeric and categorical column names. The fastai example only specifies some of the columns but I'll dump them all in and see what happens.
+
+#+begin_src python :results none
+numeric_columns = numerical.columns.to_list()
+categorical_columns = non_numerical.columns.to_list()[:-1]
+#+end_src
+
+** The Data Loader
+
+The original quickstart uses the ~TabularDataLoaders~ class to load batches of data for training, along with some pre-processing classes to encode the categorical data to make it numeric, fill in the missing values, and normalize the values so their ranges will match. 
+
+#+begin_src python :results none
+TARGET = "salary"
+
+loader = TabularDataLoaders.from_csv(
+    DATA_PATH, path=path, y_names=TARGET,
+    cat_names = categorical_columns,
+    cont_names = numeric_columns,
+    procs = [Categorify, FillMissing, Normalize])
+#+end_src
+
+** The Learner
+#+begin_src python :results output :exports both
+learner = tabular_learner(loader, metrics=accuracy)
+
+with learner.no_bar() as nobu, TIMER as tim:
+    learner.fit_one_cycle(2)
+#+end_src
+
+#+RESULTS:
+: Started: 2022-11-06 17:09:17.344678
+: [0, 0.37480291724205017, 0.35229262709617615, 0.8412162065505981, '00:02']
+: [1, 0.3569386303424835, 0.34605613350868225, 0.8421375751495361, '00:02']
+: Ended: 2022-11-06 17:09:23.994030
+: Elapsed: 0:00:06.649352
+
+** The Learned
+
+Since the last column ~salary~ is the target we'll have to drop it before training the model on the data.
+
+#+begin_src python :results none
+unsalaried = data.drop(["salary"], axis=1)
+#+end_src
+
+#+begin_src python :results none
+test_set = learner.dls.test_dl(unsalaried)
+
+row, classifications, probabilities = learner.predict(
+    data.iloc[0])
+#+end_src
+* Sources
+ - [[https://docs.fast.ai/quick_start.html][FastAI QuickStart]]: This is where I got the beginnings of the stuff here but it stops before showing you how to use the model you build.
+ - [[https://docs.fast.ai/tutorial.tabular.html][FastAI Tabular Training page]]: This is where I got most of this stuffy.
+ - [[https://stackoverflow.com/a/29442936][StackOverflow]] answer on how to select pandas columns by data-type.

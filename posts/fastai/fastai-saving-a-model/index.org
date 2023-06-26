@@ -1,0 +1,122 @@
+#+BEGIN_COMMENT
+.. title: FastAI: Saving a Model
+.. slug: fastai-saving-a-model
+.. date: 2022-11-12 17:37:32 UTC-08:00
+.. tags: fastai
+.. category: FastAI
+.. link: 
+.. description: How to save a model using fastai.
+.. type: text
+
+#+END_COMMENT
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-cc55b445-e7fa-432d-a0aa-43c99e88cc78-ssh.json
+#+OPTIONS: ^:{}
+#+OPTIONS: H:5
+#+TOC: headlines 2
+#+BEGIN_SRC python :session fastai :results none :exports none
+%load_ext autoreload
+%autoreload 2
+#+END_SRC
+
+* Redoing The Cats and Dogs
+#+begin_src python :results none
+# python
+from pathlib import Path
+
+#fastai
+from fastai.vision.all import (
+    error_rate,
+    get_image_files,
+    ImageDataLoaders,
+    load_learner,
+    Resize,
+    resnet34,
+    untar_data,
+    URLs,
+    vision_learner,
+)
+
+path = untar_data(URLs.PETS)/'images'
+
+def its_a_cat(filename: str) -> bool:
+    """Checks if the filename looks like a cat
+
+    Args:
+     filename: name of the image file
+
+    Returns:
+     True if the first letter of the filename is upper-cased
+    """
+    return "cat" if filename[0].isupper() else "dog"
+
+loader = ImageDataLoaders.from_name_func(
+    path,
+    get_image_files(path),
+    valid_pct=0.2,
+    seed=42,
+    label_func=its_a_cat,
+    item_tfms=Resize(224)
+)
+#+end_src
+
+#+begin_src python :results output :exports both
+learner = vision_learner(
+    loader, resnet34, metrics=error_rate)
+
+model = learner.to_fp16()
+with model.no_bar():
+    model.fine_tune(1)
+#+end_src
+
+#+RESULTS:
+: [0, 0.12685242295265198, 0.019196458160877228, 0.00405954010784626, '00:19']
+: [0, 0.06199510768055916, 0.016171308234333992, 0.0067658997140824795, '00:25']
+
+* Saving the Model
+You can either save the underlying pytorch model or the fastai Learner. We want the simpler way so we'll save the fastai Learner.
+
+#+begin_src python :results none
+MODEL_PATH = '/tmp/model.pkl'
+model.export(MODEL_PATH)
+#+end_src
+
+* Loading the Model
+Weirdly, the original fastai jupyter notebook doesn't tell you how to load the model once you've saved it, but I'm assuming that this is the way to do it.
+
+#+begin_src python :results none
+relearner = load_learner(fname=MODEL_PATH)
+#+end_src
+
+[[file: test-cat.jpg]]
+
+#+begin_src python :results output :exports both
+def check_model(image_path: str) -> None:
+    image_path = Path(image_path).expanduser()
+
+    with relearner.no_bar():
+        category, location, probablilities = relearner.predict(image_path)
+    print(f"I think this is a {category}.")
+    print(f"The probability that it's a {category} is"
+          f" {probablilities[location.item()].item():.2f}")
+    return
+
+check_model("~/test-cat.jpg")
+#+end_src
+
+#+RESULTS:
+: I think this is a cat.
+: The probability that it's a cat is 1.00
+
+
+[[file: test-dog.jpg]]
+#+begin_src python :results output :exports both
+check_model("~/test-dog.jpg")
+#+end_src
+
+#+RESULTS:
+: I think this is a dog.
+: The probability that it's a dog is 1.00
+
+* Sources
+ - [[https://commons.wikimedia.org/wiki/File:Cat_scratching.jpg][Cat Scratching (Wikimedia Commons)]]
+ - [[https://commons.wikimedia.org/wiki/File:Golden_Retriever_Hund_Dog.JPG][Golden Retriever]]
