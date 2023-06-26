@@ -68,6 +68,7 @@
     ("gnuplot" . "gnuplot")
     ("groovy" . "groovy")
     ("haskell" . "haskell")
+    ("html" . "html")
     ("java" . "java")
     ("js" . "js")
     ("julia" . "julia")
