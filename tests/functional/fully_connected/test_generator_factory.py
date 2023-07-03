@@ -8,7 +8,7 @@ from pytest_bdd import (
 )
 
 
-@scenario('fully-connected/generator-factory.feature', 'The default fully-connected generator factory')
+@scenario("fully_connected/generator_factory.feature", "The default fully-connected generator factory")
 def test_the_default_fullyconnected_generator_factory():
     """The default fully-connected generator factory."""
 
@@ -29,4 +29,3 @@ def _():
 def _():
     """the input_size is the default."""
     raise NotImplementedError
-
