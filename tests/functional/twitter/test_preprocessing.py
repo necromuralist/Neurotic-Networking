@@ -21,7 +21,7 @@ And = when
 # fixtures
 from fixtures import katamari, processor
 
-scenarios("../../features/twitter/tweet_preprocessing.feature")
+scenarios("twitter/tweet_preprocessing.feature")
 
 
 #Scenario: A tweet with a stock symbol is cleaned

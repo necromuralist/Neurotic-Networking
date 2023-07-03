@@ -30,7 +30,7 @@ from fixtures import katamari
 from neurotic.nlp.twitter.counter import WordCounter
 from neurotic.nlp.twitter.naive_bayes import NaiveBayes
 
-scenarios("../../features/twitter/naive_bayes.feature")
+scenarios("twitter/naive_bayes.feature")
 
 # ********** #
 # Scenario: The user builds the classifier

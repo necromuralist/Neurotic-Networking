@@ -28,7 +28,7 @@ from neurotic.nlp.twitter.vectorizer import Columns, TweetVectorizer
 from neurotic.nlp.twitter.counter import WordCounter
 
 and_also = then
-scenarios("../../features/twitter/tweet_vectorizer.feature")
+scenarios("twitter/tweet_vectorizer.feature")
 
 # Scenario: A user converts a tweet to a feature-vector
 
