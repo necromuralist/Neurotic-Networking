@@ -19,7 +19,7 @@ from fixtures import katamari
 from neurotic.nlp.twitter.counter import WordCounter
 from neurotic.nlp.twitter.processor import TwitterProcessor
 
-scenarios("../../features/twitter/word_frequencies.feature")
+scenarios("twitter/word_frequencies.feature")
 
 # Scenario: The Word Counter is created
 
