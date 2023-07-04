@@ -24,12 +24,10 @@ scenarios("fully_connected/generator_factory.feature")
 
 @given("a default fully-connected-generator-factory", target_fixture="factory")
 def _():
-    """a default fully-connected-generator-factory."""
     return GeneratorFactory()
 
 @when("the input_size is checked", target_fixture="input_size")
 def _(factory):
-    """the input_size is checked."""
     return factory.input_size
 
 @and_when("the hidden_size is checked", target_fixture="hidden_size")
@@ -38,7 +36,6 @@ def _(factory):
 
 @then('the input_size is the default')
 def _(input_size):
-    """the input_size is the default."""
     expect(input_size).to(equal(GeneratorDefault.input_size))
     return
 
