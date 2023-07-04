@@ -4,4 +4,6 @@ Feature: A Fully Connected Generator factory
 Scenario: The default fully-connected generator factory
   Given a default fully-connected-generator-factory
   When the input_size is checked
+  And the hidden_size is checked
   Then the input_size is the default
+  And the hidden_size is the default

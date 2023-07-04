@@ -1,31 +1,47 @@
-"""A Fully Connected Generator factory feature tests."""
+"""Fully Connected Generator factory feature tests."""
+# from pypi
 
+from expects import (
+    equal,
+    expect   
+)
 from pytest_bdd import (
     given,
-    scenario,
+    scenarios,
     then,
     when,
 )
 
+and_when = when
 
-@scenario("fully_connected/generator_factory.feature", "The default fully-connected generator factory")
-def test_the_default_fullyconnected_generator_factory():
-    """The default fully-connected generator factory."""
+# the software under test
+from neurotic.gans.fully_connected import (GeneratorDefault,
+                                           GeneratorFactory)
 
+scenarios("fully_connected/generator_factory.feature")
 
-@given('a default fully-connected-generator-factory')
+#* Scenario: The default fully-connected generator factory *#
+
+@given("a default fully-connected-generator-factory", target_fixture="factory")
 def _():
     """a default fully-connected-generator-factory."""
-    raise NotImplementedError
+    return GeneratorFactory()
 
-
-@when('the input_size is checked')
-def _():
+@when("the input_size is checked", target_fixture="input_size")
+def _(factory):
     """the input_size is checked."""
-    raise NotImplementedError
+    return factory.input_size
 
+@and_when("the hidden_size is checked", target_fixture="hidden_size")
+def _(factory):
+    return factory.hidden_layer_size
 
 @then('the input_size is the default')
-def _():
+def _(input_size):
     """the input_size is the default."""
-    raise NotImplementedError
+    expect(input_size).to(equal(GeneratorDefault.input_size))
+    return
+
+@then("the hidden_size is the default")
+def _(hidden_size):
+    expect(hidden_size).to(equal(GeneratorDefault.hidden_layer_size))
