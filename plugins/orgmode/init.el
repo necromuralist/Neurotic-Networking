@@ -66,6 +66,7 @@
     ("emacs-lisp" . "scheme")
     ("F90" . "fortran")
     ("fish" . "fish")
+    ("gherkin" . "gherkin")
     ("gnuplot" . "gnuplot")
     ("groovy" . "groovy")
     ("haskell" . "haskell")
