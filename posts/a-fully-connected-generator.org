@@ -11,11 +11,7 @@
 #+END_COMMENT
 #+OPTIONS: ^:{}
 #+TOC: headlines 3
-#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-b3255614-aee3-4f3c-9253-066c01cbf18d.json
-#+BEGIN_SRC python :results none :exports none
-%load_ext autoreload
-%autoreload 2
-#+END_SRC
+#+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-0a799e7d-36f7-47a5-9e30-c69570bfcaf5.json
 
 * The Fully Connected Generator Factory
 
@@ -39,7 +35,137 @@ class GeneratorFactory {
 #+RESULTS:
 [[file:../files/posts/a-fully-connected-generator/fully-connected-factory.png]]
 
-** Testing the Factory
+** The Factory
+ #+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected.png :exports none
+!theme mars
+
+class GeneratorFactory {
+    input_size: Integer
+    hidden_size: Integer
+    output_size: Integer
+    block_count: Integer
+    size_multiplier: Integer
+    generator: FullyConnectedGenerator
+    block(input_size: Integer, output_size: Integer): Sequential
+
+}
+#+end_src
+
+#+begin_src python :tangle ../neurotic/gans/fully_connected.py :exports none
+# python
+<<factory-python-imports>>
+
+# pypi
+<<factory-pypi-imports>>
+
+<<generator-defaults>>
+
+
+<<generator-factory>>
+
+    <<factory-block-method>>
+#+end_src
+
+*** Python Imports
+
+#+begin_src python :noweb-ref factory-python-imports
+from dataclasses import dataclass
+#+end_src
+
+| Item        | Documentation |
+|-------------+---------------|
+| ~dataclass~ | [[https://docs.python.org/3/library/dataclasses.html][dataclasses]]   |
+
+*** PyPi Imports
+
+#+begin_src python :noweb-ref factory-pypi-imports
+from torch import nn
+#+end_src
+
+*** Generator Defaults
+The GeneratorDefault class is a [[https://docs.python.org/3/library/dataclasses.html][python dataclass]] to hold the default values for the generator.
+
+#+begin_src python :noweb-ref generator-defaults
+@dataclass
+class GeneratorDefault:
+    """Default values for the generator"""
+    input_size: int=10
+    hidden_layer_size: int=128
+    output_size: int=784
+    block_count: int=4
+    size_multiplier: int=2
+#+end_src
+
+| Attribute         | Description                                                   |
+|-------------------+---------------------------------------------------------------|
+| input_size        | length of input to the network (presumed 10 is for 10 digits) |
+| hidden_layer_size | length of output for first layer                              |
+| output_size       | length of the output image                                    |
+| block_count       | Number of Linear blocks for the generator                     |
+| size_multiplier   | Amount hidden layer output multiplies by for each block       |
+
+#+begin_notecard
+The ~output_size~ is based on the MNIST images which are 28 pixels x 28 pixels which when flattened out to a one-dimensional vector ends up as 784 pixels.
+#+end_notecard
+
+*** The Generator Factory Definition
+
+#+begin_src python :noweb-ref generator-factory
+class GeneratorFactory:
+    """Builder of fully-connected generators
+
+    Args:
+
+     input_size: length for the input noise-vector
+     hidden_layer_size: length of output for first layer
+     output_size: the length of the output image vector
+     block_count: how many linear-norm-relu blocks to give the generator
+     size_multiplier: how much to multiply hidden layer by for each block
+    """
+    def __init__(self, input_size: int=GeneratorDefault.input_size,
+                 hidden_layer_size: int=GeneratorDefault.hidden_layer_size,
+                 output_size: int=GeneratorDefault.output_size,
+                 block_count: int=GeneratorDefault.block_count,
+                 size_multiplier: int=GeneratorDefault.size_multiplier):
+        self.input_size = input_size
+        self.hidden_layer_size = hidden_layer_size
+        self.output_size = output_size
+        self.block_count = block_count
+        self.size_multiplier = size_multiplier
+        return
+#+end_src
+
+**** The Block Creation Method
+
+#+begin_src python :noweb-ref factory-block-method
+def block(self, input_size: int, output_size: int) -> nn.Sequential:
+    """Create a linear block for the generator
+
+    Args:
+     - `input_size`: vector size for the input to the linear layer
+     - `output_size`: vector size for the output
+    """
+#+end_src
+
+* The Fully Connected Generator
+ #+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected.png :exports none
+!theme mars
+
+class FullyConnectedGenerator {
+ generator: Sequential
+ forward(noise: torch.Tensor) : torch.Tensor
+}
+
+nn.Sequential o- FullyConnected
+nn.Module <|-- FullyConnected
+ #+end_src
+
+ #+RESULTS:
+ [[file:../files/posts/a-fully-connected-generator/fully-connected.png]]
+
+ [[img-url: fully-connected.png]]
+
+* Testing the Factory
 #+begin_src gherkin :tangle ../tests/features/fully_connected/generator_factory.feature
 Feature: A Fully Connected Generator factory
   A builder of fully-connected multi-layer perceptrons to generate images.
@@ -48,11 +174,26 @@ Scenario: The default fully-connected generator factory
   Given a default fully-connected-generator-factory
   When the input_size is checked
   And the hidden_size is checked
+  And the output_size is checked
+  And the block_count is checked
+  And the size_multiplier is checked
+
   Then the input_size is the default
   And the hidden_size is the default
+  And the image_size is the default
+  And the block_count is the default
+  And the size_multiplier is the default
+
+Scenario: The Default Factory Builds a Block
+  Given a default fully-connected-generator-factory
+  When the block method is called
+  Then the block output is a Sequential
+  And the block output has the expected Linear layer
+  And the block output has the expected Normalization Layer
+  And the block output has the expected activation layer
 #+end_src
 
-#+begin_src python :tangle ../tests/functional/fully_connected/test_generator_factory.py
+#+begin_src python :tangle ../tests/functional/fully_connected/test_generator_factory.py :exports none
 """Fully Connected Generator factory feature tests."""
 # from pypi
 
@@ -67,13 +208,52 @@ Scenario: The default fully-connected generator factory
 
 <<given-default-factory>>
 
+
 <<check-input-size>>
+
 
 <<check-hidden-size>>
 
+
+<<check-output-size>>
+
+
+<<check-block-count>>
+
+
+<<check-size-multiplier>>
+
+
 <<default-input-size>>
 
+
 <<default-hidden-size>>
+
+
+<<default-output-size>>
+
+
+<<default-block-count>>
+
+
+<<default-size-multiplier>>
+
+#* Scenario: The Default Factory Builds a Block *#
+
+#**  Given a default fully-connected-generator-factory
+
+<<call-block-method>>
+
+
+<<check-block>>
+
+<<check-linear>>
+
+
+<<check-normalization-layer>>
+
+
+<<check-activation-layer>>
 #+end_src
 ** The imports
 #+begin_src python :noweb-ref pypi-imports
@@ -81,6 +261,7 @@ from expects import (
     equal,
     expect   
 )
+
 from pytest_bdd import (
     given,
     scenarios,
@@ -88,26 +269,30 @@ from pytest_bdd import (
     when,
 )
 
+from ..fixtures import katamari
+
 and_when = when
+And = then
 #+end_src
 
-*** The Factory Import
+** The Factory Import
 
 #+begin_src python :noweb-ref factory-import
 from neurotic.gans.fully_connected import (GeneratorDefault,
                                            GeneratorFactory)
 #+end_src
-*** Set the Feature File
+** Set the Feature File
 #+begin_src python :noweb-ref scenarios
 scenarios("fully_connected/generator_factory.feature")
 #+end_src
 
-*** The Default Factor Scenario
+** The Default Factor Scenario
 
-**** The Default Fully Connected Generator Factory
+*** The Default Fully Connected Generator Factory
 
 #+begin_src python :noweb-ref given-default-factory
-@given("a default fully-connected-generator-factory", target_fixture="factory")
+@given("a default fully-connected-generator-factory",
+       target_fixture="factory")
 def _():
     return GeneratorFactory()
 #+end_src
@@ -142,79 +327,90 @@ def _(factory):
 def _(hidden_size):
     expect(hidden_size).to(equal(GeneratorDefault.hidden_layer_size))
 #+end_src
-** The Factory
+*** Check the Output Image Size
 
-#+begin_src python :tangle ../neurotic/gans/fully_connected.py :exports none
-# python
-<<python-imports>>
+#+begin_src python :noweb-ref check-output-size
+@and_when("the output_size is checked", target_fixture="output_size")
+def _(factory):
+    return factory.output_size
+#+end_src
+*** Default Output Image Size
 
+#+begin_src python :noweb-ref default-output-size
+@then("the image_size is the default")
+def _(output_size):
+    expect(output_size).to(equal(GeneratorDefault.output_size))
+#+end_src
+*** Check the Block Count
 
-<<generator-defaults>>
+#+begin_src python :noweb-ref check-block-count
+@and_when("the block_count is checked", target_fixture="block_count")
+def _(factory):
+    return factory.block_count
+#+end_src
+*** Default Block Count
 
+#+begin_src python :noweb-ref default-block-count
+@then("the block_count is the default")
+def _(block_count):
+    expect(block_count).to(equal(GeneratorDefault.block_count))
+#+end_src
+*** Check the Size Multiplier
 
-<<generator-factory>>
+#+begin_src python :noweb-ref check-size-multiplier
+@and_when("the size_multiplier is checked", target_fixture="size_multiplier")
+def _(factory):
+    return factory.size_multiplier
 #+end_src
 
-*** Python Imports
+*** Default Size Multiplier
 
-#+begin_src python :noweb-ref python-imports
-from dataclasses import dataclass
+#+begin_src python :noweb-ref default-size-multiplier
+@then("the size_multiplier is the default")
+def _(size_multiplier):
+    expect(size_multiplier).to(equal(GeneratorDefault.size_multiplier))
+    return
+#+end_src
+** The Block Method Call Scenario
+*** Call the Block
+
+#+begin_src python :noweb-ref call-block-method
+@when("the block method is called" , target_fixture="block_output")
+def _(factory, katamari):
+    katamari.input_size = 20
+    katamari.output_size = 32
+    return factory.block(input_size=katamari.input_size, output_size=katamari.output_size)
 #+end_src
 
-| Item        | Documentation |
-|-------------+---------------|
-| ~dataclass~ | [[https://docs.python.org/3/library/dataclasses.html][dataclasses]]   |
+*** Check the Block
 
-*** Generator Defaults
-The GeneratorDefault class is a [[https://docs.python.org/3/library/dataclasses.html][python dataclass]] to hold the default values for the generator.
-
-#+begin_src python :noweb-ref generator-defaults
-@dataclass
-class GeneratorDefault:
-    """Default values for the generator"""
-    input_size: int=10
-    hidden_layer_size: int=128
+#+begin_src python :noweb-ref check-block
+@then("the block output is a Sequential")
+def _(block_output):
+    return
 #+end_src
 
-| Attribute         | Description                                                   |
-|-------------------+---------------------------------------------------------------|
-| input_size        | length of input to the network (presumed 10 is for 10 digits) |
-| hidden_layer_size | length of output for first layer                              |
+*** Check The linear Layer
 
-*** The Generator Factory Definition
-
-#+begin_src python :noweb-ref generator-factory
-class GeneratorFactory:
-    """Builder of fully-connected generators
-
-    Args:
-
-     input_size: length for the input noise-vector
-     hidden_layer_size: length of output for first layer
-    """
-    def __init__(self, input_size=GeneratorDefault.input_size,
-                 hidden_layer_size=GeneratorDefault.hidden_layer_size):
-        self.input_size = input_size
-        self.hidden_layer_size = hidden_layer_size
-        return
+#+begin_src python :noweb-ref check-linear
+@And("the block output has the expected Linear layer")
+def _():
+    return
 #+end_src
-* The Fully Connected Generator
- #+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected.png :exports none
-!theme mars
 
-class FullyConnected {
- input_dimension: Integer
- image_dimension: Integer
- hidden_dimension: Integer
- generator: Sequential
- forward(noise: torch.Tensor) : torch.Tensor
- make_block(input_features: Integer, output_features: Integer)
-}
 
-nn.Sequential <|- FullyConnected
- #+end_src
+*** Check the Normalization Layer
 
- #+RESULTS:
- [[file:../files/posts/a-fully-connected-generator/fully-connected.png]]
+#+begin_src python :noweb-ref check-normalization-layer
+@And("the block output has the expected Normalization Layer")
+def _():
+    return
+#+end_src
 
- [[img-url: fully-connected.png]]
+*** Check the Activation Layer
+
+#+begin_src python :noweb-ref check-activation-layer
+@And("the block output has the expected activation layer")
+def _():
+    return
+#+end_src
