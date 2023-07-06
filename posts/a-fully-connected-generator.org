@@ -64,6 +64,9 @@ class GeneratorFactory {
 <<generator-factory>>
 
     <<factory-block-method>>
+
+
+    <<factory-blocks-property>>
 #+end_src
 
 *** Python Imports
@@ -132,6 +135,7 @@ class GeneratorFactory:
         self.output_size = output_size
         self.block_count = block_count
         self.size_multiplier = size_multiplier
+        self._blocks = None
         return
 #+end_src
 
@@ -144,7 +148,42 @@ def block(self, input_size: int, output_size: int) -> nn.Sequential:
     Args:
      - `input_size`: vector size for the input to the linear layer
      - `output_size`: vector size for the output
+
+    Returns:
+     - Sequential generator block
     """
+    return nn.Sequential(
+        nn.Linear(input_size, output_size),
+        nn.BatchNorm1d(output_size),
+        nn.ReLU(inplace=True),
+    )
+#+end_src
+
+#+begin_notecard
+**Note:** The default for ~ReLU~ is ~inplace=True~, but according to this [[https://discuss.pytorch.org/t/guidelines-for-when-and-why-one-should-set-inplace-true/50923][post on pytorch's forum]] you can use ~inplace=True~ to save memory if it doesn't produce an error and you don't need the values that you had before applying the ReLU. Confusingly, though, the [[https://pytorch.org/docs/master/notes/autograd.html#in-place-operations-with-autograd][Autograd  Documentation]] suggests you never use ~inplace=True~ since it doesn't save much memory and can cause problems for Autograd. Hmm...
+#+end_notecard
+
+**** The Blocks Property
+
+#+begin_src python :noweb-ref factory-blocks-property
+@property
+def blocks(self) -> nn.Sequential:
+    """Creates the network for the generator
+
+
+    Returns:
+     sequence of generator blocks with Linear and Sigmoid tail
+    """
+    if self._blocks is None:
+        self._blocks = nn.Sequential(
+            nn.Module(),
+            nn.Module(),
+            nn.Module(),
+            nn.Module(),
+            nn.Module(),
+            nn.Module()
+        )
+    return self._blocks
 #+end_src
 
 * The Fully Connected Generator
@@ -188,19 +227,38 @@ Scenario: The Default Factory Builds a Block
   Given a default fully-connected-generator-factory
   When the block method is called
   Then the block output is a Sequential
+  And the block output has three layers
   And the block output has the expected Linear layer
   And the block output has the expected Normalization Layer
   And the block output has the expected activation layer
+
+Scenario: The Default Factory Builds the Blocks
+  Given a default fully-connected-generator-factory
+  When the blocks property is checked
+  Then the blocks are a Sequential
+  And the blocks have the right number of layers
+  And all but the last two blocks layers match the block call
+#  And the second to the last blocks layer is a linear layer
+#  And the blocks linear layer has the right input and output dimensions
+#  And the last blocks layer is a sigmoid
+#  And the output of a vector passed to it is the right shape
 #+end_src
 
 #+begin_src python :tangle ../tests/functional/fully_connected/test_generator_factory.py :exports none
 """Fully Connected Generator factory feature tests."""
+# python
+
+<<python-testing-imports>>
 # from pypi
 
-<<pypi-imports>>
+<<pypi-testing-imports>>
 
 # the software under test
 <<factory-import>>
+
+
+<<fake-sequential>>
+
 
 <<scenarios>>
 
@@ -247,6 +305,10 @@ Scenario: The Default Factory Builds a Block
 
 <<check-block>>
 
+
+<<check-block-length>>
+
+
 <<check-linear>>
 
 
@@ -254,12 +316,46 @@ Scenario: The Default Factory Builds a Block
 
 
 <<check-activation-layer>>
+
+
+#** Scenario: The Default Factory Builds the Blocks **#
+
+#  Given a default fully-connected-generator-factory
+
+
+<<get-blocks-property>>
+
+
+<<check-blocks-are-sequential>>
+
+
+<<check-blocks-layer-count>>
+
+
+<<check-blocks-block-layers>>
+
+
+#  And the blocks have the right number of layers
+#  And the second to the last blocks layer is a linear layer
+#  And the blocks linear layer has the right input and output dimensions
+#  And the last blocks layer is a sigmoid
+#  And the output of a vector passed to it is the right shape
 #+end_src
 ** The imports
-#+begin_src python :noweb-ref pypi-imports
+*** From Python
+
+#+begin_src python :noweb-ref python-testing-imports
+import random
+#+end_src
+
+*** From PyPi
+#+begin_src python :noweb-ref pypi-testing-imports
 from expects import (
+    be_a,
+    be_true,
     equal,
-    expect   
+    expect,
+    have_length,
 )
 
 from pytest_bdd import (
@@ -269,7 +365,11 @@ from pytest_bdd import (
     when,
 )
 
+from torch import nn
+
+# this project (testing only)
 from ..fixtures import katamari
+
 
 and_when = when
 And = then
@@ -286,7 +386,15 @@ from neurotic.gans.fully_connected import (GeneratorDefault,
 scenarios("fully_connected/generator_factory.feature")
 #+end_src
 
-** The Default Factor Scenario
+** The Fake Sequential
+
+This is a fake-Sequential object to test the blocks property.
+
+#+begin_src python :noweb-ref fake-sequential
+class FakeSequential(nn.Module):
+    """A fake module to check blocks"""
+#+end_src
+** The Default Factory Scenario
 
 *** The Default Fully Connected Generator Factory
 
@@ -377,9 +485,11 @@ def _(size_multiplier):
 #+begin_src python :noweb-ref call-block-method
 @when("the block method is called" , target_fixture="block_output")
 def _(factory, katamari):
-    katamari.input_size = 20
-    katamari.output_size = 32
-    return factory.block(input_size=katamari.input_size, output_size=katamari.output_size)
+    katamari.input_size = random.randrange(10, 100)
+    katamari.output_size = random.randrange(10, 100)
+    katamari.output = factory.block(input_size=katamari.input_size,
+                                    output_size=katamari.output_size)
+    return katamari
 #+end_src
 
 *** Check the Block
@@ -387,6 +497,16 @@ def _(factory, katamari):
 #+begin_src python :noweb-ref check-block
 @then("the block output is a Sequential")
 def _(block_output):
+    expect(block_output.output).to(be_a(nn.Sequential))
+    return
+#+end_src
+
+*** Check The Number Of Layers
+
+#+begin_src python :noweb-ref check-block-length
+@And("the block output has three layers")
+def _(block_output):
+    expect(block_output.output).to(have_length(3))
     return
 #+end_src
 
@@ -394,16 +514,22 @@ def _(block_output):
 
 #+begin_src python :noweb-ref check-linear
 @And("the block output has the expected Linear layer")
-def _():
+def _(block_output):
+    first_layer = block_output.output[0]
+    expect(first_layer).to(be_a(nn.Linear))
+    expect(first_layer.in_features).to(equal(block_output.input_size))
+    expect(first_layer.out_features).to(equal(block_output.output_size))
     return
 #+end_src
-
 
 *** Check the Normalization Layer
 
 #+begin_src python :noweb-ref check-normalization-layer
 @And("the block output has the expected Normalization Layer")
-def _():
+def _(block_output):
+    second_layer = block_output.output[1]
+    expect(second_layer).to(be_a(nn.BatchNorm1d))
+    expect(second_layer.num_features).to(equal(block_output.output_size))
     return
 #+end_src
 
@@ -411,6 +537,59 @@ def _():
 
 #+begin_src python :noweb-ref check-activation-layer
 @And("the block output has the expected activation layer")
-def _():
+def _(block_output):
+    third_layer = block_output.output[2]
+    expect(third_layer).to(be_a(nn.ReLU))
+    expect(third_layer.inplace).to(be_true)
     return
 #+end_src
+
+** The Blocks Property Scenario
+
+*** Get the Blocks
+
+#+begin_src python :noweb-ref get-blocks-property
+@when("the blocks property is checked", target_fixture="blocks")
+def _(factory, monkeypatch):
+    def mock_blocks(input_size, output_size):
+        return FakeSequential()
+    monkeypatch.setattr(factory, "block", mock_blocks)
+    return factory.blocks
+#+end_src
+
+*** Check the Blocks are Sequential
+
+#+begin_src python :noweb-ref check-blocks-are-sequential
+@then("the blocks are a Sequential")
+def _(blocks):
+    expect(blocks).to(be_a(nn.Sequential))
+    return
+#+end_src
+
+*** Check the Blocks Layer Count
+
+#+begin_src python :noweb-ref check-blocks-layer-count
+@And("the blocks have the right number of layers")
+def _(blocks):
+    expect(blocks).to(have_length(GeneratorDefault.block_count + 2))
+    return
+#+end_src
+
+*** Check the Blocks Blocks
+
+#+begin_src python :noweb-ref check-blocks-block-layers
+@And("all but the last two blocks layers match the block call")
+def _(blocks):
+    for layer in blocks[:-2]:
+        expect(layer).to(be_a(FakeSequential))
+    return
+#+end_src
+* Testing The Generator
+#+begin_src gherkin  :tangle ../tests/features/fully_connected/generator.feature
+
+#+end_src
+* Links
+
+- Expects — Expects 0.9.0 documentation [Internet]. [cited 2023 Jul 5]. Available from: https://expects.readthedocs.io/en/stable/
+- PyTorch Forums [Internet]. 2019 [cited 2023 Jul 5]. Guidelines for when and why one should set inplace = True? Available from: https://discuss.pytorch.org/t/guidelines-for-when-and-why-one-should-set-inplace-true/50923
+- Autograd mechanics — PyTorch master documentation [Internet]. [cited 2023 Jul 5]. Available from: https://pytorch.org/docs/master/notes/autograd.html#in-place-operations-with-autograd

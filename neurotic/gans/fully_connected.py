@@ -35,6 +35,7 @@ class GeneratorFactory:
         self.output_size = output_size
         self.block_count = block_count
         self.size_multiplier = size_multiplier
+        self._blocks = None
         return
 
     def block(self, input_size: int, output_size: int) -> nn.Sequential:
@@ -43,4 +44,32 @@ class GeneratorFactory:
         Args:
          - `input_size`: vector size for the input to the linear layer
          - `output_size`: vector size for the output
+    
+        Returns:
+         - Sequential generator block
         """
+        return nn.Sequential(
+            nn.Linear(input_size, output_size),
+            nn.BatchNorm1d(output_size),
+            nn.ReLU(inplace=True),
+        )
+
+
+    @property
+    def blocks(self) -> nn.Sequential:
+        """Creates the network for the generator
+    
+    
+        Returns:
+         sequence of generator blocks with Linear and Sigmoid tail
+        """
+        if self._blocks is None:
+            self._blocks = nn.Sequential(
+                nn.Module(),
+                nn.Module(),
+                nn.Module(),
+                nn.Module(),
+                nn.Module(),
+                nn.Module()
+            )
+        return self._blocks
