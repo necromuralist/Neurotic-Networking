@@ -180,8 +180,35 @@ def _(blocks):
     return
 
 
-#  And the blocks have the right number of layers
-#  And the second to the last blocks layer is a linear layer
+@And("the second to the last blocks layer is a linear layer")
+def _(blocks):
+    expect(blocks[-2]).to(be_a(nn.Linear))
+    return
+
+
+@And("the blocks linear layer has the right input and output dimensions")
+def _(blocks):
+    almost_last = blocks[-2]
+    expect(almost_last.in_features).to(equal(GeneratorDefault.hidden_layer_size * 8))
+    expect(almost_last.out_features).to(equal(GeneratorDefault.output_size))
+    return
+
+
+@And("the last blocks layer is a sigmoid")
+def _(blocks):
+    expect(blocks[-1]).to(be_a(nn.Sigmoid))
+    return
+
+
+#** Scenario: The Factory Builds With No Generator Blocks **#
+
+@given("a fully-connected-generator-factory with no block_count",
+       target_fixture="blocks")
+def _(katamari):
+    return
+
+#  When the blocks property is checked
+#  Then the blocks have the right number of layers
 #  And the blocks linear layer has the right input and output dimensions
+#  And the second to the last blocks layer is a linear layer
 #  And the last blocks layer is a sigmoid
-#  And the output of a vector passed to it is the right shape

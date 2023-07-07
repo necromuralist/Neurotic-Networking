@@ -56,20 +56,21 @@ class GeneratorFactory:
 
 
     @property
-    def blocks(self) -> nn.Sequential:
-        """Creates the network for the generator
+    def blocks(self) -> nn.Sequential: 
+       """Creates the network for the generator
     
     
         Returns:
          sequence of generator blocks with Linear and Sigmoid tail
         """
-        if self._blocks is None:
-            self._blocks = nn.Sequential(
-                nn.Module(),
-                nn.Module(),
-                nn.Module(),
-                nn.Module(),
-                nn.Module(),
-                nn.Module()
-            )
-        return self._blocks
+       if self._blocks is None:
+          self._blocks = nn.Sequential(
+             self.block(2, 2),
+             self.block(2, 2),
+             self.block(2, 2),
+             self.block(2, 2),
+             nn.Linear(self.hidden_layer_size * 8,
+                       self.output_size),
+             nn.Sigmoid()
+          )
+       return self._blocks

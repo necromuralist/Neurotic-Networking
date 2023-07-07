@@ -167,23 +167,24 @@ def block(self, input_size: int, output_size: int) -> nn.Sequential:
 
 #+begin_src python :noweb-ref factory-blocks-property
 @property
-def blocks(self) -> nn.Sequential:
-    """Creates the network for the generator
+def blocks(self) -> nn.Sequential: 
+   """Creates the network for the generator
 
 
     Returns:
      sequence of generator blocks with Linear and Sigmoid tail
     """
-    if self._blocks is None:
-        self._blocks = nn.Sequential(
-            nn.Module(),
-            nn.Module(),
-            nn.Module(),
-            nn.Module(),
-            nn.Module(),
-            nn.Module()
-        )
-    return self._blocks
+   if self._blocks is None:
+      self._blocks = nn.Sequential(
+         self.block(2, 2),
+         self.block(2, 2),
+         self.block(2, 2),
+         self.block(2, 2),
+         nn.Linear(self.hidden_layer_size * 8,
+                   self.output_size),
+         nn.Sigmoid()
+      )
+   return self._blocks
 #+end_src
 
 * The Fully Connected Generator
@@ -238,10 +239,17 @@ Scenario: The Default Factory Builds the Blocks
   Then the blocks are a Sequential
   And the blocks have the right number of layers
   And all but the last two blocks layers match the block call
-#  And the second to the last blocks layer is a linear layer
+  And the second to the last blocks layer is a linear layer
+  And the blocks linear layer has the right input and output dimensions
+  And the last blocks layer is a sigmoid
+
+Scenario: The Factory Builds With No Generator Blocks
+  Given a fully-connected-generator-factory with no block_count
+  When the blocks property is checked
+#  Then the blocks have the right number of layers
 #  And the blocks linear layer has the right input and output dimensions
+#  And the second to the last blocks layer is a linear layer
 #  And the last blocks layer is a sigmoid
-#  And the output of a vector passed to it is the right shape
 #+end_src
 
 #+begin_src python :tangle ../tests/functional/fully_connected/test_generator_factory.py :exports none
@@ -335,11 +343,24 @@ Scenario: The Default Factory Builds the Blocks
 <<check-blocks-block-layers>>
 
 
-#  And the blocks have the right number of layers
-#  And the second to the last blocks layer is a linear layer
+<<check-second-to-the-last-layer>>
+
+
+<<check-second-to-last-input-and-output>>
+
+
+<<check-last-layer-is-sigmoid>>
+
+
+#** Scenario: The Factory Builds With No Generator Blocks **#
+
+<<create-factory-with-zero-block-count>>
+
+#  When the blocks property is checked
+#  Then the blocks have the right number of layers
 #  And the blocks linear layer has the right input and output dimensions
+#  And the second to the last blocks layer is a linear layer
 #  And the last blocks layer is a sigmoid
-#  And the output of a vector passed to it is the right shape
 #+end_src
 ** The imports
 *** From Python
@@ -582,6 +603,44 @@ def _(blocks):
 def _(blocks):
     for layer in blocks[:-2]:
         expect(layer).to(be_a(FakeSequential))
+    return
+#+end_src
+
+*** Check the Second to the Last Layer
+
+#+begin_src python :noweb-ref check-second-to-the-last-layer
+@And("the second to the last blocks layer is a linear layer")
+def _(blocks):
+    expect(blocks[-2]).to(be_a(nn.Linear))
+    return
+#+end_src
+
+*** Check Second to Last Layer Input and Output
+
+#+begin_src python :noweb-ref check-second-to-last-input-and-output
+@And("the blocks linear layer has the right input and output dimensions")
+def _(blocks):
+    almost_last = blocks[-2]
+    expect(almost_last.in_features).to(equal(GeneratorDefault.hidden_layer_size * 8))
+    expect(almost_last.out_features).to(equal(GeneratorDefault.output_size))
+    return
+#+end_src
+
+*** Check the Last Blocks Layer
+
+#+begin_src python :noweb-ref check-last-layer-is-sigmoid
+@And("the last blocks layer is a sigmoid")
+def _(blocks):
+    expect(blocks[-1]).to(be_a(nn.Sigmoid))
+    return
+#+end_src
+
+** Scenario: No Block Count
+
+#+begin_src python :noweb-ref create-factory-with-zero-block-count
+@given("a fully-connected-generator-factory with no block_count",
+       target_fixture="blocks")
+def _(katamari):
     return
 #+end_src
 * Testing The Generator
