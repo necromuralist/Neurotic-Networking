@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 # pypi
 from torch import nn
+import torch
 
 @dataclass
 class GeneratorDefault:
@@ -13,6 +14,28 @@ class GeneratorDefault:
     block_count: int=4
     size_multiplier: int=2
 
+
+class FullyConnectedGenerator(nn.Module):
+    """A fully-connected multilayer perceptron
+
+    Args:
+      network: the feed-forward network to use.
+    """
+    def __init__(self, network: nn.Sequential):
+        super().__init__()
+        self.network = network
+        return
+
+    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+        """Runs the noise through the network
+    
+        Args:
+         noise: vector input for the network
+    
+        Returns:
+         Image output by the network
+        """
+        return self.network(noise)
 
 class GeneratorFactory:
     """Builder of fully-connected generators
@@ -36,6 +59,7 @@ class GeneratorFactory:
         self.block_count = block_count
         self.size_multiplier = size_multiplier
         self._blocks = None
+        self._generator = None
         return
 
     def block(self, input_size: int, output_size: int) -> nn.Sequential:
@@ -79,3 +103,10 @@ class GeneratorFactory:
           blocks.append(nn.Sigmoid())
           self._blocks = nn.Sequential(*blocks)
        return self._blocks
+
+    @property
+    def generator(self) -> FullyConnectedGenerator:
+        """The built generator"""
+        if self._generator is None:
+            self._generator = FullyConnectedGenerator(self.blocks)
+        return self._generator

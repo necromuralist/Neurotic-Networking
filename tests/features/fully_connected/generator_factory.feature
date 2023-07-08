@@ -57,3 +57,9 @@ Scenario: The Factory Builds with Arbitrary Size Multiplier
   And the second to the last blocks layer is a linear layer
   And the blocks linear layer has the right input and output dimensions
   And the last blocks layer is a sigmoid
+
+Scenario: The factory builds the Generator
+  Given a default fully-connected-generator-factory
+  When the generator is checked
+  Then the generator is a Fully Connected Generator
+  And the generator has the factory's blocks

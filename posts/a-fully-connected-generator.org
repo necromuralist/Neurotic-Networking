@@ -10,46 +10,8 @@
 
 #+END_COMMENT
 #+OPTIONS: ^:{}
-#+TOC: headlines 3
+#+TOC: headlines 2
 #+PROPERTY: header-args :session ~/.local/share/jupyter/runtime/kernel-0a799e7d-36f7-47a5-9e30-c69570bfcaf5.json
-
-* The Fully Connected Generator Factory
-
-The ~GeneratorFactory~ builds the fully-connected Generator.
-
-#+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected-factory.png :exports none
-!theme mars
-
-class GeneratorFactory {
-  input_size: Integer
-  output_size: Integer
-  hidden_layer_size: Integer
-  block_count: Integer
-  size_multiplier: Integer
-  generator : nn.Sequential
-
-  block(input_size: Integer, output_size: Integer) : nn.Sequential
-}
-#+end_src
-
-#+RESULTS:
-[[file:../files/posts/a-fully-connected-generator/fully-connected-factory.png]]
-
-** The Factory
- #+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected.png :exports none
-!theme mars
-
-class GeneratorFactory {
-    input_size: Integer
-    hidden_size: Integer
-    output_size: Integer
-    block_count: Integer
-    size_multiplier: Integer
-    generator: FullyConnectedGenerator
-    block(input_size: Integer, output_size: Integer): Sequential
-
-}
-#+end_src
 
 #+begin_src python :tangle ../neurotic/gans/fully_connected.py :exports none
 # python
@@ -61,15 +23,22 @@ class GeneratorFactory {
 <<generator-defaults>>
 
 
+<<fully-connected-generator>>
+
+    <<fully-connected-forward>>
+
 <<generator-factory>>
 
     <<factory-block-method>>
 
 
     <<factory-blocks-property>>
+
+    <<generator-property>>
 #+end_src
 
-*** Python Imports
+* The Imports
+** Python Imports
 
 #+begin_src python :noweb-ref factory-python-imports
 from dataclasses import dataclass
@@ -79,13 +48,14 @@ from dataclasses import dataclass
 |-------------+---------------|
 | ~dataclass~ | [[https://docs.python.org/3/library/dataclasses.html][dataclasses]]   |
 
-*** PyPi Imports
+** PyPi Imports
 
 #+begin_src python :noweb-ref factory-pypi-imports
 from torch import nn
+import torch
 #+end_src
 
-*** Generator Defaults
+* Generator Defaults
 The GeneratorDefault class is a [[https://docs.python.org/3/library/dataclasses.html][python dataclass]] to hold the default values for the generator.
 
 #+begin_src python :noweb-ref generator-defaults
@@ -110,8 +80,29 @@ class GeneratorDefault:
 #+begin_notecard
 The ~output_size~ is based on the MNIST images which are 28 pixels x 28 pixels and when flattened out to a one-dimensional vector ends up as 784 pixels.
 #+end_notecard
+* The Fully Connected Generator Factory
 
-*** The Generator Factory Definition
+The ~GeneratorFactory~ builds the fully-connected Generator.
+
+#+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected-factory.png :exports none
+!theme mars
+
+class GeneratorFactory {
+  input_size: Integer
+  output_size: Integer
+  hidden_layer_size: Integer
+  block_count: Integer
+  size_multiplier: Integer
+  generator : nn.Sequential
+
+  block(input_size: Integer, output_size: Integer) : nn.Sequential
+}
+#+end_src
+
+#+RESULTS:
+[[file:../files/posts/a-fully-connected-generator/fully-connected-factory.png]]
+
+** The Generator Factory Definition
 
 #+begin_src python :noweb-ref generator-factory
 class GeneratorFactory:
@@ -136,10 +127,11 @@ class GeneratorFactory:
         self.block_count = block_count
         self.size_multiplier = size_multiplier
         self._blocks = None
+        self._generator = None
         return
 #+end_src
 
-**** The Block Creation Method
+** The Block Creation Method
 
 #+begin_src python :noweb-ref factory-block-method
 def block(self, input_size: int, output_size: int) -> nn.Sequential:
@@ -163,7 +155,7 @@ def block(self, input_size: int, output_size: int) -> nn.Sequential:
 **Note:** The default for ~ReLU~ is ~inplace=False~, but according to this [[https://discuss.pytorch.org/t/guidelines-for-when-and-why-one-should-set-inplace-true/50923][post on pytorch's forum]] you can use ~inplace=True~ to save memory if it doesn't produce an error and you don't need the values that you had before applying the ReLU. Confusingly, though, the [[https://pytorch.org/docs/master/notes/autograd.html#in-place-operations-with-autograd][Autograd  Documentation]] suggests you never use ~inplace=True~ since it doesn't save much memory and can cause problems for Autograd. Hmm...
 #+end_notecard
 
-**** The Blocks Property
+** The Blocks Property
 
 #+begin_src python :noweb-ref factory-blocks-property
 @property
@@ -192,7 +184,18 @@ def blocks(self) -> nn.Sequential:
    return self._blocks
 #+end_src
 
+** The Generator Property
+
+#+begin_src python :noweb-ref generator-property
+@property
+def generator(self) -> FullyConnectedGenerator:
+    """The built generator"""
+    if self._generator is None:
+        self._generator = FullyConnectedGenerator(self.blocks)
+    return self._generator
+#+end_src
 * The Fully Connected Generator
+
  #+begin_src plantuml :file ../files/posts/a-fully-connected-generator/fully-connected.png :exports none
 !theme mars
 
@@ -210,6 +213,39 @@ nn.Module <|-- FullyConnected
 
  [[img-url: fully-connected.png]]
 
+** The Generator
+
+#+begin_notecard
+*Note:* Since I'm using type-hinting for the ~GeneratorFactory.generator~ the class definition for the ~FullyConnectedGenerator~ has to come before the ~GeneratorFactory~ in the actual python module or it will raise an error. I put this section after the Factory's section in this post because it's less interesting.
+#+end_notecard
+
+#+begin_src python :noweb-ref fully-connected-generator
+class FullyConnectedGenerator(nn.Module):
+    """A fully-connected multilayer perceptron
+
+    Args:
+      network: the feed-forward network to use.
+    """
+    def __init__(self, network: nn.Sequential):
+        super().__init__()
+        self.network = network
+        return
+#+end_src
+
+** The Forward Method
+
+#+begin_src python :noweb-ref fully-connected-forward
+def forward(self, noise: torch.Tensor) -> torch.Tensor:
+    """Runs the noise through the network
+
+    Args:
+     noise: vector input for the network
+
+    Returns:
+     Image output by the network
+    """
+    return self.network(noise)
+#+end_src
 * Testing the Factory
 #+begin_src gherkin :tangle ../tests/features/fully_connected/generator_factory.feature
 Feature: A Fully Connected Generator factory
@@ -271,6 +307,12 @@ Scenario: The Factory Builds with Arbitrary Size Multiplier
   And the second to the last blocks layer is a linear layer
   And the blocks linear layer has the right input and output dimensions
   And the last blocks layer is a sigmoid
+
+Scenario: The factory builds the Generator
+  Given a default fully-connected-generator-factory
+  When the generator is checked
+  Then the generator is a Fully Connected Generator
+  And the generator has the factory's blocks
 #+end_src
 
 #+begin_src python :tangle ../tests/functional/fully_connected/test_generator_factory.py :exports none
@@ -403,6 +445,20 @@ Scenario: The Factory Builds with Arbitrary Size Multiplier
 #  And the second to the last blocks layer is a linear layer
 #  And the blocks linear layer has the right input and output dimensions
 #  And the last blocks layer is a sigmoid
+
+
+# ** Scenario: The factory builds the Generator ** #
+
+#  Given a default fully-connected-generator-factory
+
+
+<<get-the-generator>>
+
+
+<<its-fully-connected>>
+
+
+<<it-has-the-blocks>>
 #+end_src
 ** The imports
 *** From Python
@@ -415,6 +471,7 @@ import random
 *** From PyPi
 #+begin_src python :noweb-ref pypi-testing-imports
 from expects import (
+    be,
     be_a,
     be_true,
     equal,
@@ -439,11 +496,12 @@ and_when = when
 And = then
 #+end_src
 
-** The Factory Import
+** The Factory Imports
 
 #+begin_src python :noweb-ref factory-import
 from neurotic.gans.fully_connected import (GeneratorDefault,
-                                           GeneratorFactory)
+                                           GeneratorFactory,
+                                           FullyConnectedGenerator)
 #+end_src
 ** Set the Feature File
 #+begin_src python :noweb-ref scenarios
@@ -712,12 +770,179 @@ def _(katamari):
     katamari.factory = GeneratorFactory(size_multiplier=random.randint(2, 10))
     return katamari
 #+end_src
+** Scenario: The Generator is checked
+
+#+begin_src python :noweb-ref get-the-generator
+@when("the generator is checked", target_fixture="el_generator")
+def _(test_thing):
+    return test_thing.factory.generator
+#+end_src
+
+*** The Generator is Fully Connected
+
+#+begin_src python :noweb-ref its-fully-connected
+@then("the generator is a Fully Connected Generator")
+def _(el_generator):
+    expect(el_generator).to(be_a(FullyConnectedGenerator))
+    return
+#+end_src
+*** The Generator Has the Factory's Blocks
+
+#+begin_src python :noweb-ref it-has-the-blocks
+@And("the generator has the factory's blocks")
+def _(test_thing, el_generator):
+    expect(el_generator.network).to(be(test_thing.factory.blocks))
+    return
+#+end_src
 * Testing The Generator
 #+begin_src gherkin  :tangle ../tests/features/fully_connected/generator.feature
+Feature: A Fully Connected Generator
+  A fully-connected multilayer perceptron to generate images
 
+Scenario: The fully connected generator is built
+  Given a fully connected generator
+  When the generator is checked
+  Then it is a nn Module
+
+Scenario: The generator's forward method is called
+  Given a fully connected generator
+  When the generator's forward method is called
+  Then it passes the input to its network
+  And it returns the output of the network
+#+end_src
+
+#+begin_src python :tangle ../tests/functional/fully_connected/test_generator.py :exports none
+<<generator-pypi-imports>>
+
+# software under test
+
+<<generator-import>>
+
+
+<<generator-scenarios>>
+
+
+# ** Scenario: The fully connected generator is built ** #
+
+<<build-the-generator>>
+
+
+<<check-the-generator>>
+
+
+<<check-the-generators-parent>>
+
+
+# ** Scenario: The generator's forward method is called ** #
+#  Given a fully connected generator
+
+<<call-the-forward-method>>
+
+
+<<check-the-networks-call>>
+
+<<check-the-returned-output>>
+#+end_src
+
+** Imports
+*** PyPi
+
+#+begin_src python :noweb-ref generator-pypi-imports
+from expects import (
+    be,
+    be_a,    
+    equal,
+    expect
+)
+from pytest_bdd import (
+    given,
+    scenarios,
+    then,
+    when,
+)
+
+from torch import nn
+
+# this project (testing only)
+from ..fixtures import katamari
+
+
+# testing alias
+And = then
+#+end_src
+*** The Generator Import
+
+#+begin_src python :noweb-ref generator-import
+from neurotic.gans.fully_connected import FullyConnectedGenerator
+#+end_src
+
+** Set the Feature File
+#+begin_src python :noweb-ref generator-scenarios
+scenarios("fully_connected/generator.feature")
+#+end_src
+
+** Buld the Generator
+#+begin_src python :noweb-ref build-the-generator
+@given("a fully connected generator", target_fixture="generator")
+def _(mocker):
+    return FullyConnectedGenerator(mocker.MagicMock(spec=nn.Sequential))
+#+end_src
+
+** Check the Genorator
+
+#+begin_src python :noweb-ref check-the-generator
+@when("the generator is checked")
+def _():
+    return
+#+end_src
+
+** Check the Generator's Type
+
+#+begin_src python :noweb-ref check-the-generators-parent
+@then("it is a nn Module")
+def _(generator):
+    expect(generator).to(be_a(nn.Module))
+    return
+#+end_src
+
+** Call the Forward Method
+
+#+begin_src python :noweb-ref call-the-forward-method
+@when("the generator's forward method is called", target_fixture="forward_output")
+def _(generator, mocker, katamari):
+    katamari.noise = mocker.Mock()
+    katamari.expected = mocker.Mock()
+    generator.network.return_value = katamari.expected
+    katamari.output = generator.forward(katamari.noise)
+    return katamari
+#+end_src
+
+** Check the Network Was Called
+
+#+begin_src python :noweb-ref check-the-networks-call
+@then("it passes the input to its network")
+def _(generator, forward_output, mocker):
+    expect(generator.network.call_args).to(equal(
+        mocker.call(forward_output.noise)))
+    return
+#+end_src
+
+** Check the Returned Output
+
+#+begin_src python :noweb-ref check-the-returned-output
+@And("it returns the output of the network")
+def _(forward_output):
+    expect(forward_output.output).to(be(forward_output.expected))
+    return
 #+end_src
 * Links
 
 - Expects — Expects 0.9.0 documentation [Internet]. [cited 2023 Jul 5]. Available from: https://expects.readthedocs.io/en/stable/
+  
 - PyTorch Forums [Internet]. 2019 [cited 2023 Jul 5]. Guidelines for when and why one should set inplace = True? Available from: https://discuss.pytorch.org/t/guidelines-for-when-and-why-one-should-set-inplace-true/50923
+  
 - Autograd mechanics — PyTorch master documentation [Internet]. [cited 2023 Jul 5]. Available from: https://pytorch.org/docs/master/notes/autograd.html#in-place-operations-with-autograd
+
+- Module — PyTorch 2.0 documentation [Internet]. [cited 2023 Jul 8]. Available from: https://pytorch.org/docs/stable/generated/torch.nn.Module.html
+
+- Sequential — PyTorch 2.0 documentation [Internet]. [cited 2023 Jul 8]. Available from: https://pytorch.org/docs/stable/generated/torch.nn.Sequential.html?highlight=sequential#torch.nn.Sequential

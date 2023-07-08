@@ -6,6 +6,7 @@ import random
 # from pypi
 
 from expects import (
+    be,
     be_a,
     be_true,
     equal,
@@ -31,7 +32,8 @@ And = then
 
 # the software under test
 from neurotic.gans.fully_connected import (GeneratorDefault,
-                                           GeneratorFactory)
+                                           GeneratorFactory,
+                                           FullyConnectedGenerator)
 
 
 class FakeSequential(nn.Module):
@@ -249,3 +251,25 @@ def _(katamari):
 #  And the second to the last blocks layer is a linear layer
 #  And the blocks linear layer has the right input and output dimensions
 #  And the last blocks layer is a sigmoid
+
+
+# ** Scenario: The factory builds the Generator ** #
+
+#  Given a default fully-connected-generator-factory
+
+
+@when("the generator is checked", target_fixture="el_generator")
+def _(test_thing):
+    return test_thing.factory.generator
+
+
+@then("the generator is a Fully Connected Generator")
+def _(el_generator):
+    expect(el_generator).to(be_a(FullyConnectedGenerator))
+    return
+
+
+@And("the generator has the factory's blocks")
+def _(test_thing, el_generator):
+    expect(el_generator.network).to(be(test_thing.factory.blocks))
+    return
