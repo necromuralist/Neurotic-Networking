@@ -64,13 +64,18 @@ class GeneratorFactory:
          sequence of generator blocks with Linear and Sigmoid tail
         """
        if self._blocks is None:
-          self._blocks = nn.Sequential(
-             self.block(2, 2),
-             self.block(2, 2),
-             self.block(2, 2),
-             self.block(2, 2),
-             nn.Linear(self.hidden_layer_size * 8,
-                       self.output_size),
-             nn.Sigmoid()
-          )
+          input_size, output_size = self.input_size, self.hidden_layer_size
+          blocks = []
+    
+          for block in range(self.block_count):
+             blocks.append(self.block(input_size, output_size))
+             input_size, output_size = (output_size, output_size
+                                        * self.size_multiplier)
+    
+    
+          input_size = input_size if self.block_count else output_size
+          blocks.append(nn.Linear(input_size,
+                                  self.output_size))
+          blocks.append(nn.Sigmoid())
+          self._blocks = nn.Sequential(*blocks)
        return self._blocks

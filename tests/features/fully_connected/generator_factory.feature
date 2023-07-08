@@ -37,7 +37,23 @@ Scenario: The Default Factory Builds the Blocks
 Scenario: The Factory Builds With No Generator Blocks
   Given a fully-connected-generator-factory with no block_count
   When the blocks property is checked
-#  Then the blocks have the right number of layers
-#  And the blocks linear layer has the right input and output dimensions
-#  And the second to the last blocks layer is a linear layer
-#  And the last blocks layer is a sigmoid
+  Then the blocks have the right number of layers
+  And the second to the last blocks layer is a linear layer
+  And the blocks linear layer has the right input and output dimensions
+  And the last blocks layer is a sigmoid
+
+Scenario: The Factory Builds With Arbitrary Generator Blocks
+  Given a fully-connected-generator-factory with an arbitrary block_count
+  When the blocks property is checked
+  Then the blocks have the right number of layers
+  And the second to the last blocks layer is a linear layer
+  And the blocks linear layer has the right input and output dimensions
+  And the last blocks layer is a sigmoid
+
+Scenario: The Factory Builds with Arbitrary Size Multiplier
+  Given a fully-connected-generator-factory with an arbitrary size_multiplier
+  When the blocks property is checked
+  Then the blocks have the right number of layers
+  And the second to the last blocks layer is a linear layer
+  And the blocks linear layer has the right input and output dimensions
+  And the last blocks layer is a sigmoid
