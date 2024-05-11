@@ -1,4 +1,6 @@
 # from dockerhub : https://hub.docker.com/r/nvidia/cuda/#!
+# since pytorch comes with its own cuda binaries, this seems unnecessary
+
 ARG CUDA_VERSION=12.1.0
 ARG FLAVORS=devel
 ARG UBUNTU=22.04
@@ -53,9 +55,9 @@ RUN echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.profile && \
 
 # according to https://discuss.pytorch.org/t/install-pytorch-with-cuda-12-1/174294/16
 # pytorch bundles its own cuda drivers so the cuda version doesn't have to match the machine's version
-# as of June 25, 2023 cuda 11.8 is their latest version
+# as of May 10, 2024 cuda 12.1 is their latest version
 RUN --mount=type=cache,target=/root/.cache \
-    conda install pytorch torchvision torchaudio pytorch-cuda=11.8 --channel pytorch --channel nvidia --yes
+    conda install pytorch torchvision torchaudio pytorch-cuda=12.1 --channel pytorch --channel nvidia --yes
 
 # I couldn't get the installation to work in any environment other than the base
 # so let's go with that

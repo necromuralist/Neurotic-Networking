@@ -17,10 +17,10 @@ set PROJECTS $HOME/projects
 set NEUROTIC /home/neurotic
 
 docker run --gpus all --device /dev/nvidia0 --device /dev/nvidiactl \
-       --device /dev/nvidia-modeset --device /dev/nvidia-uvm \
-       -p 2222:22 --name neurotic-pytorch-conda \
-       --mount type=bind,source=$PROJECTS/Neurotic-Networking,target=$NEUROTIC/Neurotic-Networking \
-       --mount type=bind,source=/media/data,target=$NEUROTIC/data \
-       --mount type=bind,source=$PROJECTS/graeae,target=$NEUROTIC/graeae \
-       --mount type=bind,source=$PROJECTS/models/,target=$NEUROTIC/models \
-       -it neurotic-pytorch-conda bash
+    --device /dev/nvidia-modeset --device /dev/nvidia-uvm \
+    -p 2222:22 --name neurotic-pytorch-conda \
+    --mount type=bind,source=$PROJECTS/Neurotic-Networking,target=$NEUROTIC/Neurotic-Networking \
+    --mount type=bind,source=/media/data,target=$NEUROTIC/data \
+    --mount type=bind,source=$PROJECTS/graeae,target=$NEUROTIC/graeae \
+    --mount type=bind,source=$PROJECTS/models/,target=$NEUROTIC/models \
+    -it neurotic-pytorch-conda bash
