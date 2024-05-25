@@ -14,13 +14,18 @@
 
 
 set PROJECTS $HOME/projects
+set THIRD_PARTY $PROJECTS/third-party
 set NEUROTIC /home/neurotic
+set DATA /media/irvin/datasets/ 
 
 docker run --gpus all --device /dev/nvidia0 --device /dev/nvidiactl \
     --device /dev/nvidia-modeset --device /dev/nvidia-uvm \
     -p 2222:22 --name neurotic-pytorch-conda \
     --mount type=bind,source=$PROJECTS/Neurotic-Networking,target=$NEUROTIC/Neurotic-Networking \
-    --mount type=bind,source=/media/data,target=$NEUROTIC/data \
+    --mount type=bind,source=$PROJECTS/Bowling-For-Data-Private,target=$NEUROTIC/Bowling-For-Data-Private \
+    --mount type=bind,source=$DATA,target=$NEUROTIC/data \
     --mount type=bind,source=$PROJECTS/graeae,target=$NEUROTIC/graeae \
     --mount type=bind,source=$PROJECTS/models/,target=$NEUROTIC/models \
+    --mount type=bind,source=$THIRD_PARTY/pytorch-image-models/,target=$NEUROTIC/pytorch-image-models \
+    --ipc="host" \
     -it neurotic-pytorch-conda bash
